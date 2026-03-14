@@ -15,7 +15,7 @@ vi.mock('../../src/lib/email', () => ({
 let app: ReturnType<typeof createServer>
 
 beforeAll(async () => {
-  const nextApp = next({ dev: false, dir: process.cwd() })
+  const nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => {

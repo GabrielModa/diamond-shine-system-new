@@ -16,7 +16,7 @@ let app: ReturnType<typeof createServer>
 let adminCookie: string, supervisorCookie: string, employeeCookie: string
 
 beforeAll(async () => {
-  const nextApp = next({ dev: false, dir: process.cwd() })
+  const nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
