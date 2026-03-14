@@ -4,8 +4,9 @@ import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { sendSuppliesNotification } from '../../../lib/email'
+import { dbStatusToLabel } from '../../../lib/mappers'
 
-const schema = z.object({
+const createSchema = z.object({
   employeeName: z.string().min(1),
   clientLocation: z.enum(CLIENT_LOCATIONS),
   priority: z.enum(['urgent', 'normal', 'low']),
@@ -13,12 +14,20 @@ const schema = z.object({
   notes: z.string().max(500).optional(),
 })
 
+const querySchema = z.object({
+  status: z.enum(['pending', 'email-sent', 'completed']).optional(),
+  priority: z.enum(['urgent', 'normal', 'low']).optional(),
+  search: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+})
+
 export async function POST(request: NextRequest) {
   console.log('[API /api/supplies POST]')
   const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
   if ('response' in auth) return auth.response
 
-  const parsed = schema.safeParse(await request.json().catch(() => null))
+  const parsed = createSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
@@ -53,6 +62,46 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const items = await prisma.supplyRequest.findMany({ orderBy: { createdAt: 'desc' } })
-  return NextResponse.json({ ok: true, data: { total: items.length, items } })
+  const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
+  }
+
+  const where: {
+    status?: 'Pending' | 'EmailSent' | 'Completed'
+    priority?: 'urgent' | 'normal' | 'low'
+    OR?: Array<{ employeeName?: { contains: string }; clientLocation?: { contains: string } }>
+  } = {}
+
+  if (parsed.data.status) {
+    where.status = parsed.data.status === 'pending'
+      ? 'Pending'
+      : parsed.data.status === 'email-sent'
+        ? 'EmailSent'
+        : 'Completed'
+  }
+  if (parsed.data.priority) where.priority = parsed.data.priority
+  if (parsed.data.search) {
+    where.OR = [
+      { employeeName: { contains: parsed.data.search } },
+      { clientLocation: { contains: parsed.data.search } },
+    ]
+  }
+
+  const skip = (parsed.data.page - 1) * parsed.data.limit
+  const [total, items] = await Promise.all([
+    prisma.supplyRequest.count({ where }),
+    prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
+  ])
+
+  const mappedItems = items.map((item) => ({
+    ...item,
+    status: dbStatusToLabel(item.status),
+    products: JSON.parse(item.products) as string[],
+  }))
+
+  return NextResponse.json({
+    ok: true,
+    data: { total, page: parsed.data.page, limit: parsed.data.limit, items: mappedItems },
+  })
 }
