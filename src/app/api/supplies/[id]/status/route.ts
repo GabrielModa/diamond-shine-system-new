@@ -5,6 +5,25 @@ import { requireAuth } from '../../../../../lib/auth'
 
 const schema = z.object({ status: z.enum(['Pending', 'Email Sent', 'Completed']) })
 
+type DbStatus = 'Pending' | 'EmailSent' | 'Completed'
+
+function toDbStatus(label: 'Pending' | 'Email Sent' | 'Completed'): DbStatus {
+  if (label === 'Email Sent') return 'EmailSent'
+  return label
+}
+
+function toLabel(status: DbStatus): 'Pending' | 'Email Sent' | 'Completed' {
+  if (status === 'EmailSent') return 'Email Sent'
+  return status
+}
+
+function isAllowedTransition(current: DbStatus, next: DbStatus): boolean {
+  if (current === next) return true
+  if (current === 'Pending' && next === 'EmailSent') return true
+  if (current === 'EmailSent' && next === 'Completed') return true
+  return false
+}
+
 export async function PATCH(request: NextRequest, context: { params: { id: string } }) {
   console.log('[API /api/supplies/:id/status PATCH]')
   const auth = await requireAuth(request, ['admin'])
@@ -20,20 +39,27 @@ export async function PATCH(request: NextRequest, context: { params: { id: strin
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  if (row.status === 'Completed' && parsed.data.status !== 'Completed') {
+  const current = row.status as DbStatus
+  const next = toDbStatus(parsed.data.status)
+
+  if (!isAllowedTransition(current, next)) {
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
-
-  const nextStatus = parsed.data.status === 'Email Sent' ? 'EmailSent' : parsed.data.status
 
   const updated = await prisma.supplyRequest.update({
     where: { id: row.id },
     data: {
-      status: nextStatus,
-      emailSentAt: nextStatus === 'EmailSent' ? new Date() : row.emailSentAt,
-      completedAt: nextStatus === 'Completed' ? new Date() : row.completedAt,
+      status: next,
+      emailSentAt:
+        next === 'EmailSent' && !row.emailSentAt
+          ? new Date()
+          : row.emailSentAt,
+      completedAt:
+        next === 'Completed' && !row.completedAt
+          ? new Date()
+          : row.completedAt,
     },
   })
 
-  return NextResponse.json({ ok: true, data: { id: updated.id, status: parsed.data.status } })
+  return NextResponse.json({ ok: true, data: { id: updated.id, status: toLabel(updated.status as DbStatus) } })
 }

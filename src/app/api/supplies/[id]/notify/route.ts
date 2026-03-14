@@ -25,6 +25,10 @@ export async function POST(request: NextRequest, context: { params: { id: string
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
+  if (row.status === 'Completed') {
+    return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
+  }
+
   void sendClientNotification({
     to: parsed.data.clientEmail,
     subject: parsed.data.subject,
@@ -33,7 +37,7 @@ export async function POST(request: NextRequest, context: { params: { id: string
 
   await prisma.supplyRequest.update({
     where: { id: row.id },
-    data: { status: 'EmailSent', emailSentAt: new Date() },
+    data: { status: 'EmailSent', emailSentAt: row.emailSentAt ?? new Date() },
   })
 
   return NextResponse.json({ ok: true, data: { id: row.id } })
