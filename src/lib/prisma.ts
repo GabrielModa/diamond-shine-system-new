@@ -38,32 +38,40 @@ function normalizeData(data: unknown): unknown {
 
 export const prisma = global.prisma ?? new PrismaClient()
 
-prisma.$use(async (params, next) => {
-  const operation = params.action
+type MiddlewareFn = (
+  params: { action: string; args?: Record<string, unknown> },
+  next: (params: { action: string; args?: Record<string, unknown> }) => Promise<unknown>
+) => Promise<unknown>
 
-  if (
-    operation === 'create' ||
-    operation === 'createMany' ||
-    operation === 'update' ||
-    operation === 'updateMany' ||
-    operation === 'upsert'
-  ) {
-    if (params.args && 'data' in params.args) {
-      params.args.data = normalizeData(params.args.data)
+const useFn = (prisma as unknown as { $use?: (cb: MiddlewareFn) => void }).$use
+if (typeof useFn === 'function') {
+  useFn.call(prisma, async (params, next) => {
+    const operation = params.action
+
+    if (
+      operation === 'create' ||
+      operation === 'createMany' ||
+      operation === 'update' ||
+      operation === 'updateMany' ||
+      operation === 'upsert'
+    ) {
+      if (params.args && 'data' in params.args) {
+        params.args.data = normalizeData(params.args.data)
+      }
+
+      if (operation === 'upsert' && params.args) {
+        if ('create' in params.args) {
+          params.args.create = normalizeData(params.args.create)
+        }
+        if ('update' in params.args) {
+          params.args.update = normalizeData(params.args.update)
+        }
+      }
     }
 
-    if (operation === 'upsert' && params.args) {
-      if ('create' in params.args) {
-        params.args.create = normalizeData(params.args.create)
-      }
-      if ('update' in params.args) {
-        params.args.update = normalizeData(params.args.update)
-      }
-    }
-  }
-
-  return next(params)
-})
+    return next(params)
+  })
+}
 
 if (process.env.NODE_ENV !== 'production') {
   global.prisma = prisma
