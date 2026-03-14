@@ -1,0 +1,93 @@
+model User {
+  id              String          @id @default(cuid())
+  email           String          @unique
+  password        String?
+  name            String?
+  role            UserRole        @default(viewer)
+  status          String          @default("active")
+  createdAt       DateTime        @default(now())
+  updatedAt       DateTime        @updatedAt
+  supplyRequests  SupplyRequest[]
+  feedbackEntries FeedbackEntry[]
+
+  @@map("users")
+}
+
+model SupplyRequest {
+  id             String         @id @default(cuid())
+  employeeName   String
+  clientLocation String
+  priority       SupplyPriority
+  products       String
+  notes          String?
+  status         SupplyStatus   @default(Pending)
+  submittedBy    String
+  emailSentAt    DateTime?
+  completedAt    DateTime?
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  user           User           @relation(fields: [submittedBy], references: [email])
+
+  @@index([status])
+  @@index([submittedBy])
+  @@index([createdAt])
+  @@map("supply_requests")
+}
+
+model FeedbackEntry {
+  id              String           @id @default(cuid())
+  employeeName    String
+  clientLocation  String
+  cleanliness     Float
+  punctuality     Float
+  equipment       Float
+  clientRelations Float
+  overall         Float
+  category        FeedbackCategory
+  comments        String?
+  submittedBy     String
+  createdAt       DateTime         @default(now())
+  updatedAt       DateTime         @updatedAt
+  user            User             @relation(fields: [submittedBy], references: [email])
+
+  @@index([submittedBy])
+  @@index([employeeName])
+  @@index([createdAt])
+  @@map("feedback_entries")
+}
+
+enum UserRole {
+  admin
+  supervisor
+  employee
+  viewer
+}
+
+enum SupplyPriority {
+  urgent
+  normal
+  low
+}
+
+enum SupplyStatus {
+  Pending
+  EmailSent
+  Completed
+}
+
+enum FeedbackCategory {
+  Excellent
+  VeryGood
+  Good
+  Fair
+  Poor
+}
+
+datasource db {
+  provider = "sqlite"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
