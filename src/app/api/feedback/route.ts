@@ -5,8 +5,9 @@ import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { calculateOverall, getCategoryLabel, isValidRating } from '../../../lib/business-logic'
 import { requireAuth } from '../../../lib/auth'
 import { sendFeedbackNotification } from '../../../lib/email'
+import { dbCategoryToLabel, labelToDbCategory } from '../../../lib/mappers'
 
-const schema = z.object({
+const createSchema = z.object({
   employeeName: z.string().min(1),
   clientLocation: z.enum(CLIENT_LOCATIONS),
   cleanliness: z.number(),
@@ -16,12 +17,18 @@ const schema = z.object({
   comments: z.string().optional(),
 })
 
+const querySchema = z.object({
+  search: z.string().optional(),
+  page: z.coerce.number().int().min(1).default(1),
+  limit: z.coerce.number().int().min(1).max(100).default(20),
+})
+
 export async function POST(request: NextRequest) {
   console.log('[API /api/feedback POST]')
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const parsed = schema.safeParse(await request.json().catch(() => null))
+  const parsed = createSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
@@ -49,7 +56,7 @@ export async function POST(request: NextRequest) {
       equipment: parsed.data.equipment,
       clientRelations: parsed.data.clientRelations,
       overall,
-      category: category.replace(' ', '') as 'Excellent' | 'VeryGood' | 'Good' | 'Fair' | 'Poor',
+      category: labelToDbCategory(category),
       comments: parsed.data.comments,
       submittedBy: auth.user.email,
     },
@@ -77,8 +84,40 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const where = auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : undefined
-  const items = await prisma.feedbackEntry.findMany({ where, orderBy: { createdAt: 'desc' } })
+  const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
+  if (!parsed.success) {
+    return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
+  }
 
-  return NextResponse.json({ ok: true, data: { total: items.length, items } })
+  const where: {
+    submittedBy?: string
+    OR?: Array<{ employeeName?: { contains: string }; clientLocation?: { contains: string } }>
+  } = {}
+
+  if (auth.user.role === 'supervisor') {
+    where.submittedBy = auth.user.email
+  }
+
+  if (parsed.data.search) {
+    where.OR = [
+      { employeeName: { contains: parsed.data.search } },
+      { clientLocation: { contains: parsed.data.search } },
+    ]
+  }
+
+  const skip = (parsed.data.page - 1) * parsed.data.limit
+  const [total, items] = await Promise.all([
+    prisma.feedbackEntry.count({ where }),
+    prisma.feedbackEntry.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
+  ])
+
+  return NextResponse.json({
+    ok: true,
+    data: {
+      total,
+      page: parsed.data.page,
+      limit: parsed.data.limit,
+      items: items.map((item) => ({ ...item, category: dbCategoryToLabel(item.category) })),
+    },
+  })
 }
