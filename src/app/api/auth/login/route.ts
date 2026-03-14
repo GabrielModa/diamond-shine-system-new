@@ -20,5 +20,6 @@ export async function POST(request: NextRequest) {
 
   const response = NextResponse.json({ ok: true, data: { email: user.email, role: user.role } })
   response.cookies.set('ds-auth', user.email, { httpOnly: true, sameSite: 'lax', path: '/' })
+  response.cookies.set('ds-role', user.role, { httpOnly: true, sameSite: 'lax', path: '/' })
   return response
 }

@@ -1,13 +1,21 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { UserRole } from './types'
 
-const routeRoles: Record<string, string[]> = {
+const routeRoles: Record<string, UserRole[]> = {
   '/home': ['admin', 'supervisor', 'employee', 'viewer'],
   '/supplies': ['admin', 'supervisor', 'employee'],
   '/feedback': ['admin', 'supervisor'],
   '/dashboard': ['admin'],
 }
 
-function roleFromEmail(email: string): string {
+function parseRole(value: string | undefined): UserRole | null {
+  if (value === 'admin' || value === 'supervisor' || value === 'employee' || value === 'viewer') {
+    return value
+  }
+  return null
+}
+
+function deriveRoleFromEmail(email: string): UserRole {
   if (email.startsWith('admin@')) return 'admin'
   if (email.startsWith('super@')) return 'supervisor'
   if (email.startsWith('employee@')) return 'employee'
@@ -24,7 +32,9 @@ export function middleware(request: NextRequest) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const role = roleFromEmail(email)
+  const roleCookie = request.cookies.get('ds-role')?.value
+  const role = parseRole(roleCookie) ?? deriveRoleFromEmail(email)
+
   if (!allowed.includes(role)) {
     return NextResponse.redirect(new URL('/forbidden', request.url))
   }
