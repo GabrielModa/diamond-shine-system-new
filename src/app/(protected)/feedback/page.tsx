@@ -142,7 +142,7 @@ export default function FeedbackPage() {
         ) : null}
 
         <textarea id="comments" value={comments} onChange={(event) => setComments(event.target.value)} />
-        <button id="submitBtn" type="submit">
+g        <button id="submitBtn" type="submit">
           Submit
         </button>
       </form>
