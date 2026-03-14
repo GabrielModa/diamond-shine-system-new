@@ -17,9 +17,12 @@ export async function seedUsers() {
 }
 
 export async function getAuthCookie(email: string, password = TEST_PASSWORD): Promise<string> {
-  void email
   void password
-  return ''
+  const user = await prisma.user.findUnique({ where: { email } })
+  if (!user) {
+    throw new Error('User not found for test auth cookie')
+  }
+  return `ds-auth=${user.email}`
 }
 
 export async function cleanSupplies() {
