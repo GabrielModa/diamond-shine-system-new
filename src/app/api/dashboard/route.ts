@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { dbStatusToLabel, dbCategoryToLabel } from '../../../lib/mappers'
+import { parseStringArray } from '../../../lib/json'
 
 export async function GET(request: NextRequest) {
   console.log('[API /api/dashboard GET]')
@@ -28,7 +29,7 @@ export async function GET(request: NextRequest) {
 
   const productCounts: Record<string, number> = {}
   for (const req of supplies) {
-    const products = JSON.parse(req.products) as string[]
+    const products = parseStringArray(req.products)
     for (const product of products) {
       productCounts[product] = (productCounts[product] ?? 0) + 1
     }
@@ -52,7 +53,7 @@ export async function GET(request: NextRequest) {
         recent: supplies.slice(0, 10).map((s) => ({
           ...s,
           status: dbStatusToLabel(s.status),
-          products: JSON.parse(s.products) as string[],
+          products: parseStringArray(s.products),
         })),
       },
       feedback: {

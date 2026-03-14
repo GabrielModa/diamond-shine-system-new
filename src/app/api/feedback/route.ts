@@ -100,8 +100,8 @@ export async function GET(request: NextRequest) {
 
   if (parsed.data.search) {
     where.OR = [
-      { employeeName: { contains: parsed.data.search } },
-      { clientLocation: { contains: parsed.data.search } },
+      { employeeName: { contains: parsed.data.search, mode: 'insensitive' } },
+      { clientLocation: { contains: parsed.data.search, mode: 'insensitive' } },
     ]
   }
 

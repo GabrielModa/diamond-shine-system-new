@@ -5,6 +5,7 @@ import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { sendSuppliesNotification } from '../../../lib/email'
 import { dbStatusToLabel } from '../../../lib/mappers'
+import { parseStringArray } from '../../../lib/json'
 
 const createSchema = z.object({
   employeeName: z.string().min(1),
@@ -83,8 +84,8 @@ export async function GET(request: NextRequest) {
   if (parsed.data.priority) where.priority = parsed.data.priority
   if (parsed.data.search) {
     where.OR = [
-      { employeeName: { contains: parsed.data.search } },
-      { clientLocation: { contains: parsed.data.search } },
+      { employeeName: { contains: parsed.data.search, mode: 'insensitive' } },
+      { clientLocation: { contains: parsed.data.search, mode: 'insensitive' } },
     ]
   }
 
@@ -97,7 +98,7 @@ export async function GET(request: NextRequest) {
   const mappedItems = items.map((item) => ({
     ...item,
     status: dbStatusToLabel(item.status),
-    products: JSON.parse(item.products) as string[],
+    products: parseStringArray(item.products),
   }))
 
   return NextResponse.json({

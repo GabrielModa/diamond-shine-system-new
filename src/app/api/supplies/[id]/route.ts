@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/prisma'
 import { requireAuth } from '../../../../lib/auth'
 import { dbStatusToLabel } from '../../../../lib/mappers'
+import { parseStringArray } from '../../../../lib/json'
 
 export async function GET(request: NextRequest, context: { params: { id: string } }) {
   console.log('[API /api/supplies/:id GET]')
@@ -15,6 +16,6 @@ export async function GET(request: NextRequest, context: { params: { id: string 
 
   return NextResponse.json({
     ok: true,
-    data: { ...row, status: dbStatusToLabel(row.status), products: JSON.parse(row.products) as string[] },
+    data: { ...row, status: dbStatusToLabel(row.status), products: parseStringArray(row.products) },
   })
 }
