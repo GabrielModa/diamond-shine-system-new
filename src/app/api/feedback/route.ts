@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { CLIENT_LOCATIONS } from '../../../lib/constants'
@@ -89,10 +90,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
   }
 
-  const where: {
-    submittedBy?: string
-    OR?: Array<{ employeeName?: { contains: string }; clientLocation?: { contains: string } }>
-  } = {}
+  const where: Prisma.FeedbackEntryWhereInput = {}
 
   if (auth.user.role === 'supervisor') {
     where.submittedBy = auth.user.email

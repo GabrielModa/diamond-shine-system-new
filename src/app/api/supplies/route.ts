@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
+import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
@@ -68,11 +69,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
   }
 
-  const where: {
-    status?: 'Pending' | 'EmailSent' | 'Completed'
-    priority?: 'urgent' | 'normal' | 'low'
-    OR?: Array<{ employeeName?: { contains: string }; clientLocation?: { contains: string } }>
-  } = {}
+  const where: Prisma.SupplyRequestWhereInput = {}
 
   if (parsed.data.status) {
     where.status = parsed.data.status === 'pending'
