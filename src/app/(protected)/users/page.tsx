@@ -289,7 +289,7 @@ export default function UsersPage() {
             </div>
             {template.key === 'user_invite' ? (
               <div className="template-preview muted">
-                Placeholders: `{{name}}`, `{{email}}`, `{{tempPassword}}`, `{{inviteUrl}}`
+                Placeholders: {'{{name}}'}, {'{{email}}'}, {'{{tempPassword}}'}, {'{{inviteUrl}}'}
               </div>
             ) : null}
             <div className="template-grid">
