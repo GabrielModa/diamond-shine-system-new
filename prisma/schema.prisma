@@ -40,6 +40,16 @@ model EmailTemplate {
   @@map("email_templates")
 }
 
+model NotificationSetting {
+  id         String   @id @default(cuid())
+  key        String   @unique
+  recipients String
+  updatedAt  DateTime @updatedAt
+  createdAt  DateTime @default(now())
+
+  @@map("notification_settings")
+}
+
 model SupplyRequest {
   id             String         @id @default(cuid())
   employeeName   String

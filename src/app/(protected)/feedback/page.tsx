@@ -35,8 +35,22 @@ export default function FeedbackPage() {
   const [location, setLocation] = useState<(typeof CLIENT_LOCATIONS)[number]>(CLIENT_LOCATIONS[0])
   const [ratings, setRatings] = useState<Partial<Record<Field, number>>>({})
   const [comments, setComments] = useState('')
-  const [submitted, setSubmitted] = useState(false)
+  const [toastSuccess, setToastSuccess] = useState(false)
+  const [toastError, setToastError] = useState(false)
+  const [errorText, setErrorText] = useState('')
   const [showErrors, setShowErrors] = useState(false)
+  const [submitting, setSubmitting] = useState(false)
+
+  function flashSuccess() {
+    setToastSuccess(true)
+    setTimeout(() => setToastSuccess(false), 2200)
+  }
+
+  function flashError(message: string) {
+    setErrorText(message)
+    setToastError(true)
+    setTimeout(() => setToastError(false), 3000)
+  }
 
   useEffect(() => {
     const raw = localStorage.getItem(DRAFT_KEY)
@@ -78,15 +92,25 @@ export default function FeedbackPage() {
     setRatings((prev) => ({ ...prev, [field]: value }))
   }
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     setShowErrors(true)
-    setSubmitted(true)
+    setToastSuccess(false)
+    setToastError(false)
+    setErrorText('')
     const form = event.currentTarget
-    const ratedFields = fields.filter((field) =>
-      form.querySelector(`.rating-card[data-field="${field}"] .opt.active`)
-    )
-    if (ratedFields.length < fields.length) return
+    const missingFields = fields.filter((field) => !ratings[field])
+    if (missingFields.length > 0) {
+      const firstMissing = missingFields[0]
+      if (firstMissing) {
+        const target = form.querySelector(`.rating-card[data-field="${firstMissing}"]`)
+        if (target && 'scrollIntoView' in target) {
+          ;(target as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' })
+        }
+      }
+      flashError('Please rate all categories before submitting.')
+      return
+    }
 
     const finalOverall = calculateOverall(
       ratings.cleanliness ?? 0,
@@ -97,11 +121,37 @@ export default function FeedbackPage() {
 
     void finalOverall
 
-    setSubmitted(true)
-    setRatings({})
-    setComments('')
-    setShowErrors(false)
-    localStorage.removeItem(DRAFT_KEY)
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/feedback', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeName,
+          clientLocation: location,
+          cleanliness: ratings.cleanliness ?? 0,
+          punctuality: ratings.punctuality ?? 0,
+          equipment: ratings.equipment ?? 0,
+          clientRelations: ratings.clientRelations ?? 0,
+          comments: comments.trim() ? comments.trim() : undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        flashError('Failed to submit feedback. Please try again.')
+        return
+      }
+
+      flashSuccess()
+      setRatings({})
+      setComments('')
+      setShowErrors(false)
+      localStorage.removeItem(DRAFT_KEY)
+    } catch {
+      flashError('Failed to submit feedback. Please try again.')
+    } finally {
+      setSubmitting(false)
+    }
   }
 
   return (
@@ -115,7 +165,10 @@ export default function FeedbackPage() {
         <p className="muted">Rate performance across four criteria to keep quality high.</p>
       </div>
       <form onSubmit={onSubmit} className="card">
-        <h2>Employee & Location</h2>
+        <div className="form-section">
+          <h2>Employee & Location</h2>
+          <p className="muted">Select who was evaluated and where the service happened.</p>
+        </div>
         <label htmlFor="employeeName" className="muted">Employee</label>
         <select id="employeeName" value={employeeName} onChange={(event) => setEmployeeName(event.target.value)}>
           <option>Maria Silva</option>
@@ -135,7 +188,10 @@ export default function FeedbackPage() {
           ))}
         </select>
 
-        <h2>Ratings</h2>
+        <div className="form-section">
+          <h2>Ratings</h2>
+          <p className="muted">Score each category from 1.0 to 5.0.</p>
+        </div>
         <div className="rating-grid">
           {fields.map((field) => (
             <div
@@ -168,17 +224,23 @@ export default function FeedbackPage() {
           </div>
         ) : null}
 
-        <h2>Comments</h2>
+        <div className="form-section">
+          <h2>Comments</h2>
+          <p className="muted">Optional: add context for coaching and follow‑up.</p>
+        </div>
         <textarea id="comments" value={comments} onChange={(event) => setComments(event.target.value)} />
         <div className="submit-bar">
-          <button id="submitBtn" type="submit">
-            Submit
+          <button id="submitBtn" type="submit" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit'}
           </button>
         </div>
       </form>
 
-      <div className="toast success" style={{ display: submitted ? 'block' : 'none' }}>
-        submitted
+      <div className="toast success toast-strong" style={{ display: toastSuccess ? 'block' : 'none' }}>
+        Feedback submitted. It will appear on the dashboard shortly.
+      </div>
+      <div className="toast error toast-strong" style={{ display: toastError ? 'block' : 'none' }}>
+        {errorText || 'Please review the form and try again.'}
       </div>
     </main>
   )

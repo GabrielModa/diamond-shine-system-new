@@ -36,6 +36,17 @@ export default function UsersPage() {
   const [logs, setLogs] = useState<AuditLog[]>([])
   const [invite, setInvite] = useState({ email: '', name: '', role: 'employee' })
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
+  const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '' })
+  const invitePreviewData = {
+    name: 'Maria Silva',
+    email: 'maria@diamondshine.ie',
+    tempPassword: 'TempPass123!',
+    inviteUrl: 'https://diamondshine.ie/login',
+  }
+
+  function renderTemplate(value: string, data: Record<string, string>) {
+    return Object.entries(data).reduce((acc, [key, val]) => acc.replaceAll(`{{${key}}}`, val), value)
+  }
 
   async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
@@ -46,14 +57,16 @@ export default function UsersPage() {
 
   async function refresh() {
     try {
-      const [usersData, templatesData, auditData] = await Promise.all([
+      const [usersData, templatesData, auditData, alertData] = await Promise.all([
         fetchJson<User[]>('/api/users'),
         fetchJson<Template[]>('/api/templates'),
         fetchJson<AuditLog[]>('/api/audit?limit=20'),
+        fetchJson<{ supplyAlerts: string; feedbackAlerts: string }>('/api/settings'),
       ])
       setUsers(usersData)
       setTemplates(templatesData)
       setLogs(auditData)
+      setAlerts(alertData)
     } catch {
       setToast({ type: 'error', message: 'Failed to load admin data.' })
     }
@@ -93,12 +106,13 @@ export default function UsersPage() {
 
   async function inviteUser() {
     try {
-      const res = await fetchJson<{ id: string; tempPassword: string }>('/api/users', {
+      const res = await fetchJson<{ id: string; tempPassword: string; emailSent: boolean }>('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(invite),
       })
-      setToast({ type: 'success', message: `Invite created. Temp password: ${res.tempPassword}` })
+      const emailNote = res.emailSent ? 'Invite email sent.' : 'Invite created, but email failed.'
+      setToast({ type: res.emailSent ? 'success' : 'error', message: `${emailNote} Temp password: ${res.tempPassword}` })
       setInvite({ email: '', name: '', role: 'employee' })
       await refresh()
     } catch {
@@ -120,6 +134,20 @@ export default function UsersPage() {
     }
   }
 
+  async function saveAlerts() {
+    try {
+      await fetchJson<{ ok: true }>('/api/settings', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(alerts),
+      })
+      setToast({ type: 'success', message: 'Notification emails updated.' })
+      await refresh()
+    } catch {
+      setToast({ type: 'error', message: 'Failed to update notifications.' })
+    }
+  }
+
   const pending = users.filter((user) => user.status === 'pending')
   const active = users.filter((user) => user.status === 'active')
   const inactive = users.filter((user) => user.status === 'inactive')
@@ -136,7 +164,10 @@ export default function UsersPage() {
       </div>
 
       <div className="card">
-        <h2>Invite New User</h2>
+        <h2>
+          <span className="title-icon">✉️</span>
+          Invite New User
+        </h2>
         <div className="row">
           <input
             placeholder="Email"
@@ -163,8 +194,11 @@ export default function UsersPage() {
         </div>
       </div>
 
-      <div className="card">
-        <h2>Pending Approvals</h2>
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">🕒</span>
+          Pending Approvals
+        </h2>
         {pending.length === 0 ? <div className="muted">No pending users.</div> : null}
         {pending.map((user) => (
           <div key={user.id} className="list-item">
@@ -188,8 +222,11 @@ export default function UsersPage() {
         ))}
       </div>
 
-      <div className="card">
-        <h2>Active Users</h2>
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">✅</span>
+          Active Users
+        </h2>
         {active.map((user) => (
           <div key={user.id} className="list-item">
             <div className="list-main">
@@ -214,8 +251,11 @@ export default function UsersPage() {
         ))}
       </div>
 
-      <div className="card">
-        <h2>Inactive Users</h2>
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">⛔</span>
+          Inactive Users
+        </h2>
         {inactive.length === 0 ? <div className="muted">No inactive users.</div> : null}
         {inactive.map((user) => (
           <div key={user.id} className="list-item">
@@ -236,36 +276,106 @@ export default function UsersPage() {
         ))}
       </div>
 
-      <div className="card">
-        <h2>Email Templates</h2>
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">📝</span>
+          Email Templates
+        </h2>
         {templates.map((template) => (
-          <div key={template.id} className="detail-item">
-            <div className="detail-label">{template.key}</div>
-            <input
-              value={template.subject}
-              onChange={(event) =>
-                setTemplates((prev) =>
-                  prev.map((item) => (item.id === template.id ? { ...item, subject: event.target.value } : item))
-                )
-              }
-            />
-            <textarea
-              value={template.body}
-              onChange={(event) =>
-                setTemplates((prev) =>
-                  prev.map((item) => (item.id === template.id ? { ...item, body: event.target.value } : item))
-                )
-              }
-            />
-            <button type="button" className="btn-primary" onClick={() => saveTemplate(template)}>
-              Save Template
-            </button>
+          <div key={template.id} className="template-item">
+            <div className="template-header">
+              <span className="template-key">{template.key}</span>
+              <span className="muted">Last updated: {new Date(template.updatedAt).toLocaleDateString('en-IE')}</span>
+            </div>
+            {template.key === 'user_invite' ? (
+              <div className="template-preview muted">
+                Placeholders: `{{name}}`, `{{email}}`, `{{tempPassword}}`, `{{inviteUrl}}`
+              </div>
+            ) : null}
+            <div className="template-grid">
+              <div className="template-label">Subject</div>
+              <input
+                value={template.subject}
+                onChange={(event) =>
+                  setTemplates((prev) =>
+                    prev.map((item) => (item.id === template.id ? { ...item, subject: event.target.value } : item))
+                  )
+                }
+              />
+              <div className="template-label">Body</div>
+              <textarea
+                value={template.body}
+                onChange={(event) =>
+                  setTemplates((prev) =>
+                    prev.map((item) => (item.id === template.id ? { ...item, body: event.target.value } : item))
+                  )
+                }
+              />
+            </div>
+            {template.key === 'user_invite' ? (
+              <div className="template-preview">
+                <div className="template-preview-title">Preview</div>
+                <div className="template-preview-card">
+                  <div className="template-preview-subject">
+                    {renderTemplate(template.subject, invitePreviewData)}
+                  </div>
+                  <div
+                    className="template-preview-body"
+                    dangerouslySetInnerHTML={{
+                      __html: renderTemplate(template.body, invitePreviewData),
+                    }}
+                  />
+                </div>
+              </div>
+            ) : null}
+            <div className="template-actions">
+              <button type="button" className="btn-primary" onClick={() => saveTemplate(template)}>
+                Save Template
+              </button>
+            </div>
           </div>
         ))}
       </div>
 
-      <div className="card">
-        <h2>Audit Log</h2>
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">🔔</span>
+          Notification Emails
+        </h2>
+        <div className="template-item">
+          <div className="template-header">
+            <span className="template-key">Supplies alerts</span>
+            <span className="muted">Comma-separated emails</span>
+          </div>
+          <input
+            value={alerts.supplyAlerts}
+            placeholder="alerts@company.com, manager@company.com"
+            onChange={(event) => setAlerts((prev) => ({ ...prev, supplyAlerts: event.target.value }))}
+          />
+        </div>
+        <div className="template-item">
+          <div className="template-header">
+            <span className="template-key">Feedback alerts</span>
+            <span className="muted">Comma-separated emails</span>
+          </div>
+          <input
+            value={alerts.feedbackAlerts}
+            placeholder="quality@company.com"
+            onChange={(event) => setAlerts((prev) => ({ ...prev, feedbackAlerts: event.target.value }))}
+          />
+        </div>
+        <div className="template-actions">
+          <button type="button" className="btn-primary" onClick={saveAlerts}>
+            Save notifications
+          </button>
+        </div>
+      </div>
+
+      <div className="card section-card">
+        <h2>
+          <span className="title-icon">🧾</span>
+          Audit Log
+        </h2>
         {logs.map((log) => (
           <div key={log.id} className="list-item">
             <div className="list-main">

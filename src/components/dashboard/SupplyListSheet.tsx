@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { timeAgo } from '../../lib/business-logic'
 
@@ -9,11 +9,19 @@ type ListFilter = {
   status?: SupplyStatus
 }
 
+type ListPreset = {
+  period?: 'all' | '7' | '30' | '90' | 'month'
+  location?: string
+  employee?: string
+  search?: string
+}
+
 type SupplyListSheetProps = {
   open: boolean
   title: string
   requests: SupplyRequest[]
   filter: ListFilter
+  preset?: ListPreset
   onClose: () => void
   onSelect: (request: SupplyRequest) => void
   onSendEmail: (request: SupplyRequest) => void
@@ -25,6 +33,7 @@ export function SupplyListSheet({
   title,
   requests,
   filter,
+  preset,
   onClose,
   onSelect,
   onSendEmail,
@@ -34,12 +43,64 @@ export function SupplyListSheet({
   const [location, setLocation] = useState('all')
   const [employee, setEmployee] = useState('all')
   const [search, setSearch] = useState('')
+  const [filtersOpen, setFiltersOpen] = useState(true)
+  const [isMobile, setIsMobile] = useState(false)
   const [applied, setApplied] = useState({
     period: 'all',
     location: 'all',
     employee: 'all',
     search: '',
   })
+  const [searchDebounced, setSearchDebounced] = useState('')
+  const presetKey = `${preset?.period ?? ''}|${preset?.location ?? ''}|${preset?.employee ?? ''}|${preset?.search ?? ''}`
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSearchDebounced(search.trim()), 250)
+    return () => clearTimeout(timer)
+  }, [search])
+
+  useEffect(() => {
+    if (searchDebounced !== applied.search) {
+      setApplied((prev) => ({ ...prev, search: searchDebounced }))
+    }
+  }, [searchDebounced, applied.search])
+
+  useEffect(() => {
+    if (!open) {
+      setPeriod('all')
+      setLocation('all')
+      setEmployee('all')
+      setSearch('')
+      setApplied({ period: 'all', location: 'all', employee: 'all', search: '' })
+    }
+  }, [open])
+
+  useEffect(() => {
+    if (!open || !preset) return
+    const next = {
+      period: preset.period ?? 'all',
+      location: preset.location ?? 'all',
+      employee: preset.employee ?? 'all',
+      search: preset.search ?? '',
+    }
+    setPeriod(next.period)
+    setLocation(next.location)
+    setEmployee(next.employee)
+    setSearch(next.search)
+    setApplied(next)
+  }, [open, presetKey])
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return
+    const mq = window.matchMedia('(max-width: 720px)')
+    const apply = () => {
+      setIsMobile(mq.matches)
+      setFiltersOpen(!mq.matches)
+    }
+    apply()
+    mq.addEventListener('change', apply)
+    return () => mq.removeEventListener('change', apply)
+  }, [])
 
   const filtered = useMemo(() => {
     let list = requests
@@ -49,11 +110,20 @@ export function SupplyListSheet({
 
     const now = new Date()
     if (applied.period !== 'all') {
-      const days = Number(applied.period)
-      list = list.filter((item) => {
-        const diff = now.getTime() - new Date(item.createdAt).getTime()
-        return diff <= days * 24 * 60 * 60 * 1000
-      })
+      if (applied.period === 'month') {
+        const currentMonth = now.getMonth()
+        const currentYear = now.getFullYear()
+        list = list.filter((item) => {
+          const date = new Date(item.createdAt)
+          return date.getMonth() === currentMonth && date.getFullYear() === currentYear
+        })
+      } else {
+        const days = Number(applied.period)
+        list = list.filter((item) => {
+          const diff = now.getTime() - new Date(item.createdAt).getTime()
+          return diff <= days * 24 * 60 * 60 * 1000
+        })
+      }
     }
     if (applied.location !== 'all') list = list.filter((item) => item.clientLocation === applied.location)
     if (applied.employee !== 'all') list = list.filter((item) => item.employeeName === applied.employee)
@@ -99,67 +169,82 @@ export function SupplyListSheet({
         </div>
         <div className="sheet-subtitle">Filter and manage supply requests</div>
 
-        <div className="filters card">
-          <div className="filters-grid">
-            <select value={period} onChange={(event) => setPeriod(event.target.value)}>
-              <option value="all">All time</option>
-              <option value="7">Last 7 days</option>
-              <option value="30">Last 30 days</option>
-              <option value="90">Last 90 days</option>
-            </select>
-            <select value={location} onChange={(event) => setLocation(event.target.value)}>
-              <option value="all">All locations</option>
-              {locations.map((loc) => (
-                <option key={loc} value={loc}>
-                  {loc}
-                </option>
-              ))}
-            </select>
-            <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
-              <option value="all">All employees</option>
-              {employees.map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-            <input
-              type="search"
-              placeholder="Search requests..."
-              value={search}
-              onChange={(event) => setSearch(event.target.value)}
-            />
-          </div>
-          <div className="row tight action-row">
-            <button
-              type="button"
-              className="btn-primary"
-              onClick={() =>
-                setApplied({
-                  period,
-                  location,
-                  employee,
-                  search,
-                })
-              }
-            >
-              Apply
-            </button>
-            <button
-              type="button"
-              className="btn-ghost"
-              onClick={() => {
-                setPeriod('all')
-                setLocation('all')
-                setEmployee('all')
-                setSearch('')
-                setApplied({ period: 'all', location: 'all', employee: 'all', search: '' })
-              }}
-            >
-              Clear
-            </button>
-          </div>
+        <div className="filters-compact">
+          <input
+            type="search"
+            placeholder="Search requests..."
+            value={search}
+            onChange={(event) => setSearch(event.target.value)}
+          />
+          <button type="button" className="btn-ghost" onClick={() => setFiltersOpen((prev) => !prev)}>
+            {filtersOpen ? 'Hide filters' : 'Filters'}
+          </button>
         </div>
+
+        {!isMobile || filtersOpen ? (
+          <div className="filters card">
+            <div className="filters-grid">
+              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+                <option value="all">All time</option>
+                <option value="month">This month</option>
+                <option value="7">Last 7 days</option>
+                <option value="30">Last 30 days</option>
+                <option value="90">Last 90 days</option>
+              </select>
+              <select value={location} onChange={(event) => setLocation(event.target.value)}>
+                <option value="all">All locations</option>
+                {locations.map((loc) => (
+                  <option key={loc} value={loc}>
+                    {loc}
+                  </option>
+                ))}
+              </select>
+              <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
+                <option value="all">All employees</option>
+                {employees.map((name) => (
+                  <option key={name} value={name}>
+                    {name}
+                  </option>
+                ))}
+              </select>
+              <input
+                type="search"
+                placeholder="Search requests..."
+                value={search}
+                onChange={(event) => setSearch(event.target.value)}
+              />
+            </div>
+            <div className="row tight action-row">
+              <button
+                type="button"
+                className="btn-primary"
+                onClick={() =>
+                  setApplied({
+                    period,
+                    location,
+                    employee,
+                    search,
+                  })
+                }
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                className="btn-ghost"
+                onClick={() => {
+                  setPeriod('all')
+                  setLocation('all')
+                  setEmployee('all')
+                  setSearch('')
+                  setApplied({ period: 'all', location: 'all', employee: 'all', search: '' })
+                }}
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        ) : null}
 
         <div className="list-results">
           {filtered.length === 0 ? (

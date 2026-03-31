@@ -55,6 +55,7 @@ export async function POST(request: NextRequest) {
     products: parsed.data.products,
     notes: created.notes ?? undefined,
     submittedBy: created.submittedBy,
+    createdAt: created.createdAt,
   })
 
   await logAudit(auth.user.email, 'create_supply', 'supply', created.id, {

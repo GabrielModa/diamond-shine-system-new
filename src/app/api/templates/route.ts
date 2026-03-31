@@ -16,6 +16,11 @@ const DEFAULT_TEMPLATES = [
     subject: 'Diamond Shine Supplies: {{priority}} - {{employee}}',
     body: '<p>Hello,</p><p>Your supplies request is being processed.</p>',
   },
+  {
+    key: 'user_invite',
+    subject: 'You are invited to Diamond Shine',
+    body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine. Use the temporary password below to log in:</p><p><b>Password:</b> {{tempPassword}}</p><p>Login here: <a href="{{inviteUrl}}">{{inviteUrl}}</a></p>',
+  },
 ]
 
 export async function GET(request: NextRequest) {
@@ -26,6 +31,14 @@ export async function GET(request: NextRequest) {
   const existing = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
   if (existing.length === 0) {
     await prisma.emailTemplate.createMany({ data: DEFAULT_TEMPLATES })
+  } else {
+    for (const template of DEFAULT_TEMPLATES) {
+      await prisma.emailTemplate.upsert({
+        where: { key: template.key },
+        update: {},
+        create: template,
+      })
+    }
   }
   const templates = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
   return NextResponse.json({ ok: true, data: templates })

@@ -50,8 +50,15 @@ export default function HomePage() {
           .filter((page) => page !== 'home')
           .map((page) => (
             <a key={page} className="link-card" href={cardMeta[page].href}>
+              <div className="card-icon">
+                {page === 'supplies' && '📦'}
+                {page === 'feedback' && '⭐'}
+                {page === 'dashboard' && '📊'}
+                {page === 'users' && '👥'}
+              </div>
               <strong>{cardMeta[page].title}</strong>
               <span className="muted">{cardMeta[page].desc}</span>
+              <span className="card-cta">Open →</span>
             </a>
           ))}
       </div>

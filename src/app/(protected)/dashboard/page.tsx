@@ -32,6 +32,13 @@ const WARNING_MESSAGE =
   '⚠️ This request has not been emailed to the client. Mark as completed without sending email?'
 const COMPLETE_MESSAGE = '✅ Mark as completed? This cannot be undone.'
 
+type ListPreset = {
+  period?: 'all' | '7' | '30' | '90' | 'month'
+  location?: string
+  employee?: string
+  search?: string
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -39,11 +46,15 @@ export default function DashboardPage() {
   const [feedback, setFeedback] = useState<FeedbackEntry[]>([])
   const [listFilter, setListFilter] = useState<{ priority?: SupplyPriority; status?: SupplyStatus }>({})
   const [listTitle, setListTitle] = useState('All Requests')
+  const [listPreset, setListPreset] = useState<ListPreset | null>(null)
   const [selectedSupply, setSelectedSupply] = useState<SupplyRequest | null>(null)
   const [selectedFeedback, setSelectedFeedback] = useState<FeedbackEntry | null>(null)
   const [detailType, setDetailType] = useState<'supply' | 'feedback' | null>(null)
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [confirm, setConfirm] = useState<{ message: string; action: () => Promise<void> } | null>(null)
+  const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
+  const [syncing, setSyncing] = useState(false)
+  const [newSupplies, setNewSupplies] = useState(0)
 
   async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const res = await fetch(url, {
@@ -69,6 +80,7 @@ export default function DashboardPage() {
 
       if (dashboardRes.status === 'fulfilled') {
         setDashboard(dashboardRes.value)
+        setLastUpdated(new Date())
       } else {
         setDashboard(null)
         showToast('error', 'Failed to load dashboard summary.')
@@ -98,6 +110,7 @@ export default function DashboardPage() {
     try {
       const suppliesData = await fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200')
       setSupplies(suppliesData.items)
+      setLastUpdated(new Date())
     } catch {
       showToast('error', 'Failed to refresh supplies.')
     }
@@ -107,13 +120,51 @@ export default function DashboardPage() {
     try {
       const feedbackData = await fetchJson<{ items: FeedbackEntry[] }>('/api/feedback')
       setFeedback(feedbackData.items)
+      setLastUpdated(new Date())
     } catch {
       showToast('error', 'Failed to refresh feedback.')
     }
   }
 
+  async function refreshActivityOnly() {
+    setSyncing(true)
+    try {
+      const [suppliesRes, feedbackRes] = await Promise.allSettled([
+        fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200'),
+        fetchJson<{ items: FeedbackEntry[] }>('/api/feedback'),
+      ])
+
+      if (suppliesRes.status === 'fulfilled') {
+        const nextSupplies = suppliesRes.value.items
+        if (supplies.length) {
+          const previous = new Set(supplies.map((item) => item.id))
+          const additions = nextSupplies.filter((item) => !previous.has(item.id))
+          if (additions.length) setNewSupplies(additions.length)
+        }
+        setSupplies(nextSupplies)
+      }
+      if (feedbackRes.status === 'fulfilled') {
+        setFeedback(feedbackRes.value.items)
+      }
+      if (suppliesRes.status === 'fulfilled' || feedbackRes.status === 'fulfilled') {
+        setLastUpdated(new Date())
+      }
+    } catch {
+      showToast('error', 'Failed to sync activity.')
+    } finally {
+      setSyncing(false)
+    }
+  }
+
   useEffect(() => {
     void refreshAll()
+  }, [])
+
+  useEffect(() => {
+    const interval = setInterval(() => {
+      void refreshActivityOnly()
+    }, 120000)
+    return () => clearInterval(interval)
   }, [])
 
   function showToast(type: 'success' | 'error', message: string) {
@@ -122,6 +173,16 @@ export default function DashboardPage() {
   }
 
   const mostRequested = dashboard?.supplies.mostRequestedProduct ?? ''
+
+  function formatUpdatedLabel(date: Date | null) {
+    if (!date) return 'Updating...'
+    const diff = Math.floor((Date.now() - date.getTime()) / 1000)
+    if (diff < 10) return 'Updated just now'
+    if (diff < 60) return `Updated ${diff}s ago`
+    if (diff < 3600) return `Updated ${Math.floor(diff / 60)}m ago`
+    if (diff < 86400) return `Updated ${Math.floor(diff / 3600)}h ago`
+    return `Updated ${date.toLocaleDateString('en-IE')}`
+  }
 
   const skeletons = useMemo(
     () => (
@@ -139,18 +200,23 @@ export default function DashboardPage() {
       {(overlay) => (
         <main className="dashboard">
           <div className="top-bar dashboard-header">
-            <div>
+            <div className="header-left">
               <div className="muted">📊 Dashboard</div>
               <div className="header-title">Enhanced Management</div>
+              <div className="header-meta">
+                {syncing ? (
+                  <span className="syncing">
+                    <span className="sync-dot" aria-hidden="true" /> Syncing…
+                  </span>
+                ) : (
+                  formatUpdatedLabel(lastUpdated)
+                )}
+              </div>
             </div>
-            <div className="header-meta">Live · Updated on refresh</div>
-            <div className="row">
-              <button type="button" className="btn-secondary" onClick={() => refreshAll()}>
-                Refresh
+            <div className="header-actions">
+              <button type="button" className="header-refresh" onClick={() => refreshAll()} aria-label="Refresh">
+                ↻
               </button>
-              <a href="/home" className="btn-secondary">
-                Back to Home
-              </a>
             </div>
           </div>
 
@@ -162,9 +228,12 @@ export default function DashboardPage() {
                 requests={supplies}
                 mostRequestedProduct={mostRequested}
                 activeFilter={listFilter}
-                onOpenList={(filter, title) => {
+                newCount={newSupplies}
+                onOpenList={(filter, title, preset) => {
                   setListFilter(filter)
                   setListTitle(title)
+                  setListPreset(preset ?? null)
+                  setNewSupplies(0)
                   void refreshSuppliesOnly()
                   overlay.open('list')
                 }}
@@ -202,6 +271,7 @@ export default function DashboardPage() {
             title={listTitle}
             requests={supplies}
             filter={listFilter}
+            preset={listPreset ?? undefined}
             onClose={() => overlay.closeTop('outside')}
             onSelect={(request) => {
               setSelectedSupply(request)
@@ -283,13 +353,23 @@ export default function DashboardPage() {
             onSend={async ({ clientEmail, subject, htmlBody }) => {
               if (!selectedSupply) return
               try {
-                await fetch(`/api/supplies/${selectedSupply.id}/notify`, {
+                const res = await fetch(`/api/supplies/${selectedSupply.id}/notify`, {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ clientEmail, subject, htmlBody }),
                 })
-                showToast('success', 'Email sent successfully.')
-                overlay.closeTop('ui')
+                const payload = (await res.json()) as ApiResponse<{ id: string; sent: boolean }>
+                if (!res.ok || !payload.ok) {
+                  showToast('error', payload.error || 'Failed to send email.')
+                  return
+                }
+                showToast(
+                  payload.data?.sent ? 'success' : 'error',
+                  payload.data?.sent
+                    ? 'Email sent successfully.'
+                    : 'Email could not be sent. Please check SMTP settings.'
+                )
+                overlay.closeAll()
                 await refreshAll()
               } catch {
                 showToast('error', 'Failed to send email.')
@@ -304,7 +384,7 @@ export default function DashboardPage() {
             onConfirm={async () => {
               if (!confirm) return
               await confirm.action()
-              overlay.closeTop('ui')
+              overlay.closeAll()
             }}
           />
 

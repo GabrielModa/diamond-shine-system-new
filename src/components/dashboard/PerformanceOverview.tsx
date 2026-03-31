@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { createPortal } from 'react-dom'
 import type { FeedbackEntry } from '../../types'
 import { consecutiveExcellent } from '../../lib/business-logic'
 
@@ -17,11 +18,18 @@ type EmployeeSummary = {
 export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceOverviewProps) {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
+  const [profileOpen, setProfileOpen] = useState(false)
+  const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null)
+  const [mounted, setMounted] = useState(false)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300)
     return () => clearTimeout(timer)
   }, [query])
+
+  useEffect(() => {
+    setMounted(true)
+  }, [])
 
   const employees = useMemo(() => {
     const map = new Map<string, FeedbackEntry[]>()
@@ -51,7 +59,15 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
     return employees.filter((employee) => employee.name.toLowerCase().includes(needle))
   }, [debounced, employees])
 
-  const selected = matches.length === 1 ? matches[0] : null
+  useEffect(() => {
+    function onKeyDown(event: KeyboardEvent) {
+      if (event.key === 'Escape' && profileOpen) {
+        setProfileOpen(false)
+      }
+    }
+    window.addEventListener('keydown', onKeyDown)
+    return () => window.removeEventListener('keydown', onKeyDown)
+  }, [profileOpen])
 
   function renderProfile(employee: EmployeeSummary) {
     const evaluations = employee.evaluations
@@ -145,28 +161,50 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
       ) : null}
 
       {debounced.length >= 2 ? (
-        <>
-          {selected ? (
-            renderProfile(selected)
-          ) : (
-            <div className="search-results">
-              <div className="muted found-count">Found {matches.length}</div>
-              {matches.map((employee) => (
-                <button
-                  key={employee.name}
-                  type="button"
-                  className="result-row"
-                  onClick={() => setQuery(employee.name)}
-                >
-                  <span>{employee.name}</span>
-                  <span className="muted">{employee.evaluations.length} evaluations</span>
-                </button>
-              ))}
-              {matches.length === 0 ? <div className="empty-state">No matches found.</div> : null}
-            </div>
-          )}
-        </>
+        <div className="search-results">
+          <div className="muted found-count">Found {matches.length}</div>
+          {matches.map((employee) => (
+            <button
+              key={employee.name}
+              type="button"
+              className="result-row"
+              onClick={() => {
+                setSelectedEmployee(employee)
+                setProfileOpen(true)
+              }}
+            >
+              <span>{employee.name}</span>
+              <span className="muted">{employee.evaluations.length} evaluations</span>
+            </button>
+          ))}
+          {matches.length === 0 ? <div className="empty-state">No matches found.</div> : null}
+        </div>
       ) : null}
+
+      {mounted
+        ? createPortal(
+            <div
+              className={`overlay${profileOpen ? ' active' : ''}`}
+              onClick={(event) => {
+                if (event.target === event.currentTarget) setProfileOpen(false)
+              }}
+            >
+              <div className="overlay-sheet detail-sheet fade-up">
+                <div className="sheet-header">
+                  <h2>
+                    <span className="title-icon">👤</span>
+                    {selectedEmployee ? selectedEmployee.name : 'Employee Profile'}
+                  </h2>
+                  <button type="button" className="icon-btn" onClick={() => setProfileOpen(false)}>
+                    ✕
+                  </button>
+                </div>
+                {selectedEmployee ? renderProfile(selectedEmployee) : null}
+              </div>
+            </div>,
+            document.body
+          )
+        : null}
     </div>
   )
 }

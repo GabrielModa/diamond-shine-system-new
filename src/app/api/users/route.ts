@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
+import { sendUserInvite } from '../../../lib/email'
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -50,5 +51,22 @@ export async function POST(request: NextRequest) {
 
   await logAudit(auth.user.email, 'invite_user', 'user', created.id, { email: created.email, role: created.role })
 
-  return NextResponse.json({ ok: true, data: { id: created.id, tempPassword } }, { status: 201 })
+  const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
+  const inviteUrl = `${baseUrl.replace(/\/$/, '')}/login`
+  const inviteResult = await sendUserInvite({
+    to: created.email,
+    name: created.name ?? created.email,
+    tempPassword,
+    inviteUrl,
+  })
+
+  await logAudit(auth.user.email, 'invite_email', 'user', created.id, {
+    email: created.email,
+    sent: inviteResult.ok,
+  })
+
+  return NextResponse.json(
+    { ok: true, data: { id: created.id, tempPassword, emailSent: inviteResult.ok } },
+    { status: 201 }
+  )
 }

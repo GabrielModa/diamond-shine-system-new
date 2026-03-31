@@ -3,6 +3,7 @@ import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
 import { getCategoryLabel } from '../src/lib/business-logic'
 import { labelToDbCategory } from '../src/lib/mappers'
+import { ADMIN_EMAIL, FEEDBACK_EMAIL } from '../src/lib/constants'
 
 const prisma = new PrismaClient()
 
@@ -187,6 +188,17 @@ async function main() {
   await seedUsers(hash)
   await seedSupplies()
   await seedFeedback()
+
+  await prisma.notificationSetting.upsert({
+    where: { key: 'supply_alerts' },
+    update: { recipients: ADMIN_EMAIL },
+    create: { key: 'supply_alerts', recipients: ADMIN_EMAIL },
+  })
+  await prisma.notificationSetting.upsert({
+    where: { key: 'feedback_alerts' },
+    update: { recipients: FEEDBACK_EMAIL },
+    create: { key: 'feedback_alerts', recipients: FEEDBACK_EMAIL },
+  })
 
   console.log('✅ Seed completed')
   console.log('Logins: admin@ds.ie, super@ds.ie, employee@ds.ie, viewer@ds.ie')

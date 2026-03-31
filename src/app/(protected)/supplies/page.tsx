@@ -24,6 +24,19 @@ export default function SuppliesPage() {
   const [toastSuccess, setToastSuccess] = useState(false)
   const [toastError, setToastError] = useState(false)
   const [missingText, setMissingText] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const [missingFields, setMissingFields] = useState<string[]>([])
+
+  function flashSuccess() {
+    setToastSuccess(true)
+    setTimeout(() => setToastSuccess(false), 2200)
+  }
+
+  function flashError(message: string) {
+    setMissingText(message)
+    setToastError(true)
+    setTimeout(() => setToastError(false), 3000)
+  }
 
   useEffect(() => {
     const raw = localStorage.getItem(DRAFT_KEY)
@@ -58,7 +71,7 @@ export default function SuppliesPage() {
     setSelected((prev) => (prev.includes(product) ? prev.filter((p) => p !== product) : [...prev, product]))
   }
 
-  function onSubmit(event: FormEvent<HTMLFormElement>) {
+  async function onSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault()
     const form = event.currentTarget
     const nameValue =
@@ -73,9 +86,44 @@ export default function SuppliesPage() {
     if (activeProducts === 0) missingFields.push('Products')
     const missing = missingFields.length > 0
     setMissingText(missing ? `Missing: ${missingFields.join(', ')}` : '')
-    setToastSuccess(true)
-    setToastError(missing)
+    setMissingFields(missingFields)
+    if (missing) {
+      flashError(`Missing: ${missingFields.join(', ')}`)
+    }
     if (missing) return
+
+    setSubmitting(true)
+    try {
+      const res = await fetch('/api/supplies', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          employeeName: nameValue,
+          clientLocation: location,
+          priority,
+          products: selected,
+          notes: notes.trim() ? notes.trim() : undefined,
+        }),
+      })
+
+      if (!res.ok) {
+        setToastSuccess(false)
+        flashError('Failed to send request. Please try again.')
+        return
+      }
+
+      setToastError(false)
+      setMissingText('')
+      flashSuccess()
+      setMissingFields([])
+    } catch {
+      setToastSuccess(false)
+      flashError('Failed to send request. Please try again.')
+      setMissingFields([])
+      return
+    } finally {
+      setSubmitting(false)
+    }
 
     setName('')
     setLocation(CLIENT_LOCATIONS[0])
@@ -99,10 +147,14 @@ export default function SuppliesPage() {
         <p className="muted">Request cleaning products for your client location.</p>
       </div>
       <form onSubmit={onSubmit} className="card">
-        <h2>Request Details</h2>
+        <div className="form-section">
+          <h2>Request Details</h2>
+          <p className="muted">Provide the essentials so we can process quickly.</p>
+        </div>
         <label htmlFor="employeeName" className="muted">Your name</label>
         <input
           id="employeeName"
+          className={missingFields.includes('Name') ? 'input-error' : ''}
           placeholder="Enter your name"
           value={name}
           onChange={(event) => setName(event.target.value)}
@@ -121,8 +173,11 @@ export default function SuppliesPage() {
           ))}
         </select>
 
-        <h2>Priority</h2>
-        <div className="grid-2">
+        <div className="form-section">
+          <h2>Priority</h2>
+          <p className="muted">Choose urgency to prioritize delivery.</p>
+        </div>
+        <div className={`grid-2${missingFields.includes('Priority') ? ' input-error' : ''}`}>
           {(['urgent', 'normal', 'low'] as const).map((item) => (
             <button
               key={item}
@@ -136,8 +191,11 @@ export default function SuppliesPage() {
           ))}
         </div>
 
-        <h2>Products</h2>
-        <div className="product-grid">
+        <div className="form-section">
+          <h2>Products</h2>
+          <p className="muted">Select the items required for the location.</p>
+        </div>
+        <div className={`product-grid${missingFields.includes('Products') ? ' input-error' : ''}`}>
           {PRODUCTS.map((product) => (
             <button
               key={product.value}
@@ -156,20 +214,23 @@ export default function SuppliesPage() {
           <div id="selectedCount">{countLabel}</div>
           <div id="charCount" className="muted">{notes.length}/500</div>
         </div>
-        <h2>Notes</h2>
+        <div className="form-section">
+          <h2>Notes</h2>
+          <p className="muted">Optional: add delivery or timing instructions.</p>
+        </div>
         <label htmlFor="notes" className="muted">Optional notes (max 500 chars)</label>
         <textarea id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
         <div className="submit-bar">
-          <button id="submitBtn" type="submit">
-            Submit
+          <button id="submitBtn" type="submit" disabled={submitting}>
+            {submitting ? 'Submitting...' : 'Submit'}
           </button>
         </div>
       </form>
 
-      <div className="toast success" style={{ display: toastSuccess ? 'block' : 'none' }}>
-        submitted
+      <div className="toast success toast-strong" style={{ display: toastSuccess ? 'block' : 'none' }}>
+        Request sent. It will appear on the dashboard shortly.
       </div>
-      <div className="toast error" style={{ display: toastError ? 'block' : 'none' }}>
+      <div className="toast error toast-strong" style={{ display: toastError ? 'block' : 'none' }}>
         {missingText || 'Missing required fields'}
       </div>
     </main>

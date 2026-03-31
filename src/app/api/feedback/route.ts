@@ -73,6 +73,7 @@ export async function POST(request: NextRequest) {
     category,
     comments: created.comments ?? undefined,
     submittedBy: created.submittedBy,
+    createdAt: created.createdAt,
   })
 
   await logAudit(auth.user.email, 'create_feedback', 'feedback', created.id, {

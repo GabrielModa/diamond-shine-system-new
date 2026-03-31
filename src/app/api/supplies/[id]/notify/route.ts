@@ -30,20 +30,22 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
 
-  await prisma.supplyRequest.update({
-    where: { id: params.id },
-    data: { status: 'EmailSent', emailSentAt: new Date() },
-  })
-
-  void sendClientNotification({
+  const sendResult = await sendClientNotification({
     to: parsed.data.clientEmail,
     subject: parsed.data.subject,
     htmlBody: parsed.data.htmlBody,
   })
 
+  if (sendResult.ok) {
+    await prisma.supplyRequest.update({
+      where: { id: params.id },
+      data: { status: 'EmailSent', emailSentAt: new Date() },
+    })
+  }
+
   await logAudit(auth.user.email, 'send_supply_email', 'supply', params.id, {
     clientEmail: parsed.data.clientEmail,
   })
 
-  return NextResponse.json({ ok: true, data: { id: params.id } })
+  return NextResponse.json({ ok: true, data: { id: params.id, sent: sendResult.ok } })
 }

@@ -31,4 +31,5 @@ export const PAGE_ACCESS: Record<UserRole, Page[]> = {
 
 export const ADMIN_EMAIL = process.env.SUPPLY_ADMIN_EMAIL ?? 'gnunesmoda@gmail.com'
 export const FEEDBACK_EMAIL = process.env.FEEDBACK_REVIEWER_EMAIL ?? 'gnunesmoda@gmail.com'
+export const SMTP_FROM = process.env.SMTP_FROM ?? 'Diamond Shine <noreply@diamondshine.ie>'
 export const DUBLIN_TIMEZONE = 'Europe/Dublin'

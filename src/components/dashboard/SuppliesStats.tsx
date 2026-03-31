@@ -6,7 +6,12 @@ type SuppliesStatsProps = {
   requests: SupplyRequest[]
   mostRequestedProduct: string
   activeFilter?: { priority?: SupplyPriority; status?: SupplyStatus }
-  onOpenList: (filter: { priority?: SupplyPriority; status?: SupplyStatus }, title: string) => void
+  newCount?: number
+  onOpenList: (
+    filter: { priority?: SupplyPriority; status?: SupplyStatus },
+    title: string,
+    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string }
+  ) => void
 }
 
 function countThisMonth(requests: SupplyRequest[]) {
@@ -19,7 +24,7 @@ function countThisMonth(requests: SupplyRequest[]) {
   }).length
 }
 
-export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, onOpenList }: SuppliesStatsProps) {
+export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, newCount = 0, onOpenList }: SuppliesStatsProps) {
   const pending = requests.filter((item) => item.status === 'Pending')
   const urgentCount = pending.filter((item) => item.priority === 'urgent').length
   const normalCount = pending.filter((item) => item.priority === 'normal').length
@@ -33,16 +38,17 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, on
   }
 
   return (
-    <div className="card supplies-card">
-      <div className="card-header">
-        <div>
-          <h2>
-            <span className="title-icon">📦</span>
-            Supplies Control
-          </h2>
-          <div className="muted">Pending requests by priority</div>
+      <div className="card supplies-card">
+        <div className="card-header">
+          <div>
+            <h2>
+              <span className="title-icon">📦</span>
+              Supplies Control
+            </h2>
+            <div className="muted">Pending requests by priority</div>
+          </div>
+          {newCount > 0 ? <span className="new-pill">+{newCount} new</span> : null}
         </div>
-      </div>
 
       <div className="stat-grid">
         <button
@@ -106,18 +112,35 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, on
       </div>
 
       <div className="metrics-row">
-        <div className="metric-card">
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'All Requests', { period: 'all' })}
+        >
           <div className="muted">📊 Total Requests</div>
           <div>{requests.length}</div>
-        </div>
-        <div className="metric-card">
+        </button>
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'Requests This Month', { period: 'month' })}
+        >
           <div className="muted">🗓 This month</div>
           <div>{countThisMonth(requests)}</div>
-        </div>
-        <div className="metric-card">
+        </button>
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() =>
+            onOpenList({}, `Most Requested: ${mostRequestedProduct || '—'}`, {
+              search: mostRequestedProduct || '',
+            })
+          }
+          disabled={!mostRequestedProduct}
+        >
           <div className="muted">⭐ Most requested</div>
           <div>{mostRequestedProduct || '—'}</div>
-        </div>
+        </button>
       </div>
     </div>
   )
