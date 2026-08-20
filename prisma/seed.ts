@@ -1,7 +1,7 @@
 /* eslint-disable no-console */
 import { PrismaClient } from '@prisma/client'
 import bcrypt from 'bcryptjs'
-import { getCategoryLabel } from '../src/lib/business-logic'
+import { calculateSupplyDueAt, getCategoryLabel } from '../src/lib/business-logic'
 import { labelToDbCategory } from '../src/lib/mappers'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL } from '../src/lib/constants'
 
@@ -13,6 +13,11 @@ const USERS = [
   { email: 'admin@ds.ie', role: 'admin', name: 'Gabriel Nunes', status: 'active' },
   { email: 'super@ds.ie', role: 'supervisor', name: 'Sarah Johnson', status: 'active' },
   { email: 'employee@ds.ie', role: 'employee', name: 'Strikerlift', status: 'active' },
+  { email: 'maria@ds.ie', role: 'employee', name: 'Maria Silva', status: 'active' },
+  { email: 'john@ds.ie', role: 'employee', name: 'John Connor', status: 'active' },
+  { email: 'emma@ds.ie', role: 'employee', name: 'Emma Wilson', status: 'active' },
+  { email: 'michael@ds.ie', role: 'employee', name: 'Michael Brown', status: 'active' },
+  { email: 'gabriel.moda@ds.ie', role: 'employee', name: 'Gabriel Nunes Moda', status: 'active' },
   { email: 'viewer@ds.ie', role: 'viewer', name: 'Viewer User', status: 'active' },
 ] as const
 
@@ -20,7 +25,6 @@ const EMPLOYEES = [
   'Strikerlift',
   'Maria Silva',
   'John Connor',
-  'Sarah Johnson',
   'Emma Wilson',
   'Michael Brown',
   'Gabriel Nunes Moda',
@@ -97,7 +101,7 @@ async function seedUsers(hash: string) {
 async function seedSupplies() {
   await prisma.supplyRequest.deleteMany()
 
-  const supplies = Array.from({ length: 30 }).map((_, index) => {
+  for (let index = 0; index < 30; index += 1) {
     const priority = pickWeighted([
       { value: 'urgent' as const, weight: 40 },
       { value: 'normal' as const, weight: 35 },
@@ -118,22 +122,33 @@ async function seedSupplies() {
           : null
 
     const notes = Math.random() < 0.45 ? NOTES[index % NOTES.length] : null
+    const products = sampleProducts()
+    const submittedBy = USERS[index % USERS.length].email
+    const statusEvents = [
+      { toStatus: 'Pending', actorEmail: submittedBy, note: 'Request submitted', createdAt },
+      ...(emailSentAt ? [{ fromStatus: 'Pending', toStatus: 'EmailSent', actorEmail: 'admin@ds.ie', note: 'Client notified', createdAt: emailSentAt }] : []),
+      ...(completedAt ? [{ fromStatus: emailSentAt ? 'EmailSent' : 'Pending', toStatus: 'Completed', actorEmail: 'admin@ds.ie', note: 'Request completed', createdAt: completedAt }] : []),
+    ]
 
-    return {
-      employeeName: EMPLOYEES[index % EMPLOYEES.length],
-      clientLocation: LOCATIONS[index % LOCATIONS.length],
-      priority,
-      products: JSON.stringify(sampleProducts()),
-      notes,
-      status,
-      submittedBy: USERS[index % USERS.length].email,
-      createdAt,
-      emailSentAt,
-      completedAt,
-    }
-  })
-
-  await prisma.supplyRequest.createMany({ data: supplies })
+    await prisma.supplyRequest.create({
+      data: {
+        employeeName: EMPLOYEES[index % EMPLOYEES.length],
+        clientLocation: LOCATIONS[index % LOCATIONS.length],
+        priority,
+        products: JSON.stringify(products),
+        items: { create: products.map((product) => ({ product, quantity: randomInt(1, 5) })) },
+        statusEvents: { create: statusEvents },
+        notes,
+        status,
+        submittedBy,
+        createdAt,
+        emailSentAt,
+        completedAt,
+        dueAt: calculateSupplyDueAt(priority, createdAt),
+        assignedTo: index % 4 === 0 ? null : index % 2 === 0 ? 'admin@ds.ie' : 'super@ds.ie',
+      },
+    })
+  }
 }
 
 async function seedFeedback() {
@@ -141,9 +156,10 @@ async function seedFeedback() {
 
   const ratingValues = [5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0]
 
-  const streakEmployees = ['Sarah Johnson', 'Emma Wilson']
+  const streakEmployees = ['Strikerlift', 'Emma Wilson']
   const feedback: Array<{
     employeeName: string
+    employeeId: string
     clientLocation: string
     cleanliness: number
     punctuality: number
@@ -156,8 +172,16 @@ async function seedFeedback() {
     createdAt: Date
   }> = []
 
+  const employeeUsers = await prisma.user.findMany({
+    where: { role: 'employee', status: 'active' },
+    select: { id: true, name: true },
+  })
+  const employeeIds = new Map(employeeUsers.map((user) => [user.name, user.id]))
+
   for (let i = 0; i < 25; i += 1) {
     const employee = EMPLOYEES[i % EMPLOYEES.length]
+    const employeeId = employeeIds.get(employee)
+    if (!employeeId) throw new Error(`Missing seeded employee account for ${employee}`)
     const isStreak = streakEmployees.includes(employee) && i < 6
     const ratings = Array.from({ length: 4 }).map(() =>
       isStreak ? pickWeighted([{ value: 4.5, weight: 40 }, { value: 5.0, weight: 60 }]) : ratingValues[randomInt(0, ratingValues.length - 1)]
@@ -167,6 +191,7 @@ async function seedFeedback() {
 
     feedback.push({
       employeeName: employee,
+      employeeId,
       clientLocation: LOCATIONS[i % LOCATIONS.length],
       cleanliness: ratings[0],
       punctuality: ratings[1],
