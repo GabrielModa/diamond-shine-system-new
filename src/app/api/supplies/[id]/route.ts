@@ -18,7 +18,7 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
     ok: true,
     data: {
       ...row,
-      status: dbStatusToLabel(row.status as 'Pending' | 'EmailSent' | 'Completed'),
+      status: dbStatusToLabel(row.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
       products: parseStringArray(row.products),
       items: row.items.length
         ? row.items.map(({ product, quantity }) => ({ product, quantity }))

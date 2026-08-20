@@ -26,7 +26,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  if (row.status === 'Completed') {
+  if (row.status === 'Completed' || row.status === 'Cancelled') {
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
 

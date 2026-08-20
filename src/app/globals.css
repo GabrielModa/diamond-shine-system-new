@@ -140,6 +140,9 @@ button:focus-visible {
 .progress-step span { height: 5px; border-radius: 999px; background: #e2e8f0; }
 .progress-step.complete { color: #3730a3; font-weight: 600; }
 .progress-step.complete span { background: #6366f1; }
+.request-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
+.request-cancelled { padding: 10px 12px; border-radius: 10px; background: #fef2f2; color: #b91c1c; }
+.btn-ghost.danger { color: #b91c1c; border-color: #fecaca; }
 
 .top-bar {
   position: sticky;
@@ -805,6 +808,7 @@ button:focus-visible {
 .status-badge.Pending { background: #fff4cc; color: #a16207; }
 .status-badge.Email-Sent { background: #e0ecff; color: #1d4ed8; }
 .status-badge.Completed { background: #dcfce7; color: #15803d; }
+.status-badge.Cancelled { background: #fee2e2; color: #b91c1c; }
 
 .badge {
   text-transform: uppercase;

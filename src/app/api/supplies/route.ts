@@ -24,7 +24,7 @@ const createSchema = z.object({
 }).refine((value) => Boolean(value.items?.length || value.products?.length), { message: 'At least one item is required' })
 
 const querySchema = z.object({
-  status: z.enum(['pending', 'email-sent', 'completed']).optional(),
+  status: z.enum(['pending', 'email-sent', 'completed', 'cancelled']).optional(),
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
   mine: z.enum(['true', 'false']).optional(),
@@ -102,7 +102,9 @@ export async function GET(request: NextRequest) {
         ? 'Pending'
         : parsed.data.status === 'email-sent'
           ? 'EmailSent'
-          : 'Completed'
+          : parsed.data.status === 'completed'
+            ? 'Completed'
+            : 'Cancelled'
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
   if (parsed.data.search) {
@@ -122,7 +124,7 @@ export async function GET(request: NextRequest) {
     const products = parseStringArray(item.products)
     return {
       ...item,
-      status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
+      status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
       products,
       items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
     }

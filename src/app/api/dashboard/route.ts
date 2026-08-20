@@ -61,7 +61,7 @@ export async function GET(request: NextRequest) {
           const products = parseStringArray(item.products)
           return {
             ...item,
-            status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
+            status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
             products,
             items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
           }

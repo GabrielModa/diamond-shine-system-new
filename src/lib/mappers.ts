@@ -1,11 +1,11 @@
 import type { FeedbackCategory, SupplyStatus } from '../types'
 
-export function dbStatusToLabel(status: 'Pending' | 'EmailSent' | 'Completed'): SupplyStatus {
+export function dbStatusToLabel(status: 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'): SupplyStatus {
   if (status === 'EmailSent') return 'Email Sent'
   return status
 }
 
-export function labelToDbStatus(status: SupplyStatus): 'Pending' | 'EmailSent' | 'Completed' {
+export function labelToDbStatus(status: SupplyStatus): 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled' {
   if (status === 'Email Sent') return 'EmailSent'
   return status
 }

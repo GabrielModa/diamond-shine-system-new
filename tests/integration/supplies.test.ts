@@ -98,6 +98,23 @@ describe('GET /api/supplies', () => {
 })
 
 describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
+  it('employee can cancel their own pending request', async () => {
+    const row = await prisma.supplyRequest.create({
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+    })
+    const res = await request(app).patch(`/api/supplies/${row.id}/status`).set('Cookie', employeeCookie).send({ status: 'Cancelled' })
+    expect(res.status).toBe(200)
+    expect((await prisma.supplyRequest.findUnique({ where: { id: row.id } }))?.status).toBe('Cancelled')
+  })
+
+  it('employee cannot cancel another users request', async () => {
+    const row = await prisma.supplyRequest.create({
+      data: { employeeName: 'Admin', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'admin@ds.ie' },
+    })
+    const res = await request(app).patch(`/api/supplies/${row.id}/status`).set('Cookie', employeeCookie).send({ status: 'Cancelled' })
+    expect(res.status).toBe(403)
+  })
+
   it('Pending → Email Sent succeeds', async () => {
     await prisma.supplyRequest.create({
       data: {
