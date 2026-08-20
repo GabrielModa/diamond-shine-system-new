@@ -76,11 +76,25 @@ function formatDublinDate(value?: Date | string) {
   return date.toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  }[character] ?? character))
+}
+
+function sanitizeHeader(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim()
+}
+
 function buildSuppliesEmailHtml(data: SupplyEmailData): string {
   const config = priorityConfig(data.priority)
   const items = data.items?.length ? data.items : (data.products || []).map((product) => ({ product, quantity: 1 }))
-  const productsHtml = items.map((item) => `<div class="product-item">• ${item.product} × ${item.quantity}</div>`).join('')
-  const notesRow = data.notes ? `<tr><td>Notes</td><td>${data.notes}</td></tr>` : ''
+  const productsHtml = items.map((item) => `<div class="product-item">• ${escapeHtml(item.product)} × ${item.quantity}</div>`).join('')
+  const notesRow = data.notes ? `<tr><td>Notes</td><td>${escapeHtml(data.notes)}</td></tr>` : ''
   const timestamp = formatDublinDate(data.createdAt)
 
   return `<!DOCTYPE html>
@@ -112,20 +126,20 @@ function buildSuppliesEmailHtml(data: SupplyEmailData): string {
         <p>Supplies Management System</p>
       </div>
       <div class="priority-banner">
-        <h2>${config.emoji} ${config.label} PRIORITY <span class="pill">${data.id}</span></h2>
+        <h2>${config.emoji} ${config.label} PRIORITY <span class="pill">${escapeHtml(data.id)}</span></h2>
       </div>
       <div class="info-card">
         <table class="info-table">
-          <tr><td>Employee</td><td><strong>${data.employeeName}</strong></td></tr>
-          <tr><td>Location</td><td>${data.clientLocation}</td></tr>
+          <tr><td>Employee</td><td><strong>${escapeHtml(data.employeeName)}</strong></td></tr>
+          <tr><td>Location</td><td>${escapeHtml(data.clientLocation)}</td></tr>
           <tr><td>Products</td><td><div class="products-list">${productsHtml}</div></td></tr>
           ${notesRow}
-          <tr><td>Submitted by</td><td>${data.submittedBy}</td></tr>
+          <tr><td>Submitted by</td><td>${escapeHtml(data.submittedBy)}</td></tr>
           <tr><td>Date/Time</td><td>${timestamp}</td></tr>
         </table>
       </div>
       <div class="footer">
-        Request ID: <b>${data.id}</b> | Diamond Shine Automated System
+        Request ID: <b>${escapeHtml(data.id)}</b> | Diamond Shine Automated System
       </div>
     </div>
   </body>
@@ -158,20 +172,20 @@ function buildFeedbackEmailHtml(data: FeedbackEmailData): string {
       </div>
       <div class="score-card">
         <table class="score-table">
-          <tr><td>Employee</td><td><strong>${data.employeeName}</strong></td></tr>
-          <tr><td>Location</td><td>${data.clientLocation}</td></tr>
+          <tr><td>Employee</td><td><strong>${escapeHtml(data.employeeName)}</strong></td></tr>
+          <tr><td>Location</td><td>${escapeHtml(data.clientLocation)}</td></tr>
           <tr><td>Cleanliness</td><td>${data.cleanliness}</td></tr>
           <tr><td>Punctuality</td><td>${data.punctuality}</td></tr>
           <tr><td>Equipment</td><td>${data.equipment}</td></tr>
           <tr><td>Client Relations</td><td>${data.clientRelations}</td></tr>
-          <tr><td>Overall</td><td><b>${Number(data.overall.toFixed(2))}</b> (${data.category})</td></tr>
-          <tr><td>Comments</td><td>${data.comments ?? ''}</td></tr>
-          <tr><td>Submitted by</td><td>${data.submittedBy}</td></tr>
+          <tr><td>Overall</td><td><b>${Number(data.overall.toFixed(2))}</b> (${escapeHtml(data.category)})</td></tr>
+          <tr><td>Comments</td><td>${escapeHtml(data.comments ?? '')}</td></tr>
+          <tr><td>Submitted by</td><td>${escapeHtml(data.submittedBy)}</td></tr>
           <tr><td>Date/Time</td><td>${timestamp}</td></tr>
         </table>
       </div>
       <div class="footer">
-        Feedback ID: <b>${data.id}</b> | Diamond Shine Automated System
+        Feedback ID: <b>${escapeHtml(data.id)}</b> | Diamond Shine Automated System
       </div>
     </div>
   </body>
@@ -191,33 +205,37 @@ async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback:
   }
 }
 
-export async function sendSuppliesNotification(data: SupplyEmailData): Promise<void> {
+export async function sendSuppliesNotification(data: SupplyEmailData): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
     const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,
-      subject: `${priorityEmoji(data.priority)} SUPPLIES REQUEST - ${data.employeeName} (ID: ${data.id})`,
+      subject: `${priorityEmoji(data.priority)} SUPPLIES REQUEST - ${sanitizeHeader(data.employeeName)} (ID: ${sanitizeHeader(data.id)})`,
       html: buildSuppliesEmailHtml(data),
     })
+    return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed supplies notification', error)
+    return { ok: false }
   }
 }
 
-export async function sendFeedbackNotification(data: FeedbackEmailData): Promise<void> {
+export async function sendFeedbackNotification(data: FeedbackEmailData): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
     const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,
-      subject: `📋 FEEDBACK - ${data.employeeName} (ID: ${data.id})`,
+      subject: `📋 FEEDBACK - ${sanitizeHeader(data.employeeName)} (ID: ${sanitizeHeader(data.id)})`,
       html: buildFeedbackEmailHtml(data),
     })
+    return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed feedback notification', error)
+    return { ok: false }
   }
 }
 
@@ -243,9 +261,15 @@ const INVITE_TEMPLATE_FALLBACK = {
 }
 
 function renderTemplate(template: { subject: string; body: string }, data: Record<string, string>) {
-  const replace = (value: string) =>
-    Object.entries(data).reduce((acc, [key, val]) => acc.replaceAll(`{{${key}}}`, val), value)
-  return { subject: replace(template.subject), body: replace(template.body) }
+  const subject = Object.entries(data).reduce(
+    (value, [key, replacement]) => value.replaceAll(`{{${key}}}`, sanitizeHeader(replacement)),
+    template.subject
+  )
+  const body = Object.entries(data).reduce(
+    (value, [key, replacement]) => value.replaceAll(`{{${key}}}`, escapeHtml(replacement)),
+    template.body
+  )
+  return { subject, body }
 }
 
 async function getTemplate(key: string) {

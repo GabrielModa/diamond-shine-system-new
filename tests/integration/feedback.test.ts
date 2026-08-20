@@ -7,8 +7,8 @@ import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie, cleanFeedback } from './setup'
 
 vi.mock('../../src/lib/email', () => ({
-  sendSuppliesNotification: vi.fn().mockResolvedValue(undefined),
-  sendFeedbackNotification: vi.fn().mockResolvedValue(undefined),
+  sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
+  sendFeedbackNotification: vi.fn().mockResolvedValue({ ok: true }),
   sendClientNotification: vi.fn().mockResolvedValue(undefined),
 }))
 

@@ -65,7 +65,7 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  void sendSuppliesNotification({
+  const notification = await sendSuppliesNotification({
     id: created.id,
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
@@ -80,9 +80,10 @@ export async function POST(request: NextRequest) {
   await logAudit(auth.user.email, 'create_supply', 'supply', created.id, {
     employeeName: created.employeeName,
     priority: created.priority,
+    notificationSent: notification.ok,
   })
 
-  return NextResponse.json({ ok: true, data: { id: created.id } }, { status: 201 })
+  return NextResponse.json({ ok: true, data: { id: created.id, notificationSent: notification.ok } }, { status: 201 })
 }
 
 export async function GET(request: NextRequest) {
