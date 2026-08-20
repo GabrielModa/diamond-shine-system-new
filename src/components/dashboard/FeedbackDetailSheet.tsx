@@ -28,10 +28,11 @@ export function FeedbackDetailSheet({ open, entry, onClose }: FeedbackDetailShee
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!open}
     >
-      <div className="overlay-sheet detail-sheet fade-up">
+      <div className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="feedback-detail-title">
         <div className="sheet-header">
-          <h2>⭐ Evaluation</h2>
+          <h2 id="feedback-detail-title">⭐ Evaluation</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

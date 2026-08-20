@@ -160,10 +160,11 @@ export function SupplyListSheet({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!open}
     >
-      <div className="overlay-sheet list-sheet fade-up">
+      <div className="overlay-sheet list-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-list-title">
         <div className="sheet-header">
-          <h2>
+          <h2 id="supply-list-title">
             <span className="title-icon">📋</span>
             {title}
           </h2>
@@ -177,6 +178,7 @@ export function SupplyListSheet({
         <div className="filters-compact">
           <input
             type="search"
+            aria-label="Search supply requests"
             placeholder="Search requests..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -189,14 +191,14 @@ export function SupplyListSheet({
         {!isMobile || filtersOpen ? (
           <div className="filters card">
             <div className="filters-grid">
-              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+              <select aria-label="Filter by period" value={period} onChange={(event) => setPeriod(event.target.value)}>
                 <option value="all">All time</option>
                 <option value="month">This month</option>
                 <option value="7">Last 7 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
               </select>
-              <select value={location} onChange={(event) => setLocation(event.target.value)}>
+              <select aria-label="Filter by location" value={location} onChange={(event) => setLocation(event.target.value)}>
                 <option value="all">All locations</option>
                 {locations.map((loc) => (
                   <option key={loc} value={loc}>
@@ -204,7 +206,7 @@ export function SupplyListSheet({
                   </option>
                 ))}
               </select>
-              <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
+              <select aria-label="Filter by employee" value={employee} onChange={(event) => setEmployee(event.target.value)}>
                 <option value="all">All employees</option>
                 {employees.map((name) => (
                   <option key={name} value={name}>
@@ -214,6 +216,7 @@ export function SupplyListSheet({
               </select>
               <input
                 type="search"
+                aria-label="Search supply requests"
                 placeholder="Search requests..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -256,25 +259,28 @@ export function SupplyListSheet({
             <div className="empty-state">No requests found.</div>
           ) : null}
           {filtered.map((item) => (
-            <div key={item.id} className="list-item" onClick={() => onSelect(item)}>
-              <div className="list-main">
-                <div className="list-title">{item.employeeName}</div>
-                <div className="muted">{item.clientLocation}</div>
-              </div>
-              <div className="list-meta">
+            <div key={item.id} className="list-item">
+              <button type="button" className="list-open-button" onClick={() => onSelect(item)} aria-label={`Open request from ${item.employeeName} at ${item.clientLocation}`}>
+              <span className="list-main">
+                <span className="list-title">{item.employeeName}</span>
+                <span className="muted">{item.clientLocation}</span>
+              </span>
+              <span className="list-meta">
                 <span className={`status-badge ${item.status.replace(' ', '-')}`}>
-                  {item.status === 'Pending' ? '⏳' : item.status === 'Email Sent' ? '📧' : '✅'} {item.status}
+                  {item.status === 'Pending' ? '⏳' : item.status === 'Email Sent' ? '📧' : item.status === 'Cancelled' ? '⛔' : '✅'} {item.status}
                 </span>
                 <span className={`badge ${item.priority}`}>
                   {item.priority === 'urgent' ? '🔴' : item.priority === 'normal' ? '🟡' : '🟢'}{' '}
                   {item.priority.toUpperCase()}
                 </span>
                 <span className="muted">{timeAgo(item.createdAt)}</span>
-              </div>
+              </span>
+              </button>
               <div className="list-actions">
                 {item.status === 'Pending' ? (
                   <button
                     title="Send Email"
+                    aria-label={`Send email for ${item.employeeName}'s request`}
                     className="btn-success"
                     onClick={(event) => {
                       event.stopPropagation()
@@ -287,6 +293,7 @@ export function SupplyListSheet({
                 {item.status === 'Email Sent' ? (
                   <button
                     title="Mark Complete"
+                    aria-label={`Mark ${item.employeeName}'s request complete`}
                     className="btn-info"
                     onClick={(event) => {
                       event.stopPropagation()

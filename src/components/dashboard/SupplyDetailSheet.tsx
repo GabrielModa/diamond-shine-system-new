@@ -34,10 +34,11 @@ export function SupplyDetailSheet({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!open}
     >
-      <div className="overlay-sheet detail-sheet fade-up">
+      <div className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-detail-title">
         <div className="sheet-header">
-          <h2>
+          <h2 id="supply-detail-title">
             <span className="title-icon">📦</span>
             Supply Request
           </h2>

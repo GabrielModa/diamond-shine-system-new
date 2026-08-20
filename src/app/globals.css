@@ -1065,6 +1065,32 @@ button[title="Mark Complete"] { background: #2563eb; color: white; }
 }
 .operational-kpi small { color: #64748b; }
 
+.list-open-button {
+  grid-column: 1 / 3;
+  display: grid;
+  grid-template-columns: 2fr 1fr;
+  gap: 12px;
+  align-items: center;
+  width: 100%;
+  padding: 0;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: inherit;
+  text-align: left;
+}
+.list-open-button:focus-visible {
+  outline: 3px solid rgba(79, 70, 229, 0.35);
+  outline-offset: 6px;
+}
+
+@media (max-width: 720px) {
+  .list-open-button {
+    grid-column: 1;
+    grid-template-columns: 1fr;
+  }
+}
+
 .metric-grid .metric-card {
   padding: 14px;
   border: 1px solid #e5e7eb;
