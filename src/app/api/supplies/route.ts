@@ -27,6 +27,7 @@ const querySchema = z.object({
   status: z.enum(['pending', 'email-sent', 'completed']).optional(),
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
+  mine: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
 })
@@ -81,7 +82,7 @@ export async function POST(request: NextRequest) {
 
 export async function GET(request: NextRequest) {
   console.log('[API /api/supplies GET]')
-  const auth = await requireAuth(request, ['admin', 'supervisor'])
+  const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
   if ('response' in auth) return auth.response
 
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
@@ -90,6 +91,10 @@ export async function GET(request: NextRequest) {
   }
 
   const where: Prisma.SupplyRequestWhereInput = {}
+
+  if (auth.user.role === 'employee' || parsed.data.mine === 'true') {
+    where.submittedBy = auth.user.email
+  }
 
   if (parsed.data.status) {
     where.status =

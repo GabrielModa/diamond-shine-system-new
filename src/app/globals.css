@@ -128,6 +128,18 @@ button:focus-visible {
   border: 1px solid rgba(102, 126, 234, 0.2);
 }
 .page-header p { max-width: 52ch; }
+.page-header-action { flex-direction: row; align-items: center; justify-content: space-between; }
+.page-action { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
+.request-history { display: grid; gap: 12px; }
+.request-history-card { display: grid; gap: 14px; }
+.request-history-header { display: flex; align-items: flex-start; justify-content: space-between; gap: 12px; }
+.request-items { display: flex; flex-wrap: wrap; gap: 8px; }
+.request-items span { padding: 6px 10px; border-radius: 999px; background: #eef2ff; color: #3730a3; font-size: 0.85rem; }
+.request-progress { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.progress-step { display: grid; gap: 5px; color: #94a3b8; font-size: 0.78rem; }
+.progress-step span { height: 5px; border-radius: 999px; background: #e2e8f0; }
+.progress-step.complete { color: #3730a3; font-weight: 600; }
+.progress-step.complete span { background: #6366f1; }
 
 .top-bar {
   position: sticky;
@@ -1170,6 +1182,7 @@ button[title="Mark Complete"] { background: #2563eb; color: white; }
   }
   .role-pill { font-size: 0.75rem; padding: 3px 8px; }
   .top-bar a { font-size: 0.95rem; }
+  .page-header-action { flex-direction: column; align-items: stretch; }
 }
 
 @media (prefers-reduced-motion: reduce) {

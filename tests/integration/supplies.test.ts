@@ -86,8 +86,14 @@ describe('GET /api/supplies', () => {
     expect((await request(app).get('/api/supplies').set('Cookie', adminCookie)).body.data.total).toBe(3)
   })
 
-  it('employee → 403', async () => {
-    expect((await request(app).get('/api/supplies').set('Cookie', employeeCookie)).status).toBe(403)
+  it('employee sees only their own requests', async () => {
+    await prisma.supplyRequest.create({
+      data: { employeeName: 'Admin', clientLocation: 'Green Bank - Temple Bar', priority: 'normal', products: '["Bleach"]', submittedBy: 'admin@ds.ie' },
+    })
+    const res = await request(app).get('/api/supplies').set('Cookie', employeeCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.total).toBe(3)
+    expect(res.body.data.items.every((item: { submittedBy: string }) => item.submittedBy === 'employee@ds.ie')).toBe(true)
   })
 })
 

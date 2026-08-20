@@ -23,9 +23,9 @@ export const PRODUCTS = [
 export const RATING_VALUES = [5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0] as const
 
 export const PAGE_ACCESS: Record<UserRole, Page[]> = {
-  admin: ['home', 'supplies', 'feedback', 'dashboard', 'users'],
-  supervisor: ['home', 'supplies', 'feedback'],
-  employee: ['home', 'supplies'],
+  admin: ['home', 'supplies', 'my-requests', 'feedback', 'dashboard', 'users'],
+  supervisor: ['home', 'supplies', 'my-requests', 'feedback'],
+  employee: ['home', 'supplies', 'my-requests'],
   viewer: ['home'],
 }
 

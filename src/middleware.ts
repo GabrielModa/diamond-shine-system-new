@@ -5,6 +5,7 @@ import { sessionCookie, verifySessionToken } from './lib/session'
 const routeRoles: Record<string, UserRole[]> = {
   '/home': ['admin', 'supervisor', 'employee', 'viewer'],
   '/supplies': ['admin', 'supervisor', 'employee'],
+  '/my-requests': ['admin', 'supervisor', 'employee'],
   '/feedback': ['admin', 'supervisor'],
   '/dashboard': ['admin'],
   '/users': ['admin'],
@@ -28,5 +29,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/home', '/supplies', '/feedback', '/dashboard', '/users'],
+  matcher: ['/home', '/supplies', '/my-requests', '/feedback', '/dashboard', '/users'],
 }

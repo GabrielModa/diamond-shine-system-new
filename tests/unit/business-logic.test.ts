@@ -87,14 +87,14 @@ describe('checkPageAccess', () => {
 })
 
 describe('getAllowedPages', () => {
-  it('admin gets all 5 pages', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['dashboard', 'feedback', 'home', 'supplies', 'users'])
+  it('admin gets all 6 pages', () => {
+    expect(getAllowedPages('admin').sort()).toEqual(['dashboard', 'feedback', 'home', 'my-requests', 'supplies', 'users'])
   })
-  it('supervisor gets 3 pages (no dashboard)', () => {
-    expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'supplies'])
+  it('supervisor gets 4 pages (no dashboard)', () => {
+    expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'my-requests', 'supplies'])
   })
-  it('employee gets 2 pages (home + supplies)', () => {
-    expect(getAllowedPages('employee').sort()).toEqual(['home', 'supplies'])
+  it('employee gets 3 pages (home + supplies + tracking)', () => {
+    expect(getAllowedPages('employee').sort()).toEqual(['home', 'my-requests', 'supplies'])
   })
   it('viewer gets only home', () => {
     expect(getAllowedPages('viewer')).toEqual(['home'])

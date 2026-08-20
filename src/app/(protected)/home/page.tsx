@@ -10,6 +10,11 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
     desc: 'Request cleaning products for client locations.',
     href: '/supplies',
   },
+  'my-requests': {
+    title: 'My Requests',
+    desc: 'Track the progress of requests you submitted.',
+    href: '/my-requests',
+  },
   feedback: {
     title: 'Performance Feedback',
     desc: 'Rate staff performance across key criteria.',
@@ -48,6 +53,7 @@ export default async function HomePage() {
             <a key={page} className="link-card" href={cardMeta[page].href}>
               <div className="card-icon">
                 {page === 'supplies' && '📦'}
+                {page === 'my-requests' && '🧾'}
                 {page === 'feedback' && '⭐'}
                 {page === 'dashboard' && '📊'}
                 {page === 'users' && '👥'}

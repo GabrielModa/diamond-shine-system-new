@@ -8,6 +8,7 @@ import { sessionCookie, verifySessionToken } from '../../lib/session'
 const pageMeta: Record<string, { label: string; href: string }> = {
   home: { label: 'Home', href: '/home' },
   supplies: { label: 'Supplies', href: '/supplies' },
+  'my-requests': { label: 'My requests', href: '/my-requests' },
   feedback: { label: 'Feedback', href: '/feedback' },
   dashboard: { label: 'Dashboard', href: '/dashboard' },
   users: { label: 'Users', href: '/users' },
