@@ -119,3 +119,33 @@ export function calculateSupplyOperationsMetrics(requests: SupplyMetricInput[]) 
     averageResolutionHours,
   }
 }
+
+export function calculateFeedbackTrend(
+  entries: Array<{ overall: number; createdAt: string | Date }>,
+  now = new Date()
+) {
+  const day = 24 * 60 * 60 * 1000
+  const currentStart = now.getTime() - 30 * day
+  const previousStart = now.getTime() - 60 * day
+  const current = entries.filter((entry) => {
+    const timestamp = new Date(entry.createdAt).getTime()
+    return timestamp >= currentStart && timestamp <= now.getTime()
+  })
+  const previous = entries.filter((entry) => {
+    const timestamp = new Date(entry.createdAt).getTime()
+    return timestamp >= previousStart && timestamp < currentStart
+  })
+  const average = (items: typeof entries) => items.length
+    ? items.reduce((sum, entry) => sum + entry.overall, 0) / items.length
+    : null
+  const currentAverage = average(current)
+  const previousAverage = average(previous)
+
+  return {
+    currentCount: current.length,
+    previousCount: previous.length,
+    currentAverage,
+    previousAverage,
+    delta: currentAverage !== null && previousAverage !== null ? currentAverage - previousAverage : null,
+  }
+}

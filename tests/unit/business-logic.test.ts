@@ -12,6 +12,7 @@ import {
   getSupplySlaHours,
   isSupplyOverdue,
   calculateSupplyOperationsMetrics,
+  calculateFeedbackTrend,
 } from '../../src/lib/business-logic'
 
 describe('calculateOverall', () => {
@@ -215,5 +216,24 @@ describe('consecutiveExcellent', () => {
 
   it('stops counting at first non-excellent', () => {
     expect(consecutiveExcellent([{ overall: 4.6 }, { overall: 4.0 }, { overall: 5.0 }])).toBe(1)
+  })
+})
+
+describe('feedback trend', () => {
+  it('compares the latest 30 days with the preceding period', () => {
+    const trend = calculateFeedbackTrend([
+      { overall: 5, createdAt: '2026-08-15T00:00:00Z' },
+      { overall: 4, createdAt: '2026-08-05T00:00:00Z' },
+      { overall: 3, createdAt: '2026-07-15T00:00:00Z' },
+      { overall: 4, createdAt: '2026-07-10T00:00:00Z' },
+    ], new Date('2026-08-20T00:00:00Z'))
+
+    expect(trend.currentAverage).toBe(4.5)
+    expect(trend.previousAverage).toBe(3.5)
+    expect(trend.delta).toBe(1)
+  })
+
+  it('does not invent a delta without both periods', () => {
+    expect(calculateFeedbackTrend([], new Date('2026-08-20T00:00:00Z')).delta).toBeNull()
   })
 })

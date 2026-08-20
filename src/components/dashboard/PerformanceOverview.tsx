@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeedbackEntry } from '../../types'
-import { consecutiveExcellent } from '../../lib/business-logic'
+import { calculateFeedbackTrend, consecutiveExcellent } from '../../lib/business-logic'
 
 type PerformanceOverviewProps = {
   feedback: FeedbackEntry[]
@@ -52,6 +52,16 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
     const excellentCount = feedback.filter((item) => item.overall >= 4.6).length
     return { totalEmployees, totalEvaluations, averageRating, excellentCount }
   }, [employees.length, feedback])
+
+  const trend = useMemo(() => calculateFeedbackTrend(feedback), [feedback])
+  const needsAttention = useMemo(() => employees
+    .map((employee) => ({
+      ...employee,
+      average: employee.evaluations.reduce((sum, entry) => sum + entry.overall, 0) / employee.evaluations.length,
+    }))
+    .filter((employee) => employee.average < 4)
+    .sort((a, b) => a.average - b.average)
+    .slice(0, 3), [employees])
 
   const matches = useMemo(() => {
     if (debounced.length < 2) return [] as EmployeeSummary[]
@@ -157,7 +167,29 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
             <div className="muted">🏆 Excellent ratings</div>
             <div>{aggregate.excellentCount}</div>
           </div>
+          <div className="metric-card trend-metric">
+            <div className="muted">📈 30-day trend</div>
+            <div className={trend.delta === null ? '' : trend.delta >= 0 ? 'trend-positive' : 'trend-negative'}>
+              {trend.delta === null ? '—' : `${trend.delta >= 0 ? '+' : ''}${trend.delta.toFixed(1)}`}
+            </div>
+            <small>{trend.currentCount} recent evaluations</small>
+          </div>
         </div>
+      ) : null}
+
+      {debounced.length < 2 && needsAttention.length > 0 ? (
+        <section className="attention-list" aria-labelledby="coaching-title">
+          <div className="section-heading">
+            <h3 id="coaching-title">Needs coaching</h3>
+            <span className="muted">Average below 4.0</span>
+          </div>
+          {needsAttention.map((employee) => (
+            <button key={employee.name} type="button" className="attention-row" onClick={() => { setSelectedEmployee(employee); setProfileOpen(true) }}>
+              <span>{employee.name}</span>
+              <strong>{employee.average.toFixed(1)}</strong>
+            </button>
+          ))}
+        </section>
       ) : null}
 
       {debounced.length >= 2 ? (
