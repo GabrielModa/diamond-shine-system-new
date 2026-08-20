@@ -1,0 +1,45 @@
+name: Quality Gate
+
+on:
+  pull_request:
+  push:
+    branches: [main, dev, "codex/**"]
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: diamond
+          POSTGRES_PASSWORD: diamond
+          POSTGRES_DB: diamond_shine_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U diamond -d diamond_shine_test"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    env:
+      DATABASE_URL: postgresql://diamond:diamond@localhost:5432/diamond_shine_test
+      SESSION_SECRET: ci-only-session-secret-with-more-than-32-characters
+      NEXTAUTH_URL: http://127.0.0.1:3000
+      PLAYWRIGHT_BASE_URL: http://127.0.0.1:3000
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+      - run: npm ci
+      - run: npx prisma generate
+      - run: npx prisma db push
+      - run: npm run typecheck
+      - run: npm run test:unit
+      - run: npm run test:integration
+      - run: npm run db:seed
+      - run: npm run build
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e

@@ -25,8 +25,11 @@ async function updateStatus(page: any, id: string, status: string) {
 
 async function createFeedback(page: any, payload: any) {
   const cookie = await getCookieHeader(page)
+  const employeesResponse = await page.request.get('/api/employees', { headers: { Cookie: cookie } })
+  const employeesPayload = await employeesResponse.json()
+  const employee = employeesPayload.data.find((item: { name: string | null }) => item.name === payload.employeeName) ?? employeesPayload.data[0]
   await page.request.post('/api/feedback', {
-    data: payload,
+    data: { ...payload, employeeId: employee.id, employeeName: undefined },
     headers: { Cookie: cookie },
   })
 }
@@ -81,7 +84,7 @@ test('clicking a list item opens the detail sheet with correct data', async ({ p
   await waitForDashboardCards(page)
   await page.click('.stat-card.normal')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await expect(page.locator('#detailOverlay.overlay.active')).toBeVisible()
   await expect(page.locator('#detailOverlay [data-testid="supply-detail"]')).toBeVisible()
   await expect(page.locator('#detailOverlay')).toContainText('Detail Employee')
@@ -99,13 +102,12 @@ test('clicking Send Email opens modal with pre-filled subject and body', async (
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.click('button:has-text("Send Email to Client")')
   await expect(page.locator('#emailModal.modal-overlay.active')).toBeVisible()
   const subject = await page.inputValue('#emailSubject')
   const body = await page.inputValue('#emailBody')
-  expect(subject).toContain('Diamond Shine Supplies')
-  expect(subject).toContain('URGENT')
+  expect(subject).toContain('SUPPLIES REQUEST')
   expect(body).toContain('Diamond Shine')
 })
 
@@ -120,7 +122,7 @@ test('completing a Pending request shows ONE confirm modal with email warning', 
   await waitForDashboardCards(page)
   await page.click('.stat-card.low')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.click('button:has-text("Complete Without Email")')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
   await expect(page.locator('#confirmMessage')).toContainText('has not been emailed')
@@ -139,7 +141,7 @@ test('completing an Email Sent request shows ONE confirm modal without email war
   await waitForDashboardCards(page)
   await page.click('.status-pill:has-text("Email Sent")')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.click('button:has-text("Mark as Completed")')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
   await expect(page.locator('#confirmMessage')).toContainText('Mark as completed')
@@ -149,7 +151,7 @@ test('completing an Email Sent request shows ONE confirm modal without email war
 
 test('searching an employee shows their profile with evaluations', async ({ page }) => {
   await createFeedback(page, {
-    employeeName: 'Sarah Johnson',
+    employeeName: 'Strikerlift',
     clientLocation: 'TechCorp Office - Dublin 2',
     cleanliness: 4.5,
     punctuality: 4.5,
@@ -167,15 +169,15 @@ test('searching an employee shows their profile with evaluations', async ({ page
   })
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.fill('input[placeholder="Search employee..."]', 'sa')
+  await page.fill('input[placeholder="Search employee..."]', 'str')
   await expect(page.locator('.found-count')).toContainText('Found')
-  await page.click('.result-row:has-text("Sarah Johnson")')
-  await expect(page.locator('text=👤 Sarah Johnson')).toBeVisible()
+  await page.click('.result-row:has-text("Strikerlift")')
+  await expect(page.locator('text=👤 Strikerlift')).toBeVisible()
 })
 
 test('clicking an evaluation in employee profile opens Feedback Detail', async ({ page }) => {
   await createFeedback(page, {
-    employeeName: 'Sarah Johnson',
+    employeeName: 'Strikerlift',
     clientLocation: 'TechCorp Office - Dublin 2',
     cleanliness: 4.5,
     punctuality: 4.5,
@@ -185,8 +187,8 @@ test('clicking an evaluation in employee profile opens Feedback Detail', async (
   })
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.fill('input[placeholder="Search employee..."]', 'sa')
-  await page.click('.result-row:has-text("Sarah Johnson")')
+  await page.fill('input[placeholder="Search employee..."]', 'str')
+  await page.click('.result-row:has-text("Strikerlift")')
   await page.click('.profile-item')
   await expect(page.locator('#detailOverlay.overlay.active')).toBeVisible()
   await expect(page.locator('text=⭐ Evaluation')).toBeVisible()
@@ -203,7 +205,7 @@ test('ESC closes detail but not list (stack behavior)', async ({ page }) => {
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.keyboard.press('Escape')
   await expect(page.locator('#detailOverlay.overlay.active')).toHaveCount(0)
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()
@@ -222,7 +224,7 @@ test('browser back closes topmost overlay only', async ({ page }) => {
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.goBack()
   await expect(page.locator('#detailOverlay.overlay.active')).toHaveCount(0)
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()

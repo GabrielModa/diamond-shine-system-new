@@ -10,7 +10,10 @@ test.beforeEach(async ({ page }) => {
 
 test('full happy path: supervisor submits a performance evaluation', async ({ page }) => {
   await page.goto('/feedback')
-  await page.selectOption('#employeeName', { label: 'Maria Silva' })
+  await page.selectOption('#employeeId', { label: 'Strikerlift' })
+  for (const field of ['cleanliness', 'punctuality', 'equipment', 'clientRelations']) {
+    await page.locator(`[data-field="${field}"] [data-score="4.5"]`).click()
+  }
   await page.click('#submitBtn')
   await expect(page.locator('.toast.success')).toBeVisible()
 })
