@@ -5,6 +5,7 @@ import { createSessionToken } from '../../src/lib/session'
 export const TEST_PASSWORD = 'password123'
 
 export async function seedUsers() {
+  await prisma.authRateLimit.deleteMany()
   await prisma.authToken.deleteMany()
   await prisma.supplyRequest.deleteMany()
   await prisma.feedbackEntry.deleteMany()

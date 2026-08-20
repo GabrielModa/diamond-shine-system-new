@@ -31,6 +31,18 @@ model AuthToken {
   @@map("auth_tokens")
 }
 
+model AuthRateLimit {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  attempts  Int      @default(0)
+  resetAt   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@map("auth_rate_limits")
+}
+
 model AuditLog {
   id         String   @id @default(cuid())
   actorEmail String

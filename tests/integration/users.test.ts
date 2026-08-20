@@ -29,6 +29,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
+  await prisma.authRateLimit.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.authToken.deleteMany()
   await prisma.user.deleteMany({ where: { email: { contains: '@test.io' } } })
@@ -57,6 +58,40 @@ describe('GET /api/users', () => {
     expect(res.status).toBe(200)
     expect(res.body.data.length).toBeGreaterThan(0)
     expect(res.body.data.every((user: Record<string, unknown>) => !('password' in user))).toBe(true)
+  })
+})
+
+describe('POST /api/auth/login', () => {
+  it('rate limits repeated invalid credentials without exposing the account', async () => {
+    for (let attempt = 0; attempt < 5; attempt += 1) {
+      const response = await request(app)
+        .post('/api/auth/login')
+        .set('x-forwarded-for', '203.0.113.10')
+        .send({ email: 'admin@ds.ie', password: 'incorrect-password' })
+      expect(response.status).toBe(401)
+      expect(response.body.error).toBe('Incorrect email or password')
+    }
+
+    const blocked = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.10')
+      .send({ email: 'admin@ds.ie', password: 'incorrect-password' })
+    expect(blocked.status).toBe(429)
+    expect(blocked.headers['retry-after']).toBeTruthy()
+  })
+
+  it('clears the attempt counter after a successful sign-in', async () => {
+    await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.11')
+      .send({ email: 'admin@ds.ie', password: 'incorrect-password' })
+
+    const success = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.11')
+      .send({ email: 'admin@ds.ie', password: 'password123' })
+    expect(success.status).toBe(200)
+    expect(await prisma.authRateLimit.count()).toBe(0)
   })
 })
 
