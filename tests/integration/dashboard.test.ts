@@ -38,3 +38,12 @@ describe('GET /api/dashboard', () => {
     expect((await request(app).get('/api/dashboard')).status).toBe(401)
   })
 })
+
+describe('GET /api/health', () => {
+  it('reports database readiness without authentication', async () => {
+    const response = await request(app).get('/api/health')
+    expect(response.status).toBe(200)
+    expect(response.body).toMatchObject({ ok: true, data: { status: 'ready', database: 'available' } })
+    expect(response.headers['cache-control']).toBe('no-store')
+  })
+})

@@ -48,6 +48,7 @@ If a database was previously created from this same schema with `prisma db push`
 - Initial administrator credentials are not seed credentials.
 - Supply and feedback recipient lists are verified in Communications.
 - Mobile and desktop smoke tests cover login, request submission/tracking, feedback, dashboard queues, assignment, and logout.
+- Infrastructure monitors poll `/api/health`; only a `200` response with `status: ready` is considered ready for traffic.
 
 ## Key commands
 
