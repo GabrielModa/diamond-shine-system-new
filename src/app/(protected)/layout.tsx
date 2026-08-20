@@ -24,8 +24,9 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
 
   return (
     <>
+      <a className="skip-link" href="#main-content">Skip to content</a>
       <TopNav items={items} />
-      {children}
+      <div id="main-content" tabIndex={-1}>{children}</div>
     </>
   )
 }

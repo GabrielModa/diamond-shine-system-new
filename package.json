@@ -8,6 +8,7 @@
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "dev": "next dev",
+    "build": "next build",
     "db:setup": "npx prisma generate && npx prisma db push && node scripts/seed-dev.js",
     "db:push": "npx prisma db push",
     "db:seed": "npx tsx prisma/seed.ts",
