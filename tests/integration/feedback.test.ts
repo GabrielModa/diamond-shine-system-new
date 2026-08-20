@@ -28,25 +28,49 @@ beforeAll(async () => {
 
 beforeEach(() => cleanFeedback())
 
-const VALID_FEEDBACK = {
-  employeeName: 'Emma Employee',
+async function validFeedback() {
+  const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+  return {
+  employeeId: employee.id,
   clientLocation: 'TechCorp Office - Dublin 2',
   cleanliness: 5.0,
   punctuality: 4.5,
   equipment: 5.0,
   clientRelations: 4.5,
   comments: 'Great work',
+  }
 }
 
 describe('POST /api/feedback', () => {
   it('supervisor creates feedback → 201', async () => {
-    const res = await request(app).post('/api/feedback').set('Cookie', supervisorCookie).send(VALID_FEEDBACK)
+    const res = await request(app).post('/api/feedback').set('Cookie', supervisorCookie).send(await validFeedback())
     expect(res.status).toBe(201)
     expect(res.body.ok).toBe(true)
   })
 
   it('employee → 403', async () => {
-    expect((await request(app).post('/api/feedback').set('Cookie', employeeCookie).send(VALID_FEEDBACK)).status).toBe(403)
+    expect((await request(app).post('/api/feedback').set('Cookie', employeeCookie).send(await validFeedback())).status).toBe(403)
+  })
+
+  it('rejects feedback for an unknown employee', async () => {
+    const payload = { ...(await validFeedback()), employeeId: 'missing-user' }
+    const res = await request(app).post('/api/feedback').set('Cookie', supervisorCookie).send(payload)
+    expect(res.status).toBe(400)
+  })
+})
+
+describe('GET /api/employees', () => {
+  it('returns active employees to supervisors', async () => {
+    const res = await request(app).get('/api/employees').set('Cookie', supervisorCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data).toEqual(
+      expect.arrayContaining([expect.objectContaining({ email: 'employee@ds.ie' })])
+    )
+  })
+
+  it('does not expose the directory to employees', async () => {
+    const res = await request(app).get('/api/employees').set('Cookie', employeeCookie)
+    expect(res.status).toBe(403)
   })
 })
 

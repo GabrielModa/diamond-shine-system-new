@@ -9,7 +9,7 @@ import { dbCategoryToLabel, labelToDbCategory } from '../../../lib/mappers'
 import { logAudit } from '../../../lib/audit'
 
 const bodySchema = z.object({
-  employeeName: z.string().min(1),
+  employeeId: z.string().min(1),
   clientLocation: z.enum(CLIENT_LOCATIONS),
   cleanliness: z.number(),
   punctuality: z.number(),
@@ -38,6 +38,14 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid ratings' }, { status: 400 })
   }
 
+  const employee = await prisma.user.findFirst({
+    where: { id: parsed.data.employeeId, role: 'employee', status: 'active' },
+    select: { id: true, name: true, email: true },
+  })
+  if (!employee) {
+    return NextResponse.json({ ok: false, error: 'Employee not found or inactive' }, { status: 400 })
+  }
+
   const overall = calculateOverall(
     parsed.data.cleanliness,
     parsed.data.punctuality,
@@ -48,7 +56,8 @@ export async function POST(request: NextRequest) {
 
   const created = await prisma.feedbackEntry.create({
     data: {
-      employeeName: parsed.data.employeeName,
+      employeeId: employee.id,
+      employeeName: employee.name ?? employee.email,
       clientLocation: parsed.data.clientLocation,
       cleanliness: parsed.data.cleanliness,
       punctuality: parsed.data.punctuality,

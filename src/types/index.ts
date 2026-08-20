@@ -29,6 +29,7 @@ export interface FeedbackEntry {
   id: string
   createdAt: string
   employeeName: string
+  employeeId?: string
   clientLocation: string
   cleanliness: number
   punctuality: number

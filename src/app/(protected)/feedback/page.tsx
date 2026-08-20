@@ -16,7 +16,7 @@ const fieldLabels: Record<Field, string> = {
 }
 
 type FeedbackDraft = {
-  employeeName: string
+  employeeId: string
   location: (typeof CLIENT_LOCATIONS)[number]
   ratings: Partial<Record<Field, number>>
   comments: string
@@ -31,7 +31,9 @@ function formatOverall(value: number): string {
 }
 
 export default function FeedbackPage() {
-  const [employeeName, setEmployeeName] = useState('Maria Silva')
+  const [employees, setEmployees] = useState<Array<{ id: string; name: string | null; email: string }>>([])
+  const [employeeId, setEmployeeId] = useState('')
+  const [loadingEmployees, setLoadingEmployees] = useState(true)
   const [location, setLocation] = useState<(typeof CLIENT_LOCATIONS)[number]>(CLIENT_LOCATIONS[0])
   const [ratings, setRatings] = useState<Partial<Record<Field, number>>>({})
   const [comments, setComments] = useState('')
@@ -53,12 +55,25 @@ export default function FeedbackPage() {
   }
 
   useEffect(() => {
+    fetch('/api/employees', { credentials: 'include', cache: 'no-store' })
+      .then(async (response) => {
+        if (!response.ok) throw new Error('Failed to load employees')
+        const payload = (await response.json()) as { data?: Array<{ id: string; name: string | null; email: string }> }
+        const items = payload.data ?? []
+        setEmployees(items)
+        setEmployeeId((current) => items.some((employee) => employee.id === current) ? current : items[0]?.id || '')
+      })
+      .catch(() => flashError('Could not load active employees.'))
+      .finally(() => setLoadingEmployees(false))
+  }, [])
+
+  useEffect(() => {
     const raw = localStorage.getItem(DRAFT_KEY)
     if (!raw) return
 
     try {
       const draft = JSON.parse(raw) as Partial<FeedbackDraft>
-      setEmployeeName(typeof draft.employeeName === 'string' ? draft.employeeName : 'Maria Silva')
+      setEmployeeId(typeof draft.employeeId === 'string' ? draft.employeeId : '')
       setLocation(
         draft.location && CLIENT_LOCATIONS.includes(draft.location)
           ? draft.location
@@ -72,9 +87,9 @@ export default function FeedbackPage() {
   }, [])
 
   useEffect(() => {
-    const draft: FeedbackDraft = { employeeName, location, ratings, comments }
+    const draft: FeedbackDraft = { employeeId, location, ratings, comments }
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-  }, [employeeName, location, ratings, comments])
+  }, [employeeId, location, ratings, comments])
 
   const selectedRatings = fields
     .map((field) => ratings[field])
@@ -127,7 +142,7 @@ export default function FeedbackPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          employeeName,
+          employeeId,
           clientLocation: location,
           cleanliness: ratings.cleanliness ?? 0,
           punctuality: ratings.punctuality ?? 0,
@@ -169,10 +184,11 @@ export default function FeedbackPage() {
           <h2>Employee & Location</h2>
           <p className="muted">Select who was evaluated and where the service happened.</p>
         </div>
-        <label htmlFor="employeeName" className="muted">Employee</label>
-        <select id="employeeName" value={employeeName} onChange={(event) => setEmployeeName(event.target.value)}>
-          <option>Maria Silva</option>
-          <option>Emma Employee</option>
+        <label htmlFor="employeeId" className="muted">Employee</label>
+        <select id="employeeId" value={employeeId} onChange={(event) => setEmployeeId(event.target.value)} disabled={loadingEmployees || employees.length === 0} required>
+          {loadingEmployees ? <option value="">Loading employees…</option> : null}
+          {!loadingEmployees && employees.length === 0 ? <option value="">No active employees available</option> : null}
+          {employees.map((employee) => <option key={employee.id} value={employee.id}>{employee.name ?? employee.email}</option>)}
         </select>
 
         <label htmlFor="clientLocation" className="muted">Client location</label>
@@ -230,7 +246,7 @@ export default function FeedbackPage() {
         </div>
         <textarea id="comments" value={comments} onChange={(event) => setComments(event.target.value)} />
         <div className="submit-bar">
-          <button id="submitBtn" type="submit" disabled={submitting}>
+          <button id="submitBtn" type="submit" disabled={submitting || !employeeId}>
             {submitting ? 'Submitting...' : 'Submit'}
           </button>
         </div>

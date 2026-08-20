@@ -8,7 +8,8 @@ model User {
   createdAt       DateTime        @default(now())
   updatedAt       DateTime        @updatedAt
   supplyRequests  SupplyRequest[]
-  feedbackEntries FeedbackEntry[]
+  feedbackEntries FeedbackEntry[] @relation("FeedbackSubmitter")
+  receivedFeedback FeedbackEntry[] @relation("FeedbackEmployee")
   auditLogs       AuditLog[]      @relation("AuditActor")
   authTokens      AuthToken[]
 
@@ -90,6 +91,7 @@ model SupplyRequest {
 model FeedbackEntry {
   id              String           @id @default(cuid())
   employeeName    String
+  employeeId      String?
   clientLocation  String
   cleanliness     Float
   punctuality     Float
@@ -101,10 +103,12 @@ model FeedbackEntry {
   submittedBy     String
   createdAt       DateTime         @default(now())
   updatedAt       DateTime         @updatedAt
-  user            User             @relation(fields: [submittedBy], references: [email])
+  user            User             @relation("FeedbackSubmitter", fields: [submittedBy], references: [email])
+  employee        User?            @relation("FeedbackEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
 
   @@index([submittedBy])
   @@index([employeeName])
+  @@index([employeeId])
   @@index([createdAt])
   @@map("feedback_entries")
 }
