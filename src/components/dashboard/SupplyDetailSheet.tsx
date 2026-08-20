@@ -2,9 +2,11 @@
 
 import type { SupplyRequest } from '../../types'
 import { isSupplyOverdue } from '../../lib/business-logic'
+import { useDialogFocus } from './useDialogFocus'
 
 type SupplyDetailSheetProps = {
   open: boolean
+  active: boolean
   request: SupplyRequest | null
   onClose: () => void
   onSendEmail: () => void
@@ -16,6 +18,7 @@ type SupplyDetailSheetProps = {
 
 export function SupplyDetailSheet({
   open,
+  active,
   request,
   onClose,
   onSendEmail,
@@ -24,6 +27,7 @@ export function SupplyDetailSheet({
   assignees,
   onAssign,
 }: SupplyDetailSheetProps) {
+  const dialogRef = useDialogFocus(active)
   if (!request) return null
   const overdue = isSupplyOverdue(request.dueAt, request.status)
 
@@ -34,9 +38,9 @@ export function SupplyDetailSheet({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
-      aria-hidden={!open}
+      aria-hidden={!active}
     >
-      <div className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-detail-title">
+      <div ref={dialogRef} tabIndex={-1} className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-detail-title">
         <div className="sheet-header">
           <h2 id="supply-detail-title">
             <span className="title-icon">📦</span>

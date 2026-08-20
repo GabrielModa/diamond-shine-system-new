@@ -52,6 +52,7 @@ export function ActivityFeed({ supplies, feedback, onSelectSupply, onSelectFeedb
               type="button"
               className={`seg-btn${segment === item ? ' active' : ''}`}
               onClick={() => setSegment(item)}
+              aria-pressed={segment === item}
             >
               {item === 'all' ? 'All' : item === 'supplies' ? 'Supplies' : 'Feedback'}
             </button>

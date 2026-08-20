@@ -1,23 +1,17 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import { useDialogFocus } from './useDialogFocus'
 
 type ConfirmModalProps = {
   open: boolean
+  active: boolean
   message: string
   onConfirm: () => void
   onClose: () => void
 }
 
-export function ConfirmModal({ open, message, onConfirm, onClose }: ConfirmModalProps) {
-  const cancelRef = useRef<HTMLButtonElement>(null)
-
-  useEffect(() => {
-    if (!open) return
-    const previous = document.activeElement as HTMLElement | null
-    cancelRef.current?.focus()
-    return () => previous?.focus()
-  }, [open])
+export function ConfirmModal({ open, active, message, onConfirm, onClose }: ConfirmModalProps) {
+  const dialogRef = useDialogFocus(active)
 
   return (
     <div
@@ -26,15 +20,15 @@ export function ConfirmModal({ open, message, onConfirm, onClose }: ConfirmModal
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
-      aria-hidden={!open}
+      aria-hidden={!active}
     >
-      <div className="modal-card zoom-in" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirmMessage">
+      <div ref={dialogRef} tabIndex={-1} className="modal-card zoom-in" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirmMessage">
         <h3 id="confirm-title">Confirm Action</h3>
         <p id="confirmMessage" className="muted">
           {message}
         </p>
         <div className="row">
-          <button ref={cancelRef} type="button" className="btn-secondary" onClick={onClose}>
+          <button type="button" className="btn-secondary" onClick={onClose}>
             Cancel
           </button>
           <button type="button" className="btn-primary" onClick={onConfirm}>

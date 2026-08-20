@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeedbackEntry } from '../../types'
 import { calculateFeedbackTrend, consecutiveExcellent } from '../../lib/business-logic'
+import { useDialogFocus } from './useDialogFocus'
 
 type PerformanceOverviewProps = {
   feedback: FeedbackEntry[]
@@ -21,6 +22,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
   const [profileOpen, setProfileOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null)
   const [mounted, setMounted] = useState(false)
+  const profileRef = useDialogFocus(profileOpen)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300)
@@ -143,6 +145,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
         </h2>
         <input
           type="search"
+          aria-label="Search employee performance"
           placeholder="Search employee..."
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -217,17 +220,18 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
         ? createPortal(
             <div
               className={`overlay${profileOpen ? ' active' : ''}`}
+              aria-hidden={!profileOpen}
               onClick={(event) => {
                 if (event.target === event.currentTarget) setProfileOpen(false)
               }}
             >
-              <div className="overlay-sheet detail-sheet fade-up">
+              <div ref={profileRef} tabIndex={-1} className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title">
                 <div className="sheet-header">
-                  <h2>
+                  <h2 id="employee-profile-title">
                     <span className="title-icon">👤</span>
                     {selectedEmployee ? selectedEmployee.name : 'Employee Profile'}
                   </h2>
-                  <button type="button" className="icon-btn" onClick={() => setProfileOpen(false)}>
+                  <button type="button" className="icon-btn" onClick={() => setProfileOpen(false)} aria-label="Close employee profile">
                     ✕
                   </button>
                 </div>

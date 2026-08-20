@@ -86,6 +86,8 @@ test('clicking a list item opens the detail sheet with correct data', async ({ p
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
   await page.click('#listOverlay.overlay.active .list-open-button')
   await expect(page.locator('#detailOverlay.overlay.active')).toBeVisible()
+  await expect(page.locator('#listOverlay')).toHaveAttribute('aria-hidden', 'true')
+  await expect(page.locator('#detailOverlay')).toHaveAttribute('aria-hidden', 'false')
   await expect(page.locator('#detailOverlay [data-testid="supply-detail"]')).toBeVisible()
   await expect(page.locator('#detailOverlay')).toContainText('Detail Employee')
   await expect(page.locator('#detailOverlay')).toContainText('Green Bank - Temple Bar')
@@ -211,6 +213,22 @@ test('ESC closes detail but not list (stack behavior)', async ({ page }) => {
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('#listOverlay.overlay.active')).toHaveCount(0)
+})
+
+test('keyboard focus stays inside the active request dialog', async ({ page }) => {
+  await createSupply(page, {
+    employeeName: 'Keyboard Employee',
+    clientLocation: 'TechCorp Office - Dublin 2',
+    priority: 'urgent',
+    products: ['Bleach'],
+  })
+  await page.goto('/dashboard')
+  await waitForDashboardCards(page)
+  await page.click('.stat-card.urgent')
+  await expect(page.locator('#listOverlay [aria-label="Close"]')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  const focusIsInsideDialog = await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')))
+  expect(focusIsInsideDialog).toBe(true)
 })
 
 test('browser back closes topmost overlay only', async ({ page }) => {

@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { timeAgo } from '../../lib/business-logic'
 import { isSupplyOverdue } from '../../lib/business-logic'
+import { useDialogFocus } from './useDialogFocus'
 
 type ListFilter = {
   priority?: SupplyPriority
@@ -21,6 +22,7 @@ type ListPreset = {
 
 type SupplyListSheetProps = {
   open: boolean
+  active: boolean
   title: string
   requests: SupplyRequest[]
   filter: ListFilter
@@ -33,6 +35,7 @@ type SupplyListSheetProps = {
 
 export function SupplyListSheet({
   open,
+  active,
   title,
   requests,
   filter,
@@ -42,6 +45,7 @@ export function SupplyListSheet({
   onSendEmail,
   onMarkComplete,
 }: SupplyListSheetProps) {
+  const dialogRef = useDialogFocus(active)
   const [period, setPeriod] = useState('all')
   const [location, setLocation] = useState('all')
   const [employee, setEmployee] = useState('all')
@@ -160,9 +164,9 @@ export function SupplyListSheet({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
-      aria-hidden={!open}
+      aria-hidden={!active}
     >
-      <div className="overlay-sheet list-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-list-title">
+      <div ref={dialogRef} tabIndex={-1} className="overlay-sheet list-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-list-title">
         <div className="sheet-header">
           <h2 id="supply-list-title">
             <span className="title-icon">📋</span>

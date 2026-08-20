@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import type { SupplyRequest } from '../../types'
+import { useDialogFocus } from './useDialogFocus'
 
 const PRIORITY_STYLES: Record<
   SupplyRequest['priority'],
@@ -82,13 +83,14 @@ function buildEmailBody(request: SupplyRequest): string {
 
 type EmailModalProps = {
   open: boolean
+  active: boolean
   request: SupplyRequest | null
   onClose: () => void
   onSend: (payload: { clientEmail: string; subject: string; htmlBody: string }) => Promise<void>
 }
 
-export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) {
-  const emailRef = useRef<HTMLInputElement>(null)
+export function EmailModal({ open, active, request, onClose, onSend }: EmailModalProps) {
+  const dialogRef = useDialogFocus(active)
   const [clientEmail, setClientEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
@@ -111,13 +113,10 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
 
   useEffect(() => {
     if (!open || !request) return
-    const previous = document.activeElement as HTMLElement | null
     setClientEmail('')
     setSubject(defaults.subject)
     setBody(defaults.body)
     setMode('edit')
-    requestAnimationFrame(() => emailRef.current?.focus())
-    return () => previous?.focus()
   }, [open, request, defaults])
 
   const displayedSubject = subject || defaults.subject
@@ -130,9 +129,9 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
-      aria-hidden={!open}
+      aria-hidden={!active}
     >
-      <div className="modal-card modal-wide zoom-in" role="dialog" aria-modal="true" aria-labelledby="email-modal-title">
+      <div ref={dialogRef} tabIndex={-1} className="modal-card modal-wide zoom-in" role="dialog" aria-modal="true" aria-labelledby="email-modal-title">
         <div className="modal-header">
           <h3 id="email-modal-title">📧 Send Email to Client</h3>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
@@ -169,7 +168,6 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
           Client Email
         </label>
         <input
-          ref={emailRef}
           id="clientEmail"
           type="email"
           required

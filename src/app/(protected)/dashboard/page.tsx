@@ -277,6 +277,7 @@ export default function DashboardPage() {
 
           <SupplyListSheet
             open={overlay.isOpen('list')}
+            active={overlay.isTop('list')}
             title={listTitle}
             requests={supplies}
             filter={listFilter}
@@ -312,6 +313,7 @@ export default function DashboardPage() {
 
           <SupplyDetailSheet
             open={overlay.isOpen('detail') && detailType === 'supply'}
+            active={overlay.isTop('detail') && detailType === 'supply'}
             request={detailType === 'supply' ? selectedSupply : null}
             onClose={() => overlay.closeTop('outside')}
             onSendEmail={() => overlay.open('email')}
@@ -367,12 +369,14 @@ export default function DashboardPage() {
 
           <FeedbackDetailSheet
             open={overlay.isOpen('detail') && detailType === 'feedback'}
+            active={overlay.isTop('detail') && detailType === 'feedback'}
             entry={detailType === 'feedback' ? selectedFeedback : null}
             onClose={() => overlay.closeTop('outside')}
           />
 
           <EmailModal
             open={overlay.isOpen('email')}
+            active={overlay.isTop('email')}
             request={selectedSupply}
             onClose={() => overlay.closeTop('outside')}
             onSend={async ({ clientEmail, subject, htmlBody }) => {
@@ -404,6 +408,7 @@ export default function DashboardPage() {
 
           <ConfirmModal
             open={overlay.isOpen('confirm')}
+            active={overlay.isTop('confirm')}
             message={confirm?.message ?? ''}
             onClose={() => overlay.closeTop('outside')}
             onConfirm={async () => {
