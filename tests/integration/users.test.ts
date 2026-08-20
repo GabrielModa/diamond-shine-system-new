@@ -33,6 +33,16 @@ beforeEach(async () => {
   await prisma.auditLog.deleteMany()
   await prisma.authToken.deleteMany()
   await prisma.user.deleteMany({ where: { email: { contains: '@test.io' } } })
+  await prisma.user.update({ where: { email: 'admin@ds.ie' }, data: { role: 'admin', status: 'active' } })
+})
+
+describe('protected page authorization', () => {
+  it('applies a role change immediately even when the session cookie is older', async () => {
+    await prisma.user.update({ where: { email: 'admin@ds.ie' }, data: { role: 'employee' } })
+    const response = await request(app).get('/dashboard').set('Cookie', adminCookie)
+    expect(response.status).toBe(307)
+    expect(response.headers.location).toBe('/forbidden')
+  })
 })
 
 describe('POST /api/users invite', () => {
