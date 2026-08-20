@@ -143,10 +143,6 @@ export default function SuppliesPage() {
 
   return (
     <main className="page-shell">
-      <div className="top-bar">
-        <a href="/home">← Back</a>
-        <div className="role-pill">Supplies</div>
-      </div>
       <div className="page-header">
         <h1>Supplies</h1>
         <p className="muted">Request cleaning products for your client location.</p>
@@ -162,6 +158,9 @@ export default function SuppliesPage() {
           id="employeeName"
           className={missingFields.includes('Name') ? 'input-error' : ''}
           placeholder="Enter your name"
+          autoComplete="name"
+          required
+          aria-invalid={missingFields.includes('Name')}
           value={name}
           onChange={(event) => setName(event.target.value)}
         />
@@ -179,17 +178,18 @@ export default function SuppliesPage() {
           ))}
         </select>
 
-        <div className="form-section">
-          <h2>Priority</h2>
+        <div className="form-section" id="priority-heading">
+          <h2>Priority <span aria-hidden="true">*</span></h2>
           <p className="muted">Choose urgency to prioritize delivery.</p>
         </div>
-        <div className={`grid-2${missingFields.includes('Priority') ? ' input-error' : ''}`}>
+        <div className={`grid-2${missingFields.includes('Priority') ? ' input-error' : ''}`} role="group" aria-labelledby="priority-heading" aria-invalid={missingFields.includes('Priority')}>
           {(['urgent', 'normal', 'low'] as const).map((item) => (
             <button
               key={item}
               type="button"
               data-priority={item}
               className={`priority-card${priority === item ? ' active' : ''}`}
+              aria-pressed={priority === item}
               onClick={() => setPriority(item)}
             >
               {item}
@@ -197,17 +197,18 @@ export default function SuppliesPage() {
           ))}
         </div>
 
-        <div className="form-section">
-          <h2>Products</h2>
+        <div className="form-section" id="products-heading">
+          <h2>Products <span aria-hidden="true">*</span></h2>
           <p className="muted">Select the items required for the location.</p>
         </div>
-        <div className={`product-grid${missingFields.includes('Products') ? ' input-error' : ''}`}>
+        <div className={`product-grid${missingFields.includes('Products') ? ' input-error' : ''}`} role="group" aria-labelledby="products-heading" aria-invalid={missingFields.includes('Products')}>
           {PRODUCTS.map((product) => (
             <button
               key={product.value}
               type="button"
               data-value={product.value}
               className={`product-card${selected.includes(product.value) ? ' active' : ''}`}
+              aria-pressed={selected.includes(product.value)}
               onClick={() => toggleProduct(product.value)}
             >
               <span className="product-icon">{product.icon}</span>
@@ -240,7 +241,7 @@ export default function SuppliesPage() {
         ) : null}
 
         <div className="row">
-          <div id="selectedCount">{countLabel}</div>
+          <div id="selectedCount" aria-live="polite">{countLabel}</div>
           <div id="charCount" className="muted">{notes.length}/500</div>
         </div>
         <div className="form-section">
@@ -248,7 +249,7 @@ export default function SuppliesPage() {
           <p className="muted">Optional: add delivery or timing instructions.</p>
         </div>
         <label htmlFor="notes" className="muted">Optional notes (max 500 chars)</label>
-        <textarea id="notes" value={notes} onChange={(event) => setNotes(event.target.value)} />
+        <textarea id="notes" maxLength={500} value={notes} onChange={(event) => setNotes(event.target.value)} />
         <div className="submit-bar">
           <button id="submitBtn" type="submit" disabled={submitting}>
             {submitting ? 'Submitting...' : 'Submit'}
@@ -256,10 +257,10 @@ export default function SuppliesPage() {
         </div>
       </form>
 
-      <div className="toast success toast-strong" style={{ display: toastSuccess ? 'block' : 'none' }}>
+      <div className="toast success toast-strong" role="status" aria-live="polite" style={{ display: toastSuccess ? 'block' : 'none' }}>
         Request sent. It will appear on the dashboard shortly.
       </div>
-      <div className="toast error toast-strong" style={{ display: toastError ? 'block' : 'none' }}>
+      <div className="toast error toast-strong" role="alert" style={{ display: toastError ? 'block' : 'none' }}>
         {missingText || 'Missing required fields'}
       </div>
     </main>

@@ -171,10 +171,6 @@ export default function FeedbackPage() {
 
   return (
     <main className="page-shell">
-      <div className="top-bar">
-        <a href="/home">← Back</a>
-        <div className="role-pill">Feedback</div>
-      </div>
       <div className="page-header">
         <h1>Feedback</h1>
         <p className="muted">Rate performance across four criteria to keep quality high.</p>
@@ -214,8 +210,11 @@ export default function FeedbackPage() {
               key={field}
               className={`rating-card${showErrors && !ratings[field] ? ' group-invalid' : ''}`}
               data-field={field}
+              role="group"
+              aria-labelledby={`${field}-label`}
+              aria-invalid={showErrors && !ratings[field]}
             >
-              <div className="muted">{fieldLabels[field]}</div>
+              <div className="muted" id={`${field}-label`}>{fieldLabels[field]}</div>
               <div className="row">
                 {RATING_VALUES.map((value) => (
                   <button
@@ -223,6 +222,8 @@ export default function FeedbackPage() {
                     type="button"
                     className={`opt${ratings[field] === value ? ' active' : ''}`}
                     data-score={value.toFixed(1)}
+                    aria-pressed={ratings[field] === value}
+                    aria-label={`${fieldLabels[field]}: ${value.toFixed(1)} out of 5`}
                     onClick={() => selectRating(field, value)}
                   >
                     {value.toFixed(1)}
@@ -234,7 +235,7 @@ export default function FeedbackPage() {
         </div>
 
         {hasAny ? (
-          <div id="resultsPanel" className="row fade-up">
+          <div id="resultsPanel" className="row fade-up" aria-live="polite" aria-label={`Overall rating ${formatOverall(overall)}, ${category}`}>
             <span id="overallScore" className="score-pop">{formatOverall(overall)}</span>
             <span id="overallCategory">{category.toUpperCase()}</span>
           </div>
@@ -244,7 +245,8 @@ export default function FeedbackPage() {
           <h2>Comments</h2>
           <p className="muted">Optional: add context for coaching and follow‑up.</p>
         </div>
-        <textarea id="comments" value={comments} onChange={(event) => setComments(event.target.value)} />
+        <label htmlFor="comments" className="muted">Optional comments</label>
+        <textarea id="comments" maxLength={1000} value={comments} onChange={(event) => setComments(event.target.value)} />
         <div className="submit-bar">
           <button id="submitBtn" type="submit" disabled={submitting || !employeeId}>
             {submitting ? 'Submitting...' : 'Submit'}
@@ -252,10 +254,10 @@ export default function FeedbackPage() {
         </div>
       </form>
 
-      <div className="toast success toast-strong" style={{ display: toastSuccess ? 'block' : 'none' }}>
+      <div className="toast success toast-strong" role="status" aria-live="polite" style={{ display: toastSuccess ? 'block' : 'none' }}>
         Feedback submitted. It will appear on the dashboard shortly.
       </div>
-      <div className="toast error toast-strong" style={{ display: toastError ? 'block' : 'none' }}>
+      <div className="toast error toast-strong" role="alert" style={{ display: toastError ? 'block' : 'none' }}>
         {errorText || 'Please review the form and try again.'}
       </div>
     </main>
