@@ -36,6 +36,10 @@ npm run test:e2e
 
 Integration and E2E tests require a reachable PostgreSQL database in `DATABASE_URL`. Run `npm run db:seed` before E2E tests. Playwright may require `npx playwright install chromium` once on a new machine.
 
+### Existing databases
+
+If a database was previously created from this same schema with `prisma db push`, back it up, verify that it matches the current schema, then mark the baseline once with `npx prisma migrate resolve --applied 20260821010000_baseline`. New and CI databases should use `npm run db:deploy`; production must not use `db push`.
+
 ## Release criteria
 
 - TypeScript, unit, integration, production build, and E2E checks pass.
@@ -50,6 +54,7 @@ Integration and E2E tests require a reachable PostgreSQL database in `DATABASE_U
 - `npm run dev` — development server.
 - `npm run build` — optimized production build.
 - `npm run db:setup` — generate Prisma client, apply schema, and seed local data.
+- `npm run db:deploy` — apply versioned migrations in CI/production.
 - `npm run db:seed` — reseed development/test data.
 - `npm run test:unit` — deterministic business and security tests.
 - `npm run test:integration` — API tests against PostgreSQL.

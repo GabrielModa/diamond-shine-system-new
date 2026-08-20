@@ -13,7 +13,8 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "db:setup": "npx prisma generate && npx prisma db push && node scripts/seed-dev.js",
+    "db:setup": "npx prisma generate && npx prisma migrate deploy && npm run db:seed",
+    "db:deploy": "prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:seed": "npx tsx prisma/seed.ts",
     "db:reset": "npx prisma db push --force-reset && npm run db:seed"
