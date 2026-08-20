@@ -4,10 +4,15 @@ import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 
+const safeHtml = z.string().min(1).refine(
+  (value) => !/<script\b|javascript:|\son[a-z]+\s*=/i.test(value),
+  'Unsafe HTML is not allowed'
+)
+
 const bodySchema = z.object({
   key: z.string().min(1),
   subject: z.string().min(1),
-  body: z.string().min(1),
+  body: safeHtml,
 })
 
 const DEFAULT_TEMPLATES = [

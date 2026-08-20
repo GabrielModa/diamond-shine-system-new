@@ -50,6 +50,13 @@ export default function UsersPage() {
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : `Failed to update ${field}.` }) }
   }
 
+  async function resendInvite(user: User) {
+    try {
+      const result = await fetchJson<{ emailSent: boolean }>(`/api/users/${user.id}/invite`, { method: 'POST' })
+      setToast({ type: result.emailSent ? 'success' : 'error', message: result.emailSent ? `Invitation resent to ${user.email}.` : 'A new link was created, but the email failed.' })
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to resend invitation.' }) }
+  }
+
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
     return users.filter((user) => (status === 'all' || user.status === status) && (!needle || `${user.name ?? ''} ${user.email}`.toLowerCase().includes(needle)))
@@ -82,6 +89,7 @@ export default function UsersPage() {
               <select aria-label={`Role for ${user.name ?? user.email}`} value={user.role} onChange={(event) => void patchUser(user.id, 'role', event.target.value)}><option value="employee">Employee</option><option value="supervisor">Supervisor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option></select>
               <span className={`status-badge ${user.status === 'active' ? 'Completed' : user.status === 'pending' ? 'Pending' : 'Cancelled'}`}>{user.status}</span>
               <div className="row tight">
+                {user.status === 'pending' ? <button className="btn-secondary" type="button" onClick={() => void resendInvite(user)}>Resend invite</button> : null}
                 {user.status !== 'active' ? <button className="btn-success" type="button" onClick={() => void patchUser(user.id, 'status', 'active')}>Activate</button> : null}
                 {user.status === 'active' ? <button className="btn-ghost danger" type="button" onClick={() => void patchUser(user.id, 'status', 'inactive')}>Deactivate</button> : null}
               </div>

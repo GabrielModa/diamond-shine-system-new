@@ -2,10 +2,16 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
+import { logAudit } from '../../../lib/audit'
+
+const emailList = z.string().min(1).refine((value) => {
+  const emails = value.split(',').map((email) => email.trim()).filter(Boolean)
+  return emails.length > 0 && emails.every((email) => z.string().email().safeParse(email).success)
+}, 'Invalid email list')
 
 const updateSchema = z.object({
-  supplyAlerts: z.string().min(1),
-  feedbackAlerts: z.string().min(1),
+  supplyAlerts: emailList,
+  feedbackAlerts: emailList,
 })
 
 export async function GET(request: NextRequest) {
@@ -33,16 +39,19 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  await prisma.notificationSetting.upsert({
-    where: { key: 'supply_alerts' },
-    update: { recipients: parsed.data.supplyAlerts },
-    create: { key: 'supply_alerts', recipients: parsed.data.supplyAlerts },
-  })
-  await prisma.notificationSetting.upsert({
-    where: { key: 'feedback_alerts' },
-    update: { recipients: parsed.data.feedbackAlerts },
-    create: { key: 'feedback_alerts', recipients: parsed.data.feedbackAlerts },
-  })
+  await prisma.$transaction([
+    prisma.notificationSetting.upsert({
+      where: { key: 'supply_alerts' },
+      update: { recipients: parsed.data.supplyAlerts },
+      create: { key: 'supply_alerts', recipients: parsed.data.supplyAlerts },
+    }),
+    prisma.notificationSetting.upsert({
+      where: { key: 'feedback_alerts' },
+      update: { recipients: parsed.data.feedbackAlerts },
+      create: { key: 'feedback_alerts', recipients: parsed.data.feedbackAlerts },
+    }),
+  ])
+  await logAudit(auth.user.email, 'update_notification_recipients', 'settings')
 
   return NextResponse.json({ ok: true, data: { ok: true } })
 }

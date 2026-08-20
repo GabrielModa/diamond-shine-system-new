@@ -60,6 +60,33 @@ describe('GET /api/users', () => {
   })
 })
 
+describe('POST /api/users/:id/invite', () => {
+  it('reissues a one-time invitation for a pending user', async () => {
+    const user = await prisma.user.create({ data: { email: 'resend@test.io', name: 'Resend', role: 'employee', status: 'pending' } })
+    const res = await request(app).post(`/api/users/${user.id}/invite`).set('Cookie', adminCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.tempPassword).toBeUndefined()
+    expect(await prisma.authToken.count({ where: { userId: user.id, type: 'invite', usedAt: null } })).toBe(1)
+  })
+})
+
+describe('communications validation', () => {
+  it('rejects invalid notification recipient lists', async () => {
+    const res = await request(app).put('/api/settings').set('Cookie', adminCookie).send({
+      supplyAlerts: 'valid@company.ie, not-an-email',
+      feedbackAlerts: 'quality@company.ie',
+    })
+    expect(res.status).toBe(400)
+  })
+
+  it('rejects executable HTML in templates', async () => {
+    const res = await request(app).put('/api/templates').set('Cookie', adminCookie).send({
+      key: 'unsafe_test', subject: 'Unsafe', body: '<script>alert(1)</script>',
+    })
+    expect(res.status).toBe(400)
+  })
+})
+
 describe('PATCH /api/users/:id/status', () => {
   it('admin can approve pending user', async () => {
     const user = await prisma.user.create({
