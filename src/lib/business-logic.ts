@@ -1,4 +1,4 @@
-import type { UserRole, Page, FeedbackCategory } from '../types'
+import type { UserRole, Page, FeedbackCategory, SupplyPriority, SupplyStatus } from '../types'
 import { PAGE_ACCESS } from './constants'
 
 export function calculateOverall(
@@ -67,4 +67,24 @@ export function consecutiveExcellent(entries: Array<{ overall: number }>): numbe
     }
   }
   return streak
+}
+
+export function getSupplySlaHours(priority: SupplyPriority): number {
+  if (priority === 'urgent') return 24
+  if (priority === 'normal') return 72
+  return 168
+}
+
+export function calculateSupplyDueAt(priority: SupplyPriority, from = new Date()): Date {
+  return new Date(from.getTime() + getSupplySlaHours(priority) * 60 * 60 * 1000)
+}
+
+export function isSupplyOverdue(
+  dueAt: string | Date | null | undefined,
+  status: SupplyStatus,
+  now = new Date()
+): boolean {
+  if (!dueAt || status === 'Completed' || status === 'Cancelled') return false
+  const due = new Date(dueAt)
+  return !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()
 }

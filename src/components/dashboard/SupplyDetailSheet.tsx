@@ -1,6 +1,7 @@
 'use client'
 
 import type { SupplyRequest } from '../../types'
+import { isSupplyOverdue } from '../../lib/business-logic'
 
 type SupplyDetailSheetProps = {
   open: boolean
@@ -20,6 +21,7 @@ export function SupplyDetailSheet({
   onMarkCompleted,
 }: SupplyDetailSheetProps) {
   if (!request) return null
+  const overdue = isSupplyOverdue(request.dueAt, request.status)
 
   return (
     <div
@@ -45,6 +47,10 @@ export function SupplyDetailSheet({
           <div className="detail-item">
             <div className="detail-label">Request ID</div>
             <div className="detail-value">{request.id}</div>
+          </div>
+          <div className="detail-item">
+            <div className="detail-label">SLA due</div>
+            <div className={`detail-value${overdue ? ' overdue-text' : ''}`}>{request.dueAt ? new Date(request.dueAt).toLocaleString('en-IE') : 'Not set'}{overdue ? ' · Overdue' : ''}</div>
           </div>
           <div className="detail-item">
             <div className="detail-label">Employee</div>

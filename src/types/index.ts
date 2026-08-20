@@ -24,6 +24,8 @@ export interface SupplyRequest {
   submittedBy: string
   emailSentAt?: string
   completedAt?: string
+  dueAt?: string
+  assignedTo?: string
   history?: Array<{
     id: string
     fromStatus?: string | null

@@ -8,6 +8,9 @@ import {
   formatDublinDate,
   timeAgo,
   consecutiveExcellent,
+  calculateSupplyDueAt,
+  getSupplySlaHours,
+  isSupplyOverdue,
 } from '../../src/lib/business-logic'
 
 describe('calculateOverall', () => {
@@ -101,6 +104,26 @@ describe('getAllowedPages', () => {
   })
   it('unknown role gets empty array', () => {
     expect(getAllowedPages('unknown' as never)).toEqual([])
+  })
+})
+
+describe('supply SLA', () => {
+  it('uses shorter deadlines for higher priorities', () => {
+    expect(getSupplySlaHours('urgent')).toBe(24)
+    expect(getSupplySlaHours('normal')).toBe(72)
+    expect(getSupplySlaHours('low')).toBe(168)
+  })
+
+  it('calculates the deadline from the submission time', () => {
+    expect(calculateSupplyDueAt('urgent', new Date('2026-08-20T10:00:00Z')).toISOString()).toBe('2026-08-21T10:00:00.000Z')
+  })
+
+  it('marks only unfinished requests past their deadline as overdue', () => {
+    const now = new Date('2026-08-22T10:00:00Z')
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Pending', now)).toBe(true)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Completed', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Cancelled', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-23T10:00:00Z', 'Pending', now)).toBe(false)
   })
 })
 

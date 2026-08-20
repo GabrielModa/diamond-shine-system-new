@@ -1,6 +1,7 @@
 'use client'
 
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
+import { isSupplyOverdue } from '../../lib/business-logic'
 
 type SuppliesStatsProps = {
   requests: SupplyRequest[]
@@ -10,7 +11,7 @@ type SuppliesStatsProps = {
   onOpenList: (
     filter: { priority?: SupplyPriority; status?: SupplyStatus },
     title: string,
-    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string }
+    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string; overdue?: boolean }
   ) => void
 }
 
@@ -36,6 +37,7 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
     emailSent: requests.filter((item) => item.status === 'Email Sent').length,
     completed: requests.filter((item) => item.status === 'Completed').length,
   }
+  const overdueCount = requests.filter((item) => isSupplyOverdue(item.dueAt, item.status)).length
 
   return (
       <div className="card supplies-card">
@@ -112,6 +114,14 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
       </div>
 
       <div className="metrics-row">
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'Overdue Requests', { overdue: true })}
+        >
+          <div className="muted">⚠️ Overdue</div>
+          <div>{overdueCount}</div>
+        </button>
         <button
           type="button"
           className="metric-card action"

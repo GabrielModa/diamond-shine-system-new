@@ -8,6 +8,7 @@ import { sendSuppliesNotification } from '../../../lib/email'
 import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
 import { logAudit } from '../../../lib/audit'
+import { calculateSupplyDueAt } from '../../../lib/business-logic'
 
 const itemSchema = z.object({
   product: z.string().min(1).refine((value) => PRODUCTS.some((item) => item.value === value), 'Unknown product'),
@@ -60,6 +61,7 @@ export async function POST(request: NextRequest) {
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
       status: 'Pending',
+      dueAt: calculateSupplyDueAt(parsed.data.priority),
     },
   })
 

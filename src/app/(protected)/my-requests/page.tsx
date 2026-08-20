@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import type { ApiResponse, SupplyRequest } from '../../../types'
-import { timeAgo } from '../../../lib/business-logic'
+import { isSupplyOverdue, timeAgo } from '../../../lib/business-logic'
 
 export default function MyRequestsPage() {
   const [requests, setRequests] = useState<SupplyRequest[]>([])
@@ -76,12 +76,14 @@ export default function MyRequestsPage() {
           const items = request.items?.length
             ? request.items
             : request.products.map((product) => ({ product, quantity: 1 }))
+          const overdue = isSupplyOverdue(request.dueAt, request.status)
           return (
             <article key={request.id} className="card request-history-card">
               <div className="request-history-header">
                 <div><strong>{request.clientLocation}</strong><div className="muted">Submitted {timeAgo(request.createdAt)}</div></div>
-                <span className={`status-badge ${request.status.replace(' ', '-')}`}>{request.status}</span>
+                <div className="row tight"><span className={`status-badge ${request.status.replace(' ', '-')}`}>{request.status}</span>{overdue ? <span className="overdue-badge">Overdue</span> : null}</div>
               </div>
+              {request.dueAt ? <div className={`due-label${overdue ? ' overdue' : ''}`}>Due {new Date(request.dueAt).toLocaleString('en-IE')}</div> : null}
               <div className="request-items">{items.map((item) => <span key={item.product}>{item.product} × {item.quantity}</span>)}</div>
               {request.status === 'Cancelled' ? <div className="request-cancelled">This request was cancelled.</div> : (
                 <div className="request-progress" aria-label={`Request status: ${request.status}`}>

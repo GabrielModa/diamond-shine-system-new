@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { timeAgo } from '../../lib/business-logic'
+import { isSupplyOverdue } from '../../lib/business-logic'
 
 type ListFilter = {
   priority?: SupplyPriority
@@ -14,6 +15,7 @@ type ListPreset = {
   location?: string
   employee?: string
   search?: string
+  overdue?: boolean
 }
 
 type SupplyListSheetProps = {
@@ -52,7 +54,7 @@ export function SupplyListSheet({
     search: '',
   })
   const [searchDebounced, setSearchDebounced] = useState('')
-  const presetKey = `${preset?.period ?? ''}|${preset?.location ?? ''}|${preset?.employee ?? ''}|${preset?.search ?? ''}`
+  const presetKey = `${preset?.period ?? ''}|${preset?.location ?? ''}|${preset?.employee ?? ''}|${preset?.search ?? ''}|${preset?.overdue ?? ''}`
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchDebounced(search.trim()), 250)
@@ -107,6 +109,7 @@ export function SupplyListSheet({
 
     if (filter.priority) list = list.filter((item) => item.priority === filter.priority)
     if (filter.status) list = list.filter((item) => item.status === filter.status)
+    if (preset?.overdue) list = list.filter((item) => isSupplyOverdue(item.dueAt, item.status))
 
     const now = new Date()
     if (applied.period !== 'all') {
@@ -138,7 +141,7 @@ export function SupplyListSheet({
     }
 
     return list
-  }, [requests, filter, applied])
+  }, [requests, filter, applied, preset?.overdue])
 
   const employees = useMemo(() => {
     return Array.from(new Set(requests.map((item) => item.employeeName))).sort()

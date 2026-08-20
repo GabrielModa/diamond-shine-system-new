@@ -44,15 +44,15 @@ export default async function HomePage() {
 
   let metrics: Array<{ label: string; value: number; href: string; tone?: string }> = []
   if (role === 'admin') {
-    const [pendingRequests, urgentRequests, pendingUsers, recentFeedback] = await Promise.all([
+    const [pendingRequests, overdueRequests, pendingUsers, recentFeedback] = await Promise.all([
       prisma.supplyRequest.count({ where: { status: 'Pending' } }),
-      prisma.supplyRequest.count({ where: { status: 'Pending', priority: 'urgent' } }),
+      prisma.supplyRequest.count({ where: { status: { notIn: ['Completed', 'Cancelled'] }, dueAt: { lt: new Date() } } }),
       prisma.user.count({ where: { status: 'pending' } }),
       prisma.feedbackEntry.count({ where: { createdAt: { gte: since } } }),
     ])
     metrics = [
       { label: 'Pending requests', value: pendingRequests, href: '/dashboard', tone: pendingRequests ? 'attention' : 'good' },
-      { label: 'Urgent requests', value: urgentRequests, href: '/dashboard', tone: urgentRequests ? 'critical' : 'good' },
+      { label: 'Overdue requests', value: overdueRequests, href: '/dashboard', tone: overdueRequests ? 'critical' : 'good' },
       { label: 'Pending users', value: pendingUsers, href: '/users', tone: pendingUsers ? 'attention' : 'good' },
       { label: 'Feedback in 30 days', value: recentFeedback, href: '/dashboard' },
     ]

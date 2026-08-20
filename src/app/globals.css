@@ -163,6 +163,9 @@ button:focus-visible {
 .history-dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 999px; background: #6366f1; box-shadow: 0 0 0 4px #e0e7ff; }
 .status-history.compact { margin-top: 10px; padding-left: 4px; }
 .request-history-details summary { cursor: pointer; color: #4338ca; font-weight: 600; }
+.due-label { color: #64748b; font-size: 0.85rem; }
+.due-label.overdue, .overdue-text { color: #b91c1c; font-weight: 700; }
+.overdue-badge { padding: 4px 9px; border-radius: 999px; background: #fee2e2; color: #b91c1c; font-size: 0.75rem; font-weight: 700; }
 
 .top-bar {
   position: sticky;
