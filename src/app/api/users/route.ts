@@ -17,7 +17,10 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const users = await prisma.user.findMany({ orderBy: { createdAt: 'desc' } })
+  const users = await prisma.user.findMany({
+    orderBy: { createdAt: 'desc' },
+    select: { id: true, email: true, name: true, role: true, status: true, createdAt: true, updatedAt: true },
+  })
   return NextResponse.json({ ok: true, data: users })
 }
 

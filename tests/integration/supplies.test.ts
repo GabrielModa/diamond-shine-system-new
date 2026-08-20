@@ -256,3 +256,28 @@ describe('POST /api/supplies/:id/notify', () => {
     expect(updated?.emailSentAt).toBeTruthy()
   })
 })
+
+describe('PATCH /api/supplies/:id/assign', () => {
+  it('admin assigns an active supervisor', async () => {
+    const row = await prisma.supplyRequest.create({
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'urgent', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+    })
+    const res = await request(app)
+      .patch(`/api/supplies/${row.id}/assign`)
+      .set('Cookie', adminCookie)
+      .send({ assigneeEmail: 'super@ds.ie' })
+    expect(res.status).toBe(200)
+    expect((await prisma.supplyRequest.findUnique({ where: { id: row.id } }))?.assignedTo).toBe('super@ds.ie')
+  })
+
+  it('rejects employees as assignees', async () => {
+    const row = await prisma.supplyRequest.create({
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+    })
+    const res = await request(app)
+      .patch(`/api/supplies/${row.id}/assign`)
+      .set('Cookie', adminCookie)
+      .send({ assigneeEmail: 'employee@ds.ie' })
+    expect(res.status).toBe(400)
+  })
+})

@@ -40,6 +40,8 @@ type ListPreset = {
   overdue?: boolean
 }
 
+type Assignee = { email: string; name: string | null; role: string; status: string }
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -56,6 +58,7 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [newSupplies, setNewSupplies] = useState(0)
+  const [assignees, setAssignees] = useState<Assignee[]>([])
 
   async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
     const res = await fetch(url, {
@@ -73,10 +76,11 @@ export default function DashboardPage() {
   async function refreshAll() {
     setLoading(true)
     try {
-      const [dashboardRes, suppliesRes, feedbackRes] = await Promise.allSettled([
+      const [dashboardRes, suppliesRes, feedbackRes, usersRes] = await Promise.allSettled([
         fetchJson<DashboardResponse>('/api/dashboard'),
         fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200'),
         fetchJson<{ items: FeedbackEntry[] }>('/api/feedback'),
+        fetchJson<Assignee[]>('/api/users'),
       ])
 
       if (dashboardRes.status === 'fulfilled') {
@@ -99,6 +103,9 @@ export default function DashboardPage() {
       } else {
         const fallback = dashboardRes.status === 'fulfilled' ? dashboardRes.value.feedback.recent : []
         setFeedback(fallback)
+      }
+      if (usersRes.status === 'fulfilled') {
+        setAssignees(usersRes.value.filter((user) => user.status === 'active' && (user.role === 'admin' || user.role === 'supervisor')))
       }
     } catch {
       setToast({ type: 'error', message: 'Failed to load dashboard data.' })
@@ -338,6 +345,22 @@ export default function DashboardPage() {
                 },
               })
               overlay.open('confirm')
+            }}
+            assignees={assignees}
+            onAssign={async (assigneeEmail) => {
+              if (!selectedSupply) return
+              try {
+                const result = await fetchJson<{ id: string; assignedTo: string | null }>(`/api/supplies/${selectedSupply.id}/assign`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ assigneeEmail }),
+                })
+                setSelectedSupply((current) => current ? { ...current, assignedTo: result.assignedTo ?? undefined } : current)
+                setSupplies((current) => current.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item))
+                showToast('success', result.assignedTo ? 'Responsible person assigned.' : 'Request unassigned.')
+              } catch (error) {
+                showToast('error', error instanceof Error ? error.message : 'Failed to assign request.')
+              }
             }}
           />
 

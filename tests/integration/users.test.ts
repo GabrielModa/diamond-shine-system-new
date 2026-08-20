@@ -51,6 +51,15 @@ describe('POST /api/users invite', () => {
   })
 })
 
+describe('GET /api/users', () => {
+  it('never exposes password hashes', async () => {
+    const res = await request(app).get('/api/users').set('Cookie', adminCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.length).toBeGreaterThan(0)
+    expect(res.body.data.every((user: Record<string, unknown>) => !('password' in user))).toBe(true)
+  })
+})
+
 describe('PATCH /api/users/:id/status', () => {
   it('admin can approve pending user', async () => {
     const user = await prisma.user.create({

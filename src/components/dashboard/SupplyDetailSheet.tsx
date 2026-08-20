@@ -10,6 +10,8 @@ type SupplyDetailSheetProps = {
   onSendEmail: () => void
   onCompleteWithoutEmail: () => void
   onMarkCompleted: () => void
+  assignees: Array<{ email: string; name: string | null }>
+  onAssign: (email: string | null) => Promise<void>
 }
 
 export function SupplyDetailSheet({
@@ -19,6 +21,8 @@ export function SupplyDetailSheet({
   onSendEmail,
   onCompleteWithoutEmail,
   onMarkCompleted,
+  assignees,
+  onAssign,
 }: SupplyDetailSheetProps) {
   if (!request) return null
   const overdue = isSupplyOverdue(request.dueAt, request.status)
@@ -47,6 +51,18 @@ export function SupplyDetailSheet({
           <div className="detail-item">
             <div className="detail-label">Request ID</div>
             <div className="detail-value">{request.id}</div>
+          </div>
+          <div className="detail-item">
+            <label className="detail-label" htmlFor="supplyAssignee">Responsible</label>
+            <select
+              id="supplyAssignee"
+              value={request.assignedTo ?? ''}
+              disabled={request.status === 'Completed' || request.status === 'Cancelled'}
+              onChange={(event) => void onAssign(event.target.value || null)}
+            >
+              <option value="">Unassigned</option>
+              {assignees.map((assignee) => <option key={assignee.email} value={assignee.email}>{assignee.name ?? assignee.email}</option>)}
+            </select>
           </div>
           <div className="detail-item">
             <div className="detail-label">SLA due</div>
