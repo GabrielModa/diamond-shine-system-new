@@ -77,29 +77,29 @@ export default function UsersPage() {
 
   async function updateStatus(id: string, status: User['status']) {
     try {
-      await fetch(`/api/users/${id}/status`, {
+      await fetchJson<{ id: string; status: User['status'] }>(`/api/users/${id}/status`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ status }),
       })
       setToast({ type: 'success', message: `User status updated to ${status}.` })
       await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to update user status.' })
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update user status.' })
     }
   }
 
   async function updateRole(id: string, role: User['role']) {
     try {
-      await fetch(`/api/users/${id}/role`, {
+      await fetchJson<{ id: string; role: User['role'] }>(`/api/users/${id}/role`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ role }),
       })
       setToast({ type: 'success', message: `Role updated to ${role}.` })
       await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to update role.' })
+    } catch (error) {
+      setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update role.' })
     }
   }
 

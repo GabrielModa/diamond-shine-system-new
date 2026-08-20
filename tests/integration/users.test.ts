@@ -64,6 +64,16 @@ describe('PATCH /api/users/:id/status', () => {
     const updated = await prisma.user.findUnique({ where: { id: user.id } })
     expect(updated?.status).toBe('active')
   })
+
+  it('prevents an administrator from deactivating their own account', async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@ds.ie' } })
+    const res = await request(app)
+      .patch(`/api/users/${admin.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'inactive' })
+    expect(res.status).toBe(409)
+    expect(res.body.error).toContain('own account')
+  })
 })
 
 describe('PATCH /api/users/:id/role', () => {
@@ -78,6 +88,16 @@ describe('PATCH /api/users/:id/role', () => {
     expect(res.status).toBe(200)
     const updated = await prisma.user.findUnique({ where: { id: user.id } })
     expect(updated?.role).toBe('supervisor')
+  })
+
+  it('prevents an administrator from removing their own role', async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@ds.ie' } })
+    const res = await request(app)
+      .patch(`/api/users/${admin.id}/role`)
+      .set('Cookie', adminCookie)
+      .send({ role: 'viewer' })
+    expect(res.status).toBe(409)
+    expect(res.body.error).toContain('own administrator role')
   })
 })
 

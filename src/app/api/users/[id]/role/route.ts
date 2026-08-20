@@ -21,6 +21,17 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   const user = await prisma.user.findUnique({ where: { id: params.id } })
   if (!user) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
+  if (user.email === auth.user.email && parsed.data.role !== 'admin') {
+    return NextResponse.json({ ok: false, error: 'You cannot remove your own administrator role.' }, { status: 409 })
+  }
+
+  if (user.role === 'admin' && user.status === 'active' && parsed.data.role !== 'admin') {
+    const activeAdmins = await prisma.user.count({ where: { role: 'admin', status: 'active' } })
+    if (activeAdmins <= 1) {
+      return NextResponse.json({ ok: false, error: 'At least one active administrator is required.' }, { status: 409 })
+    }
+  }
+
   const updated = await prisma.user.update({
     where: { id: params.id },
     data: { role: parsed.data.role },
