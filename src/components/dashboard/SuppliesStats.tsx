@@ -1,7 +1,7 @@
 'use client'
 
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
-import { isSupplyOverdue } from '../../lib/business-logic'
+import { calculateSupplyOperationsMetrics, isSupplyOverdue } from '../../lib/business-logic'
 
 type SuppliesStatsProps = {
   requests: SupplyRequest[]
@@ -11,7 +11,7 @@ type SuppliesStatsProps = {
   onOpenList: (
     filter: { priority?: SupplyPriority; status?: SupplyStatus },
     title: string,
-    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string; overdue?: boolean }
+    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string; overdue?: boolean; unassigned?: boolean }
   ) => void
 }
 
@@ -36,8 +36,10 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
     pending: pending.length,
     emailSent: requests.filter((item) => item.status === 'Email Sent').length,
     completed: requests.filter((item) => item.status === 'Completed').length,
+    cancelled: requests.filter((item) => item.status === 'Cancelled').length,
   }
   const overdueCount = requests.filter((item) => isSupplyOverdue(item.dueAt, item.status)).length
+  const { unassignedCount, slaRate, completedOnTime, completedWithSlaCount, averageResolutionHours } = calculateSupplyOperationsMetrics(requests)
 
   return (
       <div className="card supplies-card">
@@ -111,6 +113,13 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
         >
           ✅ Done [{statusCounts.completed}]
         </button>
+        <button
+          type="button"
+          className={`status-pill${activeFilter?.status === 'Cancelled' ? ' active' : ''}`}
+          onClick={() => onOpenList({ status: 'Cancelled' }, 'Cancelled Requests')}
+        >
+          ⛔ Cancelled [{statusCounts.cancelled}]
+        </button>
       </div>
 
       <div className="metrics-row">
@@ -121,6 +130,14 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
         >
           <div className="muted">⚠️ Overdue</div>
           <div>{overdueCount}</div>
+        </button>
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'Unassigned Active Requests', { unassigned: true })}
+        >
+          <div className="muted">👤 Unassigned</div>
+          <div>{unassignedCount}</div>
         </button>
         <button
           type="button"
@@ -151,6 +168,16 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           <div className="muted">⭐ Most requested</div>
           <div>{mostRequestedProduct || '—'}</div>
         </button>
+        <div className="metric-card operational-kpi">
+          <div className="muted">🎯 SLA compliance</div>
+          <div>{slaRate === null ? '—' : `${slaRate}%`}</div>
+          <small>{completedWithSlaCount ? `${completedOnTime} of ${completedWithSlaCount} completed on time` : 'No completed requests yet'}</small>
+        </div>
+        <div className="metric-card operational-kpi">
+          <div className="muted">⏱ Average resolution</div>
+          <div>{averageResolutionHours === null ? '—' : averageResolutionHours < 24 ? `${averageResolutionHours.toFixed(1)}h` : `${(averageResolutionHours / 24).toFixed(1)}d`}</div>
+          <small>From request to completion</small>
+        </div>
       </div>
     </div>
   )

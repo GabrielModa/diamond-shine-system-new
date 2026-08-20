@@ -38,6 +38,7 @@ type ListPreset = {
   employee?: string
   search?: string
   overdue?: boolean
+  unassigned?: boolean
 }
 
 type Assignee = { email: string; name: string | null; role: string; status: string }

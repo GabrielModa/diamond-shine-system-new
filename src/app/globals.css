@@ -1053,6 +1053,18 @@ button[title="Mark Complete"] { background: #2563eb; color: white; }
   font-weight: 700;
 }
 
+.operational-kpi {
+  display: grid;
+  gap: 4px;
+  align-content: start;
+}
+.operational-kpi > div:nth-child(2) {
+  font-size: 1.45rem;
+  font-weight: 700;
+  color: #111827;
+}
+.operational-kpi small { color: #64748b; }
+
 .metric-grid .metric-card {
   padding: 14px;
   border: 1px solid #e5e7eb;

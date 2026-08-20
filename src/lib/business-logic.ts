@@ -88,3 +88,34 @@ export function isSupplyOverdue(
   const due = new Date(dueAt)
   return !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()
 }
+
+type SupplyMetricInput = {
+  status: SupplyStatus
+  createdAt: string | Date
+  completedAt?: string | Date | null
+  dueAt?: string | Date | null
+  assignedTo?: string | null
+}
+
+export function calculateSupplyOperationsMetrics(requests: SupplyMetricInput[]) {
+  const active = requests.filter((item) => item.status === 'Pending' || item.status === 'Email Sent')
+  const completedWithSla = requests.filter((item) => item.status === 'Completed' && item.completedAt && item.dueAt)
+  const completedOnTime = completedWithSla.filter(
+    (item) => new Date(item.completedAt!).getTime() <= new Date(item.dueAt!).getTime()
+  ).length
+  const resolved = requests.filter((item) => item.status === 'Completed' && item.completedAt)
+  const averageResolutionHours = resolved.length
+    ? resolved.reduce(
+        (sum, item) => sum + Math.max(0, new Date(item.completedAt!).getTime() - new Date(item.createdAt).getTime()),
+        0
+      ) / resolved.length / 3_600_000
+    : null
+
+  return {
+    unassignedCount: active.filter((item) => !item.assignedTo).length,
+    slaRate: completedWithSla.length ? Math.round((completedOnTime / completedWithSla.length) * 100) : null,
+    completedOnTime,
+    completedWithSlaCount: completedWithSla.length,
+    averageResolutionHours,
+  }
+}
