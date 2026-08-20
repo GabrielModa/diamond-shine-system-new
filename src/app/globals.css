@@ -128,6 +128,20 @@ button:focus-visible {
   border: 1px solid rgba(102, 126, 234, 0.2);
 }
 .page-header p { max-width: 52ch; }
+.home-hero { flex-direction: row; align-items: center; justify-content: space-between; padding: 24px; }
+.eyebrow { color: #4f46e5; font-size: 0.75rem; font-weight: 700; letter-spacing: 0.08em; text-transform: uppercase; }
+.section-heading { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; margin-bottom: 10px; }
+.section-heading h2 { margin: 0; }
+.home-metrics { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; }
+.home-metric { display: grid; gap: 6px; padding: 16px; border-radius: 14px; color: inherit; text-decoration: none; background: #f7f8fc; border: 1px solid var(--border); }
+.home-metric strong { font-size: 1.8rem; }
+.home-metric > span:last-child { color: #4f46e5; font-size: 0.8rem; font-weight: 600; }
+.home-metric.attention { border-left: 4px solid #f59e0b; }
+.home-metric.critical { border-left: 4px solid #ef4444; }
+.home-metric.good { border-left: 4px solid #10b981; }
+.home-recent-list { display: grid; }
+.home-recent-row { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 12px 0; color: inherit; text-decoration: none; border-bottom: 1px solid var(--border); }
+.home-recent-row:last-child { border-bottom: 0; }
 .page-header-action { flex-direction: row; align-items: center; justify-content: space-between; }
 .page-action { display: inline-flex; align-items: center; justify-content: center; text-decoration: none; }
 .request-history { display: grid; gap: 12px; }
@@ -1193,6 +1207,8 @@ button[title="Mark Complete"] { background: #2563eb; color: white; }
   .role-pill { font-size: 0.75rem; padding: 3px 8px; }
   .top-bar a { font-size: 0.95rem; }
   .page-header-action { flex-direction: column; align-items: stretch; }
+  .home-hero { flex-direction: column; align-items: stretch; }
+  .home-recent-row { align-items: flex-start; flex-direction: column; }
 }
 
 @media (prefers-reduced-motion: reduce) {

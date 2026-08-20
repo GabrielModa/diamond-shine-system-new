@@ -2,6 +2,8 @@ import { cookies } from 'next/headers'
 import type { UserRole, Page } from '../../../types'
 import { PAGE_ACCESS } from '../../../lib/constants'
 import { sessionCookie, verifySessionToken } from '../../../lib/session'
+import { prisma } from '../../../lib/prisma'
+import { dbStatusToLabel } from '../../../lib/mappers'
 
 const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   home: { title: 'Home', desc: 'Back to the main overview.', href: '/home' },
@@ -36,16 +38,96 @@ export default async function HomePage() {
   const session = await verifySessionToken(cookies().get(sessionCookie.name)?.value)
   const role: UserRole = session?.role ?? 'viewer'
   const allowed = PAGE_ACCESS[role] ?? ['home']
+  const email = session?.email ?? ''
+  const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+  const user = email ? await prisma.user.findUnique({ where: { email }, select: { name: true } }) : null
+
+  let metrics: Array<{ label: string; value: number; href: string; tone?: string }> = []
+  if (role === 'admin') {
+    const [pendingRequests, urgentRequests, pendingUsers, recentFeedback] = await Promise.all([
+      prisma.supplyRequest.count({ where: { status: 'Pending' } }),
+      prisma.supplyRequest.count({ where: { status: 'Pending', priority: 'urgent' } }),
+      prisma.user.count({ where: { status: 'pending' } }),
+      prisma.feedbackEntry.count({ where: { createdAt: { gte: since } } }),
+    ])
+    metrics = [
+      { label: 'Pending requests', value: pendingRequests, href: '/dashboard', tone: pendingRequests ? 'attention' : 'good' },
+      { label: 'Urgent requests', value: urgentRequests, href: '/dashboard', tone: urgentRequests ? 'critical' : 'good' },
+      { label: 'Pending users', value: pendingUsers, href: '/users', tone: pendingUsers ? 'attention' : 'good' },
+      { label: 'Feedback in 30 days', value: recentFeedback, href: '/dashboard' },
+    ]
+  } else if (role === 'supervisor') {
+    const [ownPending, recentFeedback, activeEmployees] = await Promise.all([
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Pending' } }),
+      prisma.feedbackEntry.count({ where: { submittedBy: email, createdAt: { gte: since } } }),
+      prisma.user.count({ where: { role: 'employee', status: 'active' } }),
+    ])
+    metrics = [
+      { label: 'My pending requests', value: ownPending, href: '/my-requests', tone: ownPending ? 'attention' : 'good' },
+      { label: 'Feedback submitted', value: recentFeedback, href: '/feedback' },
+      { label: 'Active employees', value: activeEmployees, href: '/feedback' },
+    ]
+  } else if (role === 'employee') {
+    const [pending, inProgress, completed] = await Promise.all([
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Pending' } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'EmailSent' } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Completed' } }),
+    ])
+    metrics = [
+      { label: 'Pending', value: pending, href: '/my-requests', tone: pending ? 'attention' : 'good' },
+      { label: 'In progress', value: inProgress, href: '/my-requests' },
+      { label: 'Completed', value: completed, href: '/my-requests', tone: 'good' },
+    ]
+  }
+
+  const recentRequests = role !== 'viewer' && email
+    ? await prisma.supplyRequest.findMany({
+        where: role === 'admin' ? undefined : { submittedBy: email },
+        orderBy: { createdAt: 'desc' },
+        take: 4,
+        select: { id: true, clientLocation: true, status: true, priority: true, createdAt: true },
+      })
+    : []
+
   return (
     <main className="page-shell">
-      <div className="top-bar">
-        <span>Diamond Shine</span>
-        <div className="role-pill">Home</div>
-      </div>
-      <div className="page-header">
-        <h1>Home</h1>
-        <p className="muted">Welcome to Diamond Shine’s internal system.</p>
-      </div>
+      <header className="page-header home-hero">
+        <div>
+          <span className="eyebrow">{role} workspace</span>
+          <h1>Welcome back{user?.name ? `, ${user.name.split(' ')[0]}` : ''}</h1>
+          <p className="muted">Here is what needs your attention today.</p>
+        </div>
+        {role !== 'viewer' ? <a href="/supplies" className="btn-primary page-action">New supply request</a> : null}
+      </header>
+
+      {metrics.length ? (
+        <section aria-labelledby="attention-title">
+          <div className="section-heading"><h2 id="attention-title">At a glance</h2><span className="muted">Live operational data</span></div>
+          <div className="home-metrics">
+            {metrics.map((metric) => (
+              <a key={metric.label} href={metric.href} className={`home-metric ${metric.tone ?? ''}`}>
+                <span className="muted">{metric.label}</span><strong>{metric.value}</strong><span>View details →</span>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      {recentRequests.length ? (
+        <section className="card" aria-labelledby="recent-title">
+          <div className="section-heading"><h2 id="recent-title">Recent requests</h2><a href={role === 'admin' ? '/dashboard' : '/my-requests'}>View all</a></div>
+          <div className="home-recent-list">
+            {recentRequests.map((request) => (
+              <a key={request.id} href={role === 'admin' ? '/dashboard' : '/my-requests'} className="home-recent-row">
+                <div><strong>{request.clientLocation}</strong><div className="muted">{new Date(request.createdAt).toLocaleDateString('en-IE')}</div></div>
+                <div className="row tight"><span className={`badge ${request.priority}`}>{request.priority}</span><span className={`status-badge ${dbStatusToLabel(request.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled').replace(' ', '-')}`}>{dbStatusToLabel(request.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')}</span></div>
+              </a>
+            ))}
+          </div>
+        </section>
+      ) : null}
+
+      <div className="section-heading"><h2>Tools</h2><span className="muted">Available for your role</span></div>
       <div className="grid-2">
         {allowed
           .filter((page) => page !== 'home')
