@@ -1,6 +1,7 @@
 import { cookies } from 'next/headers'
 import type { UserRole, Page } from '../../../types'
 import { PAGE_ACCESS } from '../../../lib/constants'
+import { sessionCookie, verifySessionToken } from '../../../lib/session'
 
 const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   home: { title: 'Home', desc: 'Back to the main overview.', href: '/home' },
@@ -26,14 +27,9 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   },
 }
 
-function getRoleFromCookie(): UserRole {
-  const role = cookies().get('ds-role')?.value
-  if (role === 'admin' || role === 'supervisor' || role === 'employee' || role === 'viewer') return role
-  return 'viewer'
-}
-
-export default function HomePage() {
-  const role = getRoleFromCookie()
+export default async function HomePage() {
+  const session = await verifySessionToken(cookies().get(sessionCookie.name)?.value)
+  const role: UserRole = session?.role ?? 'viewer'
   const allowed = PAGE_ACCESS[role] ?? ['home']
   return (
     <main className="page-shell">

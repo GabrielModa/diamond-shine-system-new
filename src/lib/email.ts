@@ -157,7 +157,7 @@ function buildFeedbackEmailHtml(data: FeedbackEmailData): string {
           <tr><td>Punctuality</td><td>${data.punctuality}</td></tr>
           <tr><td>Equipment</td><td>${data.equipment}</td></tr>
           <tr><td>Client Relations</td><td>${data.clientRelations}</td></tr>
-          <tr><td>Overall</td><td><b>${data.overall.toFixed(1)}</b> (${data.category})</td></tr>
+          <tr><td>Overall</td><td><b>${Number(data.overall.toFixed(2))}</b> (${data.category})</td></tr>
           <tr><td>Comments</td><td>${data.comments ?? ''}</td></tr>
           <tr><td>Submitted by</td><td>${data.submittedBy}</td></tr>
           <tr><td>Date/Time</td><td>${timestamp}</td></tr>

@@ -1,5 +1,6 @@
 import { prisma } from '../../src/lib/prisma'
 import bcrypt from 'bcryptjs'
+import { createSessionToken } from '../../src/lib/session'
 
 export const TEST_PASSWORD = 'password123'
 
@@ -25,7 +26,7 @@ export async function getAuthCookie(email: string, password = TEST_PASSWORD): Pr
   if (!user) {
     throw new Error('User not found for test auth cookie')
   }
-  return `ds-auth=${user.email}; ds-role=${user.role}`
+  return `ds-session=${await createSessionToken(user.email, user.role)}`
 }
 
 export async function cleanSupplies() {

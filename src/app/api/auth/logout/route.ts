@@ -1,15 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { sessionCookie } from '../../../../lib/session'
 
 function clearAuthCookies(response: NextResponse) {
   const isProd = process.env.NODE_ENV === 'production'
-  response.cookies.set('ds-auth', '', {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: 0,
-    secure: isProd,
-  })
-  response.cookies.set('ds-role', '', {
+  response.cookies.set(sessionCookie.name, '', {
     httpOnly: true,
     sameSite: 'lax',
     path: '/',

@@ -1,13 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../../../lib/prisma'
-
-function deriveRole(email: string) {
-  if (email.startsWith('admin@')) return 'admin'
-  if (email.startsWith('super@')) return 'supervisor'
-  if (email.startsWith('employee@')) return 'employee'
-  return 'viewer'
-}
+import { createSessionToken, sessionCookie } from '../../../../lib/session'
 
 export async function POST(request: NextRequest) {
   console.log('[API /api/auth/login POST]')
@@ -30,7 +24,12 @@ export async function POST(request: NextRequest) {
   }
 
   const response = NextResponse.json({ ok: true, data: { email: user.email, role: user.role } })
-  response.cookies.set('ds-auth', user.email, { httpOnly: true, sameSite: 'lax', path: '/' })
-  response.cookies.set('ds-role', user.role, { httpOnly: true, sameSite: 'lax', path: '/' })
+  response.cookies.set(sessionCookie.name, await createSessionToken(user.email, user.role), {
+    httpOnly: true,
+    sameSite: 'lax',
+    path: '/',
+    maxAge: sessionCookie.maxAge,
+    secure: process.env.NODE_ENV === 'production',
+  })
   return response
 }

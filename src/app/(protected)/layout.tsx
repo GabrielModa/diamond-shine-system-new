@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import type { UserRole } from '../../types'
 import { PAGE_ACCESS } from '../../lib/constants'
 import TopNav from '../../components/TopNav'
+import { sessionCookie, verifySessionToken } from '../../lib/session'
 
 const pageMeta: Record<string, { label: string; href: string }> = {
   home: { label: 'Home', href: '/home' },
@@ -12,14 +13,9 @@ const pageMeta: Record<string, { label: string; href: string }> = {
   users: { label: 'Users', href: '/users' },
 }
 
-function getRoleFromCookie(): UserRole {
-  const role = cookies().get('ds-role')?.value
-  if (role === 'admin' || role === 'supervisor' || role === 'employee' || role === 'viewer') return role
-  return 'viewer'
-}
-
-export default function ProtectedLayout({ children }: { children: ReactNode }) {
-  const role = getRoleFromCookie()
+export default async function ProtectedLayout({ children }: { children: ReactNode }) {
+  const session = await verifySessionToken(cookies().get(sessionCookie.name)?.value)
+  const role: UserRole = session?.role ?? 'viewer'
   const allowed = PAGE_ACCESS[role] ?? ['home']
   const items = allowed.map((page) => pageMeta[page])
 

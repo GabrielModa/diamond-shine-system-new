@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from './prisma'
 import type { UserRole } from '../types'
+import { sessionCookie, verifySessionToken } from './session'
 
 export interface AuthUser {
   email: string
@@ -8,14 +9,10 @@ export interface AuthUser {
   name: string | null
 }
 
-function parseAuthEmail(request: NextRequest): string | null {
-  return request.cookies.get('ds-auth')?.value ?? null
-}
-
 export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
-  const email = parseAuthEmail(request)
-  if (!email) return null
-  const user = await prisma.user.findUnique({ where: { email } })
+  const session = await verifySessionToken(request.cookies.get(sessionCookie.name)?.value)
+  if (!session) return null
+  const user = await prisma.user.findUnique({ where: { email: session.email } })
   if (!user || user.status !== 'active') return null
   return { email: user.email, role: user.role as UserRole, name: user.name }
 }

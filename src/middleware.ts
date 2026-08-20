@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { UserRole } from './types'
+import { sessionCookie, verifySessionToken } from './lib/session'
 
 const routeRoles: Record<string, UserRole[]> = {
   '/home': ['admin', 'supervisor', 'employee', 'viewer'],
@@ -9,34 +10,17 @@ const routeRoles: Record<string, UserRole[]> = {
   '/users': ['admin'],
 }
 
-function parseRole(value: string | undefined): UserRole | null {
-  if (value === 'admin' || value === 'supervisor' || value === 'employee' || value === 'viewer') {
-    return value
-  }
-  return null
-}
-
-function deriveRoleFromEmail(email: string): UserRole {
-  if (email.startsWith('admin@')) return 'admin'
-  if (email.startsWith('super@')) return 'supervisor'
-  if (email.startsWith('employee@')) return 'employee'
-  return 'viewer'
-}
-
-export function middleware(request: NextRequest) {
+export async function middleware(request: NextRequest) {
   const path = request.nextUrl.pathname
   const allowed = routeRoles[path]
   if (!allowed) return NextResponse.next()
 
-  const email = request.cookies.get('ds-auth')?.value
-  if (!email) {
+  const session = await verifySessionToken(request.cookies.get(sessionCookie.name)?.value)
+  if (!session) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  const roleCookie = request.cookies.get('ds-role')?.value
-  const role = parseRole(roleCookie) ?? deriveRoleFromEmail(email)
-
-  if (!allowed.includes(role)) {
+  if (!allowed.includes(session.role)) {
     return NextResponse.redirect(new URL('/forbidden', request.url))
   }
 
