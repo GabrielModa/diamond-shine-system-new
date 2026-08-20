@@ -11,6 +11,7 @@ type SupplyDraft = {
   priority: Priority
   notes: string
   selected: string[]
+  quantities: Record<string, number>
 }
 
 const DRAFT_KEY = 'ds-supplies-draft'
@@ -21,6 +22,7 @@ export default function SuppliesPage() {
   const [priority, setPriority] = useState<Priority>('')
   const [notes, setNotes] = useState('')
   const [selected, setSelected] = useState<string[]>([])
+  const [quantities, setQuantities] = useState<Record<string, number>>({})
   const [toastSuccess, setToastSuccess] = useState(false)
   const [toastError, setToastError] = useState(false)
   const [missingText, setMissingText] = useState('')
@@ -57,18 +59,20 @@ export default function SuppliesPage() {
       )
       setNotes(typeof draft.notes === 'string' ? draft.notes : '')
       setSelected(Array.isArray(draft.selected) ? draft.selected.filter((item) => typeof item === 'string') : [])
+      setQuantities(draft.quantities && typeof draft.quantities === 'object' ? draft.quantities : {})
     } catch {
       localStorage.removeItem(DRAFT_KEY)
     }
   }, [])
 
   useEffect(() => {
-    const draft: SupplyDraft = { name, location, priority, notes, selected }
+    const draft: SupplyDraft = { name, location, priority, notes, selected, quantities }
     localStorage.setItem(DRAFT_KEY, JSON.stringify(draft))
-  }, [name, location, priority, notes, selected])
+  }, [name, location, priority, notes, selected, quantities])
 
   function toggleProduct(product: string) {
     setSelected((prev) => (prev.includes(product) ? prev.filter((p) => p !== product) : [...prev, product]))
+    setQuantities((prev) => ({ ...prev, [product]: prev[product] ?? 1 }))
   }
 
   async function onSubmit(event: FormEvent<HTMLFormElement>) {
@@ -101,7 +105,7 @@ export default function SuppliesPage() {
           employeeName: nameValue,
           clientLocation: location,
           priority,
-          products: selected,
+          items: selected.map((product) => ({ product, quantity: quantities[product] ?? 1 })),
           notes: notes.trim() ? notes.trim() : undefined,
         }),
       })
@@ -130,6 +134,7 @@ export default function SuppliesPage() {
     setPriority('')
     setNotes('')
     setSelected([])
+    setQuantities({})
     localStorage.removeItem(DRAFT_KEY)
   }
 
@@ -151,6 +156,7 @@ export default function SuppliesPage() {
           <h2>Request Details</h2>
           <p className="muted">Provide the essentials so we can process quickly.</p>
         </div>
+
         <label htmlFor="employeeName" className="muted">Your name</label>
         <input
           id="employeeName"
@@ -209,6 +215,29 @@ export default function SuppliesPage() {
             </button>
           ))}
         </div>
+
+        {selected.length ? (
+          <div className="selected-items" aria-label="Selected product quantities">
+            <h3>Quantities</h3>
+            {selected.map((product) => (
+              <label key={product} className="quantity-row">
+                <span>{product}</span>
+                <input
+                  type="number"
+                  min="1"
+                  max="999"
+                  inputMode="numeric"
+                  value={quantities[product] ?? 1}
+                  onChange={(event) => {
+                    const value = Math.max(1, Math.min(999, Number(event.target.value) || 1))
+                    setQuantities((prev) => ({ ...prev, [product]: value }))
+                  }}
+                  aria-label={`Quantity for ${product}`}
+                />
+              </label>
+            ))}
+          </div>
+        ) : null}
 
         <div className="row">
           <div id="selectedCount">{countLabel}</div>

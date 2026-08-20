@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
-import { CLIENT_LOCATIONS } from '../../../lib/constants'
+import { CLIENT_LOCATIONS, PRODUCTS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { sendSuppliesNotification } from '../../../lib/email'
@@ -9,13 +9,19 @@ import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
 import { logAudit } from '../../../lib/audit'
 
+const itemSchema = z.object({
+  product: z.string().min(1).refine((value) => PRODUCTS.some((item) => item.value === value), 'Unknown product'),
+  quantity: z.number().int().min(1).max(999),
+})
+
 const createSchema = z.object({
   employeeName: z.string().min(1),
   clientLocation: z.enum(CLIENT_LOCATIONS),
   priority: z.enum(['urgent', 'normal', 'low']),
-  products: z.array(z.string()).min(1),
+  items: z.array(itemSchema).min(1).optional(),
+  products: z.array(z.string()).min(1).optional(),
   notes: z.string().max(500).optional(),
-})
+}).refine((value) => Boolean(value.items?.length || value.products?.length), { message: 'At least one item is required' })
 
 const querySchema = z.object({
   status: z.enum(['pending', 'email-sent', 'completed']).optional(),
@@ -35,12 +41,18 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
+  const items = parsed.data.items ?? parsed.data.products!.map((product) => ({ product, quantity: 1 }))
+  if (new Set(items.map((item) => item.product)).size !== items.length) {
+    return NextResponse.json({ ok: false, error: 'Duplicate products are not allowed' }, { status: 400 })
+  }
+
   const created = await prisma.supplyRequest.create({
     data: {
       employeeName: parsed.data.employeeName,
       clientLocation: parsed.data.clientLocation,
       priority: parsed.data.priority,
-      products: JSON.stringify(parsed.data.products),
+      products: JSON.stringify(items.map((item) => item.product)),
+      items: { create: items },
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
       status: 'Pending',
@@ -52,7 +64,8 @@ export async function POST(request: NextRequest) {
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
     priority: created.priority,
-    products: parsed.data.products,
+    products: items.map((item) => item.product),
+    items,
     notes: created.notes ?? undefined,
     submittedBy: created.submittedBy,
     createdAt: created.createdAt,
@@ -97,14 +110,18 @@ export async function GET(request: NextRequest) {
   const skip = (parsed.data.page - 1) * parsed.data.limit
   const [total, items] = await Promise.all([
     prisma.supplyRequest.count({ where }),
-    prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
+    prisma.supplyRequest.findMany({ where, include: { items: true }, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
   ])
 
-  const mappedItems = items.map((item) => ({
-    ...item,
-    status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
-    products: parseStringArray(item.products),
-  }))
+  const mappedItems = items.map((item) => {
+    const products = parseStringArray(item.products)
+    return {
+      ...item,
+      status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
+      products,
+      items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+    }
+  })
 
   return NextResponse.json({
     ok: true,

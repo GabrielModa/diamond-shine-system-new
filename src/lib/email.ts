@@ -8,6 +8,7 @@ export interface SupplyEmailData {
   clientLocation: string
   priority: 'urgent' | 'normal' | 'low'
   products: string[]
+  items?: Array<{ product: string; quantity: number }>
   notes?: string
   submittedBy: string
   createdAt?: Date | string
@@ -77,7 +78,8 @@ function formatDublinDate(value?: Date | string) {
 
 function buildSuppliesEmailHtml(data: SupplyEmailData): string {
   const config = priorityConfig(data.priority)
-  const productsHtml = (data.products || []).map((p) => `<div class="product-item">• ${p}</div>`).join('')
+  const items = data.items?.length ? data.items : (data.products || []).map((product) => ({ product, quantity: 1 }))
+  const productsHtml = items.map((item) => `<div class="product-item">• ${item.product} × ${item.quantity}</div>`).join('')
   const notesRow = data.notes ? `<tr><td>Notes</td><td>${data.notes}</td></tr>` : ''
   const timestamp = formatDublinDate(data.createdAt)
 

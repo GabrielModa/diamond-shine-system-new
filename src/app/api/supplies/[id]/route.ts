@@ -9,13 +9,20 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id } })
+  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id }, include: { items: true } })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
   return NextResponse.json({
     ok: true,
-    data: { ...row, status: dbStatusToLabel(row.status as 'Pending' | 'EmailSent' | 'Completed'), products: parseStringArray(row.products) },
+    data: {
+      ...row,
+      status: dbStatusToLabel(row.status as 'Pending' | 'EmailSent' | 'Completed'),
+      products: parseStringArray(row.products),
+      items: row.items.length
+        ? row.items.map(({ product, quantity }) => ({ product, quantity }))
+        : parseStringArray(row.products).map((product) => ({ product, quantity: 1 })),
+    },
   })
 }

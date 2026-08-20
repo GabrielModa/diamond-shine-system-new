@@ -67,7 +67,7 @@ export function SupplyDetailSheet({
           </div>
           <div className="detail-item">
             <div className="detail-label">Products</div>
-            <div className="detail-value">{request.products.join(', ')}</div>
+            <div className="detail-value">{(request.items?.length ? request.items : request.products.map((product) => ({ product, quantity: 1 }))).map((item) => `${item.product} × ${item.quantity}`).join(', ')}</div>
           </div>
           <div className="detail-item">
             <div className="detail-label">Date</div>

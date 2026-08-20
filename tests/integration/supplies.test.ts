@@ -43,7 +43,10 @@ const VALID_SUPPLY = {
   employeeName: 'Emma Employee',
   clientLocation: 'TechCorp Office - Dublin 2',
   priority: 'urgent',
-  products: ['All-purpose cleaner', 'Rubber gloves'],
+  items: [
+    { product: 'All-purpose cleaner', quantity: 3 },
+    { product: 'Rubber gloves', quantity: 2 },
+  ],
   notes: 'Need before 9am',
 }
 
@@ -52,6 +55,10 @@ describe('POST /api/supplies', () => {
     const res = await request(app).post('/api/supplies').set('Cookie', employeeCookie).send(VALID_SUPPLY)
     expect(res.status).toBe(201)
     expect(res.body.ok).toBe(true)
+    const created = await prisma.supplyRequest.findUnique({ where: { id: res.body.data.id }, include: { items: true } })
+    expect(created?.items).toEqual(
+      expect.arrayContaining([expect.objectContaining({ product: 'All-purpose cleaner', quantity: 3 })])
+    )
     expect(typeof res.body.data.id).toBe('string')
   })
 

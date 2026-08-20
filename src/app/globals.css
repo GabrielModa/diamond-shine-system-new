@@ -1727,6 +1727,23 @@ input[type="search"] {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-strong);
 }
+
+.selected-items {
+  display: grid;
+  gap: 8px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--card-radius);
+  background: #f8fafc;
+}
+.selected-items h3 { margin: 0 0 4px; }
+.quantity-row {
+  display: grid;
+  grid-template-columns: 1fr 100px;
+  gap: 12px;
+  align-items: center;
+}
+.quantity-row input { text-align: center; }
 .auth-shell-single {
   grid-template-columns: minmax(280px, 520px);
   justify-content: center;

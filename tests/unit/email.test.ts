@@ -36,6 +36,7 @@ const supplyBase: SupplyEmailData = {
   clientLocation: 'TechCorp Office - Dublin 2',
   priority: 'urgent',
   products: ['All-purpose cleaner', 'Rubber gloves'],
+  items: [{ product: 'All-purpose cleaner', quantity: 3 }, { product: 'Rubber gloves', quantity: 2 }],
   notes: 'Need before 9am',
   submittedBy: 'emma@ds.ie',
 }
@@ -115,6 +116,12 @@ describe('sendPasswordReset', () => {
     })
     expect(sendMail.mock.calls[0]?.[0]?.to).toBe('emma@ds.ie')
     expect(sendMail.mock.calls[0]?.[0]?.html).toContain('/reset-password?token=secret')
+  })
+
+  it('html body contains requested quantities', async () => {
+    const sendMail = await spySendMail()
+    await sendSuppliesNotification(supplyBase)
+    expect(sendMail.mock.calls[0]?.[0]?.html).toContain('All-purpose cleaner × 3')
   })
 })
 

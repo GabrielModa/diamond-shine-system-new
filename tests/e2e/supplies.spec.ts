@@ -13,6 +13,8 @@ test('full happy path: employee submits a supply request', async ({ page }) => {
   await page.fill('input[placeholder="Enter your name"]', 'Emma Employee')
   await page.selectOption('#location', 'TechCorp Office - Dublin 2')
   await page.click('[data-priority="normal"]')
+  await page.click('[data-value="All-purpose cleaner"]')
+  await page.getByLabel('Quantity for All-purpose cleaner').fill('3')
   await page.click('#submitBtn')
   await expect(page.locator('.toast.success')).toBeVisible()
 })

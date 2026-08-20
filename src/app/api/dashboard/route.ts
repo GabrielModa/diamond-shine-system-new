@@ -9,7 +9,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const supplies = await prisma.supplyRequest.findMany({ orderBy: { createdAt: 'desc' } })
+  const supplies = await prisma.supplyRequest.findMany({ include: { items: true }, orderBy: { createdAt: 'desc' } })
   const feedback = await prisma.feedbackEntry.findMany({ orderBy: { createdAt: 'desc' } })
 
   const byStatus = { pending: 0, emailSent: 0, completed: 0 }
@@ -27,9 +27,11 @@ export async function GET(request: NextRequest) {
       if (item.priority === 'low') byPriority.low += 1
     }
 
-    const products = parseStringArray(item.products)
-    for (const product of products) {
-      productCounts[product] = (productCounts[product] ?? 0) + 1
+    const requestItems = item.items.length
+      ? item.items
+      : parseStringArray(item.products).map((product) => ({ product, quantity: 1 }))
+    for (const requestItem of requestItems) {
+      productCounts[requestItem.product] = (productCounts[requestItem.product] ?? 0) + requestItem.quantity
     }
   }
 
@@ -55,11 +57,15 @@ export async function GET(request: NextRequest) {
         byStatus,
         byPriority,
         mostRequestedProduct,
-        recent: supplies.slice(0, 5).map((item) => ({
-          ...item,
-          status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
-          products: parseStringArray(item.products),
-        })),
+        recent: supplies.slice(0, 5).map((item) => {
+          const products = parseStringArray(item.products)
+          return {
+            ...item,
+            status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
+            products,
+            items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+          }
+        }),
       },
       feedback: {
         total: feedbackTotal,

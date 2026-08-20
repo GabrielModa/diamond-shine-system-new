@@ -81,6 +81,7 @@ model SupplyRequest {
   createdAt      DateTime       @default(now())
   updatedAt      DateTime       @updatedAt
   user           User           @relation(fields: [submittedBy], references: [email])
+  items          SupplyRequestItem[]
 
   @@index([status])
   @@index([submittedBy])
@@ -124,6 +125,17 @@ enum SupplyPriority {
   urgent
   normal
   low
+}
+
+model SupplyRequestItem {
+  id        String        @id @default(cuid())
+  requestId String
+  product   String
+  quantity  Int
+  request   SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId])
+  @@map("supply_request_items")
 }
 
 enum AuthTokenType {

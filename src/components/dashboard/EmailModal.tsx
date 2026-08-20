@@ -16,7 +16,8 @@ function buildEmailBody(request: SupplyRequest): string {
   const priority = PRIORITY_STYLES[request.priority]
   const notesRow = request.notes ? `<tr><td>Notes</td><td>${request.notes}</td></tr>` : ''
   const date = new Date(request.createdAt).toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })
-  const productsHtml = request.products.map((p) => `<div class="product-item">• ${p}</div>`).join('')
+  const items = request.items?.length ? request.items : request.products.map((product) => ({ product, quantity: 1 }))
+  const productsHtml = items.map((item) => `<div class="product-item">• ${item.product} × ${item.quantity}</div>`).join('')
 
   return `<!DOCTYPE html>
 <html lang="en-IE">
@@ -78,6 +79,11 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
   const [body, setBody] = useState('')
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const priority = request ? PRIORITY_STYLES[request.priority] : null
+  const displayItems = request
+    ? request.items?.length
+      ? request.items
+      : request.products.map((product) => ({ product, quantity: 1 }))
+    : []
 
   const defaults = useMemo(() => {
     if (!request) return { subject: '', body: '' }
@@ -128,7 +134,7 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
               </div>
               <div>
                 <div className="muted">Products</div>
-                <div>{request.products.join(', ')}</div>
+                <div>{displayItems.map((item) => `${item.product} × ${item.quantity}`).join(', ')}</div>
               </div>
               <div>
                 <div className="muted">Priority</div>
