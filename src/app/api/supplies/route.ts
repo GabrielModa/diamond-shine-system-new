@@ -54,6 +54,9 @@ export async function POST(request: NextRequest) {
       priority: parsed.data.priority,
       products: JSON.stringify(items.map((item) => item.product)),
       items: { create: items },
+      statusEvents: {
+        create: { toStatus: 'Pending', actorEmail: auth.user.email, note: 'Request submitted' },
+      },
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
       status: 'Pending',
@@ -117,7 +120,13 @@ export async function GET(request: NextRequest) {
   const skip = (parsed.data.page - 1) * parsed.data.limit
   const [total, items] = await Promise.all([
     prisma.supplyRequest.count({ where }),
-    prisma.supplyRequest.findMany({ where, include: { items: true }, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
+    prisma.supplyRequest.findMany({
+      where,
+      include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: parsed.data.limit,
+    }),
   ])
 
   const mappedItems = items.map((item) => {
@@ -127,6 +136,13 @@ export async function GET(request: NextRequest) {
       status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
       products,
       items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+      history: item.statusEvents.map((event) => ({
+        ...event,
+        toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+        fromStatus: event.fromStatus
+          ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+          : null,
+      })),
     }
   })
 

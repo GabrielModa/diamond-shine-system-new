@@ -143,6 +143,12 @@ button:focus-visible {
 .request-actions { display: flex; justify-content: flex-end; gap: 8px; flex-wrap: wrap; }
 .request-cancelled { padding: 10px 12px; border-radius: 10px; background: #fef2f2; color: #b91c1c; }
 .btn-ghost.danger { color: #b91c1c; border-color: #fecaca; }
+.status-history { display: grid; gap: 12px; }
+.status-history h3 { margin: 0; }
+.status-history-event { display: grid; grid-template-columns: 12px 1fr; gap: 10px; align-items: start; }
+.history-dot { width: 10px; height: 10px; margin-top: 6px; border-radius: 999px; background: #6366f1; box-shadow: 0 0 0 4px #e0e7ff; }
+.status-history.compact { margin-top: 10px; padding-left: 4px; }
+.request-history-details summary { cursor: pointer; color: #4338ca; font-weight: 600; }
 
 .top-bar {
   position: sticky;

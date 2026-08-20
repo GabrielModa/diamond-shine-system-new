@@ -9,7 +9,10 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id }, include: { items: true } })
+  const row = await prisma.supplyRequest.findUnique({
+    where: { id: params.id },
+    include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
+  })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -23,6 +26,13 @@ export async function GET(request: NextRequest, { params }: { params: { id: stri
       items: row.items.length
         ? row.items.map(({ product, quantity }) => ({ product, quantity }))
         : parseStringArray(row.products).map((product) => ({ product, quantity: 1 })),
+      history: row.statusEvents.map((event) => ({
+        ...event,
+        toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+        fromStatus: event.fromStatus
+          ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+          : null,
+      })),
     },
   })
 }

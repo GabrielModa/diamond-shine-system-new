@@ -9,7 +9,10 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const supplies = await prisma.supplyRequest.findMany({ include: { items: true }, orderBy: { createdAt: 'desc' } })
+  const supplies = await prisma.supplyRequest.findMany({
+    include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
+    orderBy: { createdAt: 'desc' },
+  })
   const feedback = await prisma.feedbackEntry.findMany({ orderBy: { createdAt: 'desc' } })
 
   const byStatus = { pending: 0, emailSent: 0, completed: 0 }
@@ -64,6 +67,13 @@ export async function GET(request: NextRequest) {
             status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
             products,
             items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+            history: item.statusEvents.map((event) => ({
+              ...event,
+              toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+              fromStatus: event.fromStatus
+                ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+                : null,
+            })),
           }
         }),
       },

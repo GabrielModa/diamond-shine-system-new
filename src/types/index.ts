@@ -24,6 +24,14 @@ export interface SupplyRequest {
   submittedBy: string
   emailSentAt?: string
   completedAt?: string
+  history?: Array<{
+    id: string
+    fromStatus?: string | null
+    toStatus: SupplyStatus
+    actorEmail: string
+    note?: string | null
+    createdAt: string
+  }>
 }
 
 export interface FeedbackEntry {

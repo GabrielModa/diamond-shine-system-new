@@ -85,6 +85,27 @@ export function SupplyDetailSheet({
           ) : null}
         </div>
 
+        <section className="status-history" aria-labelledby="status-history-title">
+          <h3 id="status-history-title">Status history</h3>
+          {(request.history?.length ? request.history : [{
+            id: `${request.id}-created`,
+            fromStatus: null,
+            toStatus: 'Pending' as const,
+            actorEmail: request.submittedBy,
+            note: 'Request submitted',
+            createdAt: request.createdAt,
+          }]).map((event) => (
+            <div key={event.id} className="status-history-event">
+              <span className="history-dot" />
+              <div>
+                <strong>{event.toStatus}</strong>
+                <div className="muted">{event.note || `Changed from ${event.fromStatus ?? 'start'}`}</div>
+                <div className="muted">{event.actorEmail} · {new Date(event.createdAt).toLocaleString('en-IE')}</div>
+              </div>
+            </div>
+          ))}
+        </section>
+
         <div className="row action-row">
           {request.status === 'Pending' ? (
             <>

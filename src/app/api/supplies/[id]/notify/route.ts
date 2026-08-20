@@ -37,10 +37,21 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   })
 
   if (sendResult.ok) {
-    await prisma.supplyRequest.update({
-      where: { id: params.id },
-      data: { status: 'EmailSent', emailSentAt: new Date() },
-    })
+    await prisma.$transaction([
+      prisma.supplyRequest.update({
+        where: { id: params.id },
+        data: { status: 'EmailSent', emailSentAt: new Date() },
+      }),
+      prisma.supplyStatusEvent.create({
+        data: {
+          requestId: params.id,
+          fromStatus: row.status,
+          toStatus: 'EmailSent',
+          actorEmail: auth.user.email,
+          note: `Client notified at ${parsed.data.clientEmail}`,
+        },
+      }),
+    ])
   }
 
   await logAudit(auth.user.email, 'send_supply_email', 'supply', params.id, {

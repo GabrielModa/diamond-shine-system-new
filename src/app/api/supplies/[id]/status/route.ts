@@ -53,7 +53,18 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (nextStatus === 'EmailSent') data.emailSentAt = new Date()
   if (nextStatus === 'Completed') data.completedAt = new Date()
 
-  await prisma.supplyRequest.update({ where: { id: params.id }, data })
+  await prisma.$transaction([
+    prisma.supplyRequest.update({ where: { id: params.id }, data }),
+    prisma.supplyStatusEvent.create({
+      data: {
+        requestId: params.id,
+        fromStatus: row.status,
+        toStatus: nextStatus,
+        actorEmail: auth.user.email,
+        note: nextStatus === 'Cancelled' ? 'Cancelled by requester or administrator' : null,
+      },
+    }),
+  ])
 
   await logAudit(auth.user.email, 'update_supply_status', 'supply', params.id, {
     status: parsed.data.status,

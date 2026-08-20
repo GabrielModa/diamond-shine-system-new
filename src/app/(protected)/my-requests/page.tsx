@@ -91,6 +91,19 @@ export default function MyRequestsPage() {
                 })}
                 </div>
               )}
+              {request.history?.length ? (
+                <details className="request-history-details">
+                  <summary>View status history ({request.history.length})</summary>
+                  <div className="status-history compact">
+                    {request.history.map((event) => (
+                      <div key={event.id} className="status-history-event">
+                        <span className="history-dot" />
+                        <div><strong>{event.toStatus}</strong><div className="muted">{new Date(event.createdAt).toLocaleString('en-IE')}</div></div>
+                      </div>
+                    ))}
+                  </div>
+                </details>
+              ) : null}
               <div className="request-actions">
                 <button type="button" className="btn-secondary" onClick={() => repeatRequest(request)}>Repeat request</button>
                 {request.status === 'Pending' ? <button type="button" className="btn-ghost danger" disabled={workingId === request.id} onClick={() => void cancelRequest(request)}>{workingId === request.id ? 'Cancelling…' : 'Cancel request'}</button> : null}

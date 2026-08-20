@@ -59,6 +59,8 @@ describe('POST /api/supplies', () => {
     expect(created?.items).toEqual(
       expect.arrayContaining([expect.objectContaining({ product: 'All-purpose cleaner', quantity: 3 })])
     )
+    const createdEvent = await prisma.supplyStatusEvent.findFirst({ where: { requestId: res.body.data.id } })
+    expect(createdEvent).toMatchObject({ fromStatus: null, toStatus: 'Pending', actorEmail: 'employee@ds.ie' })
     expect(typeof res.body.data.id).toBe('string')
   })
 
@@ -105,6 +107,7 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
     const res = await request(app).patch(`/api/supplies/${row.id}/status`).set('Cookie', employeeCookie).send({ status: 'Cancelled' })
     expect(res.status).toBe(200)
     expect((await prisma.supplyRequest.findUnique({ where: { id: row.id } }))?.status).toBe('Cancelled')
+    expect(await prisma.supplyStatusEvent.count({ where: { requestId: row.id, toStatus: 'Cancelled' } })).toBe(1)
   })
 
   it('employee cannot cancel another users request', async () => {

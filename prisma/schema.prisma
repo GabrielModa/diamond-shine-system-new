@@ -82,6 +82,7 @@ model SupplyRequest {
   updatedAt      DateTime       @updatedAt
   user           User           @relation(fields: [submittedBy], references: [email])
   items          SupplyRequestItem[]
+  statusEvents   SupplyStatusEvent[]
 
   @@index([status])
   @@index([submittedBy])
@@ -125,6 +126,20 @@ enum SupplyPriority {
   urgent
   normal
   low
+}
+
+model SupplyStatusEvent {
+  id          String        @id @default(cuid())
+  requestId   String
+  fromStatus  String?
+  toStatus    String
+  actorEmail  String
+  note        String?
+  createdAt   DateTime      @default(now())
+  request     SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("supply_status_events")
 }
 
 model SupplyRequestItem {
