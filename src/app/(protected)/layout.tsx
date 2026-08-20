@@ -12,6 +12,8 @@ const pageMeta: Record<string, { label: string; href: string }> = {
   feedback: { label: 'Feedback', href: '/feedback' },
   dashboard: { label: 'Dashboard', href: '/dashboard' },
   users: { label: 'Users', href: '/users' },
+  communications: { label: 'Communications', href: '/communications' },
+  audit: { label: 'Audit', href: '/audit' },
 }
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {

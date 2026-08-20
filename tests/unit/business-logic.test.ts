@@ -90,8 +90,8 @@ describe('checkPageAccess', () => {
 })
 
 describe('getAllowedPages', () => {
-  it('admin gets all 6 pages', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['dashboard', 'feedback', 'home', 'my-requests', 'supplies', 'users'])
+  it('admin gets all 8 pages', () => {
+    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'home', 'my-requests', 'supplies', 'users'])
   })
   it('supervisor gets 4 pages (no dashboard)', () => {
     expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'my-requests', 'supplies'])

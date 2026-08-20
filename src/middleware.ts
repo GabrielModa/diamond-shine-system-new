@@ -9,6 +9,8 @@ const routeRoles: Record<string, UserRole[]> = {
   '/feedback': ['admin', 'supervisor'],
   '/dashboard': ['admin'],
   '/users': ['admin'],
+  '/communications': ['admin'],
+  '/audit': ['admin'],
 }
 
 export async function middleware(request: NextRequest) {
@@ -29,5 +31,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/home', '/supplies', '/my-requests', '/feedback', '/dashboard', '/users'],
+  matcher: ['/home', '/supplies', '/my-requests', '/feedback', '/dashboard', '/users', '/communications', '/audit'],
 }

@@ -1,5 +1,5 @@
 export type UserRole = 'admin' | 'supervisor' | 'employee' | 'viewer'
-export type Page = 'home' | 'supplies' | 'my-requests' | 'feedback' | 'dashboard' | 'users'
+export type Page = 'home' | 'supplies' | 'my-requests' | 'feedback' | 'dashboard' | 'users' | 'communications' | 'audit'
 export type SupplyPriority = 'urgent' | 'normal' | 'low'
 export type SupplyStatus = 'Pending' | 'Email Sent' | 'Completed' | 'Cancelled'
 export type FeedbackCategory = 'Excellent' | 'Very Good' | 'Good' | 'Fair' | 'Poor'
