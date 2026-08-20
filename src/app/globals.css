@@ -1919,6 +1919,7 @@ input[type="search"] {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-strong);
 }
+.auth-card-brand { display: none; }
 
 .selected-items {
   display: grid;
@@ -1967,9 +1968,21 @@ input[type="search"] {
 }
 
 @media (max-width: 720px) {
-  .auth-shell { padding: 16px; }
-  .auth-hero { order: 2; }
-  .auth-card { order: 1; }
+  .auth-shell {
+    min-height: calc(100vh - 28px);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 12px;
+  }
+  .auth-hero { display: none; }
+  .auth-card { width: min(100%, 520px); padding: 20px; }
+  .auth-card-brand {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 22px;
+  }
 }
 
 /* Softer surfaces (less eye strain) */

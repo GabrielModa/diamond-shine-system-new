@@ -62,6 +62,13 @@ export default function LoginPage() {
       </section>
 
       <section className="auth-card">
+        <div className="auth-card-brand" aria-label="Diamond Shine Operations Suite">
+          <span className="brand-mark" aria-hidden="true">💎</span>
+          <div>
+            <div className="brand-title">Diamond Shine</div>
+            <div className="brand-sub">Operations Suite</div>
+          </div>
+        </div>
         <div className="auth-card-header">
           <h2>Sign in</h2>
           <p className="muted">Use your work email to continue.</p>
