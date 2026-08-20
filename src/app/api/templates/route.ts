@@ -21,6 +21,11 @@ const DEFAULT_TEMPLATES = [
     subject: 'You are invited to Diamond Shine',
     body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine.</p><p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>',
   },
+  {
+    key: 'password_reset',
+    subject: 'Reset your Diamond Shine password',
+    body: '<p>Hello {{name}},</p><p><a href="{{resetUrl}}">Reset your password</a>. This secure link expires in 24 hours and can only be used once.</p><p>If you did not request this, you can ignore this email.</p>',
+  },
 ]
 
 export async function GET(request: NextRequest) {

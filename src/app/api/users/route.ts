@@ -31,14 +31,15 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const existing = await prisma.user.findUnique({ where: { email: parsed.data.email } })
+  const email = parsed.data.email.trim().toLowerCase()
+  const existing = await prisma.user.findUnique({ where: { email } })
   if (existing) {
     return NextResponse.json({ ok: false, error: 'User already exists' }, { status: 409 })
   }
 
   const created = await prisma.user.create({
     data: {
-      email: parsed.data.email,
+      email,
       name: parsed.data.name,
       role: parsed.data.role,
       password: null,

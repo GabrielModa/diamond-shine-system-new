@@ -18,6 +18,7 @@ import {
   sendSuppliesNotification,
   sendFeedbackNotification,
   sendClientNotification,
+  sendPasswordReset,
 } from '../../src/lib/email'
 
 async function spySendMail(rejectWith?: Error) {
@@ -101,6 +102,19 @@ describe('sendSuppliesNotification', () => {
     await sendSuppliesNotification(supplyBase)
     const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
     expect(html).toContain('TechCorp Office - Dublin 2')
+  })
+})
+
+describe('sendPasswordReset', () => {
+  it('sends a one-time reset link to the account email', async () => {
+    const sendMail = await spySendMail()
+    await sendPasswordReset({
+      to: 'emma@ds.ie',
+      name: 'Emma Employee',
+      resetUrl: 'https://diamondshine.ie/reset-password?token=secret',
+    })
+    expect(sendMail.mock.calls[0]?.[0]?.to).toBe('emma@ds.ie')
+    expect(sendMail.mock.calls[0]?.[0]?.html).toContain('/reset-password?token=secret')
   })
 })
 

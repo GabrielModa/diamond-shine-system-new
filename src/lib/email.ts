@@ -40,6 +40,12 @@ export interface InviteEmailData {
   inviteUrl: string
 }
 
+export interface PasswordResetEmailData {
+  to: string
+  name: string
+  resetUrl: string
+}
+
 function getTransport() {
   return nodemailer.createTransport({
     host: process.env.SMTP_HOST ?? 'localhost',
@@ -268,6 +274,28 @@ export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boole
     return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed invite email', error)
+    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+  }
+}
+
+export async function sendPasswordReset(
+  data: PasswordResetEmailData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transport = getTransport()
+    const template = (await getTemplate('password_reset')) ?? {
+      subject: 'Reset your Diamond Shine password',
+      body: '<p>Hello {{name}},</p><p><a href="{{resetUrl}}">Reset your password</a>. This secure link expires in 24 hours and can only be used once.</p><p>If you did not request this, you can ignore this email.</p>',
+    }
+    const rendered = renderTemplate(template, {
+      name: data.name,
+      email: data.to,
+      resetUrl: data.resetUrl,
+    })
+    await transport.sendMail({ from: SMTP_FROM, to: data.to, subject: rendered.subject, html: rendered.body })
+    return { ok: true }
+  } catch (error) {
+    console.error('[EMAIL] failed password reset email', error)
     return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
   }
 }

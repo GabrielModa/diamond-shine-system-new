@@ -1745,6 +1745,17 @@ input[type="search"] {
 .auth-form .btn-primary {
   height: 44px;
 }
+.password-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--surface-muted);
+  font-size: 0.9rem;
+}
+.password-toggle input {
+  width: 18px;
+  height: 18px;
+}
 
 @media (max-width: 720px) {
   .auth-shell { padding: 16px; }

@@ -4,13 +4,7 @@ import { setPasswordWithAuthToken } from '../../../../lib/auth-tokens'
 
 const bodySchema = z.object({
   token: z.string().min(20),
-  password: z
-    .string()
-    .min(12)
-    .max(128)
-    .regex(/[a-z]/)
-    .regex(/[A-Z]/)
-    .regex(/[0-9]/),
+  password: z.string().min(12).max(128).regex(/[a-z]/).regex(/[A-Z]/).regex(/[0-9]/),
 })
 
 export async function POST(request: NextRequest) {
@@ -22,11 +16,9 @@ export async function POST(request: NextRequest) {
     )
   }
 
-  const result = await setPasswordWithAuthToken(parsed.data.token, 'invite', parsed.data.password)
-
-  if (!result) {
-    return NextResponse.json({ ok: false, error: 'This invitation is invalid or has expired.' }, { status: 400 })
+  const user = await setPasswordWithAuthToken(parsed.data.token, 'password_reset', parsed.data.password)
+  if (!user) {
+    return NextResponse.json({ ok: false, error: 'This reset link is invalid or has expired.' }, { status: 400 })
   }
-
-  return NextResponse.json({ ok: true, data: { status: result.status } })
+  return NextResponse.json({ ok: true, data: { reset: true } })
 }
