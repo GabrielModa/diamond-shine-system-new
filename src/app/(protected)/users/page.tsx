@@ -40,8 +40,7 @@ export default function UsersPage() {
   const invitePreviewData = {
     name: 'Maria Silva',
     email: 'maria@diamondshine.ie',
-    tempPassword: 'TempPass123!',
-    inviteUrl: 'https://diamondshine.ie/login',
+    inviteUrl: 'https://diamondshine.ie/set-password?token=secure-link',
   }
 
   function renderTemplate(value: string, data: Record<string, string>) {
@@ -106,13 +105,13 @@ export default function UsersPage() {
 
   async function inviteUser() {
     try {
-      const res = await fetchJson<{ id: string; tempPassword: string; emailSent: boolean }>('/api/users', {
+      const res = await fetchJson<{ id: string; emailSent: boolean; inviteExpiresAt: string }>('/api/users', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(invite),
       })
       const emailNote = res.emailSent ? 'Invite email sent.' : 'Invite created, but email failed.'
-      setToast({ type: res.emailSent ? 'success' : 'error', message: `${emailNote} Temp password: ${res.tempPassword}` })
+      setToast({ type: res.emailSent ? 'success' : 'error', message: emailNote })
       setInvite({ email: '', name: '', role: 'employee' })
       await refresh()
     } catch {
@@ -289,7 +288,7 @@ export default function UsersPage() {
             </div>
             {template.key === 'user_invite' ? (
               <div className="template-preview muted">
-                Placeholders: {'{{name}}'}, {'{{email}}'}, {'{{tempPassword}}'}, {'{{inviteUrl}}'}
+                Placeholders: {'{{name}}'}, {'{{email}}'}, {'{{inviteUrl}}'}
               </div>
             ) : null}
             <div className="template-grid">

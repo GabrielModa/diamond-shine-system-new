@@ -1,10 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
-import bcrypt from 'bcryptjs'
 import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { sendUserInvite } from '../../../lib/email'
+import { issueAuthToken } from '../../../lib/auth-tokens'
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -36,15 +36,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'User already exists' }, { status: 409 })
   }
 
-  const tempPassword = 'password123'
-  const hash = await bcrypt.hash(tempPassword, 12)
-
   const created = await prisma.user.create({
     data: {
       email: parsed.data.email,
       name: parsed.data.name,
       role: parsed.data.role,
-      password: hash,
+      password: null,
       status: 'pending',
     },
   })
@@ -52,11 +49,11 @@ export async function POST(request: NextRequest) {
   await logAudit(auth.user.email, 'invite_user', 'user', created.id, { email: created.email, role: created.role })
 
   const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
-  const inviteUrl = `${baseUrl.replace(/\/$/, '')}/login`
+  const { token, expiresAt } = await issueAuthToken(created.id, 'invite')
+  const inviteUrl = `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(token)}`
   const inviteResult = await sendUserInvite({
     to: created.email,
     name: created.name ?? created.email,
-    tempPassword,
     inviteUrl,
   })
 
@@ -66,7 +63,7 @@ export async function POST(request: NextRequest) {
   })
 
   return NextResponse.json(
-    { ok: true, data: { id: created.id, tempPassword, emailSent: inviteResult.ok } },
+    { ok: true, data: { id: created.id, emailSent: inviteResult.ok, inviteExpiresAt: expiresAt } },
     { status: 201 }
   )
 }

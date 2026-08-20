@@ -19,7 +19,7 @@ const DEFAULT_TEMPLATES = [
   {
     key: 'user_invite',
     subject: 'You are invited to Diamond Shine',
-    body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine. Use the temporary password below to log in:</p><p><b>Password:</b> {{tempPassword}}</p><p>Login here: <a href="{{inviteUrl}}">{{inviteUrl}}</a></p>',
+    body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine.</p><p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>',
   },
 ]
 

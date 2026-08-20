@@ -37,7 +37,6 @@ export interface ClientEmailData {
 export interface InviteEmailData {
   to: string
   name: string
-  tempPassword: string
   inviteUrl: string
 }
 
@@ -230,9 +229,8 @@ export async function sendClientNotification(
 const INVITE_TEMPLATE_FALLBACK = {
   subject: 'You are invited to Diamond Shine',
   body: `<p>Hello {{name}},</p>
-<p>You have been invited to Diamond Shine. Use the temporary password below to log in:</p>
-<p><b>Password:</b> {{tempPassword}}</p>
-<p>Login here: <a href="{{inviteUrl}}">{{inviteUrl}}</a></p>
+<p>You have been invited to Diamond Shine.</p>
+<p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>
 <p>If you did not request this, please ignore this email.</p>`,
 }
 
@@ -259,7 +257,6 @@ export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boole
     const rendered = renderTemplate(template, {
       name: data.name,
       email: data.to,
-      tempPassword: data.tempPassword,
       inviteUrl: data.inviteUrl,
     })
     await transport.sendMail({

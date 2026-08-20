@@ -1727,6 +1727,10 @@ input[type="search"] {
   border: 1px solid var(--border);
   box-shadow: var(--shadow-strong);
 }
+.auth-shell-single {
+  grid-template-columns: minmax(280px, 520px);
+  justify-content: center;
+}
 .auth-card-header h2 {
   margin: 0 0 6px 0;
 }

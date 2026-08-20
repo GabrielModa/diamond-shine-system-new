@@ -10,8 +10,24 @@ model User {
   supplyRequests  SupplyRequest[]
   feedbackEntries FeedbackEntry[]
   auditLogs       AuditLog[]      @relation("AuditActor")
+  authTokens      AuthToken[]
 
   @@map("users")
+}
+
+model AuthToken {
+  id        String        @id @default(cuid())
+  tokenHash String        @unique
+  type      AuthTokenType
+  userId    String
+  expiresAt DateTime
+  usedAt    DateTime?
+  createdAt DateTime      @default(now())
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, type])
+  @@index([expiresAt])
+  @@map("auth_tokens")
 }
 
 model AuditLog {
@@ -104,6 +120,11 @@ enum SupplyPriority {
   urgent
   normal
   low
+}
+
+enum AuthTokenType {
+  invite
+  password_reset
 }
 
 

@@ -10,6 +10,7 @@ vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue(undefined),
   sendFeedbackNotification: vi.fn().mockResolvedValue(undefined),
   sendClientNotification: vi.fn().mockResolvedValue(undefined),
+  sendUserInvite: vi.fn().mockResolvedValue({ ok: true }),
 }))
 
 let app: ReturnType<typeof createServer>
@@ -29,6 +30,7 @@ beforeAll(async () => {
 
 beforeEach(async () => {
   await prisma.auditLog.deleteMany()
+  await prisma.authToken.deleteMany()
   await prisma.user.deleteMany({ where: { email: { contains: '@test.io' } } })
 })
 
@@ -40,8 +42,12 @@ describe('POST /api/users invite', () => {
       .send({ email: 'new@test.io', name: 'New User', role: 'employee' })
     expect(res.status).toBe(201)
     expect(res.body.ok).toBe(true)
+    expect(res.body.data.tempPassword).toBeUndefined()
     const user = await prisma.user.findUnique({ where: { email: 'new@test.io' } })
     expect(user?.status).toBe('pending')
+    expect(user?.password).toBeNull()
+    const token = await prisma.authToken.findFirst({ where: { userId: user?.id, type: 'invite' } })
+    expect(token?.tokenHash).toHaveLength(64)
   })
 })
 
