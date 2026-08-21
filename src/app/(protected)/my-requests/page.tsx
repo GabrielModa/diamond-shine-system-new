@@ -1,10 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import type { ApiResponse, SupplyRequest } from '../../../types'
 import { isSupplyOverdue, timeAgo } from '../../../lib/business-logic'
 
 export default function MyRequestsPage() {
+  const router = useRouter()
   const [requests, setRequests] = useState<SupplyRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
@@ -37,7 +39,7 @@ export default function MyRequestsPage() {
       selected: items.map((item) => item.product),
       quantities: Object.fromEntries(items.map((item) => [item.product, item.quantity])),
     }))
-    window.location.href = '/supplies'
+    router.push('/supplies')
   }
 
   useEffect(() => {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { sessionCookie, verifySessionToken } from './lib/session'
 
-export async function middleware(request: NextRequest) {
+export async function proxy(request: NextRequest) {
   const session = await verifySessionToken(request.cookies.get(sessionCookie.name)?.value)
   if (!session) {
     return NextResponse.redirect(new URL('/login', request.url))

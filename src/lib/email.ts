@@ -49,6 +49,9 @@ export interface PasswordResetEmailData {
 }
 
 function getTransport() {
+  if (process.env.EMAIL_TRANSPORT === 'json') {
+    return nodemailer.createTransport({ jsonTransport: true })
+  }
   return nodemailer.createTransport(getSmtpConfig())
 }
 

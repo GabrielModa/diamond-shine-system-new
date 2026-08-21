@@ -6,11 +6,12 @@ import { getApplicationUrl } from '../../../../../lib/runtime-config'
 import { sendUserInvite } from '../../../../../lib/email'
 import { logAudit } from '../../../../../lib/audit'
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const user = await prisma.user.findUnique({ where: { id: params.id } })
+  const user = await prisma.user.findUnique({ where: { id } })
   if (!user) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (user.status !== 'pending') {
     return NextResponse.json({ ok: false, error: 'Invitations can only be resent to pending users.' }, { status: 409 })

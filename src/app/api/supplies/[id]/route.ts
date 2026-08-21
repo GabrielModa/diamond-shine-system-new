@@ -4,13 +4,14 @@ import { requireAuth } from '../../../../lib/auth'
 import { dbStatusToLabel } from '../../../../lib/mappers'
 import { parseStringArray } from '../../../../lib/json'
 
-export async function GET(request: NextRequest, { params }: { params: { id: string } }) {
+export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   console.log('[API /api/supplies/:id GET]')
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
   const row = await prisma.supplyRequest.findUnique({
-    where: { id: params.id },
+    where: { id },
     include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
   })
   if (!row) {

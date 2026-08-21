@@ -11,7 +11,8 @@ const bodySchema = z.object({
   htmlBody: z.string().min(1),
 })
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   console.log('[API /api/supplies/:id/notify POST]')
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
@@ -21,7 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id } })
+  const row = await prisma.supplyRequest.findUnique({ where: { id } })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -39,12 +40,12 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
   if (sendResult.ok) {
     await prisma.$transaction([
       prisma.supplyRequest.update({
-        where: { id: params.id },
+        where: { id },
         data: { status: 'EmailSent', emailSentAt: new Date() },
       }),
       prisma.supplyStatusEvent.create({
         data: {
-          requestId: params.id,
+          requestId: id,
           fromStatus: row.status,
           toStatus: 'EmailSent',
           actorEmail: auth.user.email,
@@ -54,9 +55,9 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     ])
   }
 
-  await logAudit(auth.user.email, 'send_supply_email', 'supply', params.id, {
+  await logAudit(auth.user.email, 'send_supply_email', 'supply', id, {
     clientEmail: parsed.data.clientEmail,
   })
 
-  return NextResponse.json({ ok: true, data: { id: params.id, sent: sendResult.ok } })
+  return NextResponse.json({ ok: true, data: { id, sent: sendResult.ok } })
 }

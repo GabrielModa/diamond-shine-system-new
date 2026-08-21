@@ -19,7 +19,8 @@ const pageMeta: Record<string, { label: string; href: string }> = {
 }
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
-  const session = await verifySessionToken(cookies().get(sessionCookie.name)?.value)
+  const cookieStore = await cookies()
+  const session = await verifySessionToken(cookieStore.get(sessionCookie.name)?.value)
   if (!session) redirect('/login')
 
   const user = await prisma.user.findUnique({
@@ -30,7 +31,8 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
 
   const role = user.role as UserRole
   const allowed = PAGE_ACCESS[role] ?? ['home']
-  const currentPage = headers().get('x-diamond-path')?.split('/').filter(Boolean)[0]
+  const requestHeaders = await headers()
+  const currentPage = requestHeaders.get('x-diamond-path')?.split('/').filter(Boolean)[0]
   if (currentPage && !allowed.includes(currentPage as Page)) redirect('/forbidden')
   const items = allowed.map((page) => pageMeta[page])
 

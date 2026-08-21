@@ -37,7 +37,8 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
 }
 
 export default async function HomePage() {
-  const session = await verifySessionToken(cookies().get(sessionCookie.name)?.value)
+  const cookieStore = await cookies()
+  const session = await verifySessionToken(cookieStore.get(sessionCookie.name)?.value)
   const role: UserRole = session?.role ?? 'viewer'
   const allowed = PAGE_ACCESS[role] ?? ['home']
   const email = session?.email ?? ''

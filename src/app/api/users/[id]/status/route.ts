@@ -8,7 +8,8 @@ const bodySchema = z.object({
   status: z.enum(['pending', 'active', 'inactive']),
 })
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   console.log('[API /api/users/:id/status PATCH]')
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
@@ -18,7 +19,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const user = await prisma.user.findUnique({ where: { id: params.id } })
+  const user = await prisma.user.findUnique({ where: { id } })
   if (!user) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   if (user.email === auth.user.email && parsed.data.status !== 'active') {
@@ -33,7 +34,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   }
 
   const updated = await prisma.user.update({
-    where: { id: params.id },
+    where: { id },
     data: { status: parsed.data.status },
   })
 

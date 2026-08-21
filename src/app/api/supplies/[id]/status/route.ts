@@ -9,7 +9,8 @@ const bodySchema = z.object({
   status: z.enum(['Pending', 'Email Sent', 'Completed', 'Cancelled']),
 })
 
-export async function PATCH(request: NextRequest, { params }: { params: { id: string } }) {
+export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   console.log('[API /api/supplies/:id/status PATCH]')
   const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
   if ('response' in auth) return auth.response
@@ -19,7 +20,7 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id } })
+  const row = await prisma.supplyRequest.findUnique({ where: { id } })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -54,10 +55,10 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
   if (nextStatus === 'Completed') data.completedAt = new Date()
 
   await prisma.$transaction([
-    prisma.supplyRequest.update({ where: { id: params.id }, data }),
+    prisma.supplyRequest.update({ where: { id }, data }),
     prisma.supplyStatusEvent.create({
       data: {
-        requestId: params.id,
+        requestId: id,
         fromStatus: row.status,
         toStatus: nextStatus,
         actorEmail: auth.user.email,
@@ -66,9 +67,9 @@ export async function PATCH(request: NextRequest, { params }: { params: { id: st
     }),
   ])
 
-  await logAudit(auth.user.email, 'update_supply_status', 'supply', params.id, {
+  await logAudit(auth.user.email, 'update_supply_status', 'supply', id, {
     status: parsed.data.status,
   })
 
-  return NextResponse.json({ ok: true, data: { id: params.id, status: parsed.data.status } })
+  return NextResponse.json({ ok: true, data: { id, status: parsed.data.status } })
 }

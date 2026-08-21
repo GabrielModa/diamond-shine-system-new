@@ -2,6 +2,9 @@ import { defineConfig } from 'vitest/config'
 
 export default defineConfig({
   test: {
+    env: {
+      EMAIL_TRANSPORT: 'json',
+    },
     exclude: ['tests/e2e/**', 'node_modules/**', 'dist/**', '.next/**'],
     pool: 'threads',
     poolOptions: {
