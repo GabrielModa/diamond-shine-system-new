@@ -5,6 +5,7 @@ import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { sendUserInvite } from '../../../lib/email'
 import { issueAuthToken } from '../../../lib/auth-tokens'
+import { getApplicationUrl } from '../../../lib/runtime-config'
 
 const inviteSchema = z.object({
   email: z.string().email(),
@@ -52,7 +53,7 @@ export async function POST(request: NextRequest) {
 
   await logAudit(auth.user.email, 'invite_user', 'user', created.id, { email: created.email, role: created.role })
 
-  const baseUrl = process.env.NEXTAUTH_URL ?? 'http://localhost:3000'
+  const baseUrl = getApplicationUrl()
   const { token, expiresAt } = await issueAuthToken(created.id, 'invite')
   const inviteUrl = `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(token)}`
   const inviteResult = await sendUserInvite({

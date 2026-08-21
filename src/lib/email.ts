@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL, SMTP_FROM } from './constants'
 import { prisma } from './prisma'
+import { getSmtpConfig } from './runtime-config'
 
 export interface SupplyEmailData {
   id: string
@@ -48,14 +49,7 @@ export interface PasswordResetEmailData {
 }
 
 function getTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST ?? 'localhost',
-    port: Number(process.env.SMTP_PORT ?? '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS ?? '' }
-      : undefined,
-  })
+  return nodemailer.createTransport(getSmtpConfig())
 }
 
 function priorityEmoji(priority: SupplyEmailData['priority']): string {
