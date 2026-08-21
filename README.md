@@ -28,6 +28,7 @@ Run the same checks used by CI:
 
 ```bash
 npm run typecheck
+npm run lint
 npm run test:unit
 npm run test:integration
 npm run build
@@ -42,7 +43,7 @@ If a database was previously created from this same schema with `prisma db push`
 
 ## Release criteria
 
-- TypeScript, unit, integration, production build, and E2E checks pass.
+- TypeScript, zero-warning lint, unit, integration, production build, and desktop/mobile E2E checks pass.
 - Production has unique `SESSION_SECRET`, PostgreSQL, HTTPS, and working SMTP configuration.
 - Database backup and restore have been tested before rollout.
 - Initial administrator credentials are not seed credentials.
@@ -58,5 +59,6 @@ If a database was previously created from this same schema with `prisma db push`
 - `npm run db:deploy` — apply versioned migrations in CI/production.
 - `npm run db:seed` — reseed development/test data.
 - `npm run test:unit` — deterministic business and security tests.
+- `npm run lint` — zero-warning framework, hooks, and accessibility lint.
 - `npm run test:integration` — API tests against PostgreSQL.
 - `npm run test:e2e` — browser journeys with Playwright.
