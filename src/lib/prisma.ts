@@ -5,7 +5,7 @@ declare global {
 export const prisma = global.prisma ?? new PrismaClient()
 
 function normalizeStatus(value: unknown): unknown {
-  if (value === 'Email Sent') return 'EmailSent'
+  if (value === 'In transit') return 'InTransit'
   return value
 }
 

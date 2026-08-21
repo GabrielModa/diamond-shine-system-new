@@ -1,7 +1,7 @@
 'use client'
 
-import type { SupplyRequest } from '../../types'
-import { isSupplyOverdue } from '../../lib/business-logic'
+import type { SupplyRequest, SupplyStatus } from '../../types'
+import { getSupplyNextStatuses, isSupplyOverdue } from '../../lib/business-logic'
 import { useDialogFocus } from './useDialogFocus'
 
 type SupplyDetailSheetProps = {
@@ -10,8 +10,7 @@ type SupplyDetailSheetProps = {
   request: SupplyRequest | null
   onClose: () => void
   onSendEmail: () => void
-  onCompleteWithoutEmail: () => void
-  onMarkCompleted: () => void
+  onTransition: (status: SupplyStatus) => void
   assignees: Array<{ email: string; name: string | null }>
   onAssign: (email: string | null) => Promise<void>
 }
@@ -22,8 +21,7 @@ export function SupplyDetailSheet({
   request,
   onClose,
   onSendEmail,
-  onCompleteWithoutEmail,
-  onMarkCompleted,
+  onTransition,
   assignees,
   onAssign,
 }: SupplyDetailSheetProps) {
@@ -62,7 +60,7 @@ export function SupplyDetailSheet({
             <select
               id="supplyAssignee"
               value={request.assignedTo ?? ''}
-              disabled={request.status === 'Completed' || request.status === 'Cancelled'}
+              disabled={request.status === 'Delivered' || request.status === 'Rejected' || request.status === 'Cancelled'}
               onChange={(event) => void onAssign(event.target.value || null)}
             >
               <option value="">Unassigned</option>
@@ -117,7 +115,7 @@ export function SupplyDetailSheet({
           {(request.history?.length ? request.history : [{
             id: `${request.id}-created`,
             fromStatus: null,
-            toStatus: 'Pending' as const,
+            toStatus: 'Requested' as const,
             actorEmail: request.submittedBy,
             note: 'Request submitted',
             createdAt: request.createdAt,
@@ -134,21 +132,19 @@ export function SupplyDetailSheet({
         </section>
 
         <div className="row action-row">
-          {request.status === 'Pending' ? (
-            <>
-              <button type="button" className="btn-success" onClick={onSendEmail}>
-                📧 Send Email to Client
-              </button>
-              <button type="button" className="btn-warning" onClick={onCompleteWithoutEmail}>
-                ⚡ Complete Without Email
-              </button>
-            </>
+          {!['Delivered', 'Rejected', 'Cancelled'].includes(request.status) ? (
+            <button type="button" className="btn-success" onClick={onSendEmail}>📧 Notify client</button>
           ) : null}
-          {request.status === 'Email Sent' ? (
-            <button type="button" className="btn-info" onClick={onMarkCompleted}>
-              ✅ Mark as Completed
+          {getSupplyNextStatuses(request.status).map((status) => (
+            <button
+              key={status}
+              type="button"
+              className={status === 'Rejected' || status === 'Cancelled' ? 'btn-warning' : 'btn-info'}
+              onClick={() => onTransition(status)}
+            >
+              {status === 'Delivered' ? '✅' : status === 'Rejected' || status === 'Cancelled' ? '⛔' : '→'} {status}
             </button>
-          ) : null}
+          ))}
           <button type="button" className="btn-secondary" onClick={onClose}>
             Close
           </button>

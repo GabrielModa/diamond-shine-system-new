@@ -15,7 +15,7 @@ import { ActivityFeed } from '../../../components/dashboard/ActivityFeed'
 type DashboardResponse = {
   supplies: {
     total: number
-    byStatus: { pending: number; emailSent: number; completed: number }
+    byStatus: { requested: number; triaged: number; approved: number; ordered: number; inTransit: number; delivered: number; rejected: number; cancelled: number }
     byPriority: { urgent: number; normal: number; low: number }
     mostRequestedProduct: string
     recent: SupplyRequest[]
@@ -27,10 +27,6 @@ type DashboardResponse = {
     recent: FeedbackEntry[]
   }
 }
-
-const WARNING_MESSAGE =
-  '⚠️ This request has not been emailed to the client. Mark as completed without sending email?'
-const COMPLETE_MESSAGE = '✅ Mark as completed? This cannot be undone.'
 
 type ListPreset = {
   period?: 'all' | '7' | '30' | '90' | 'month'
@@ -286,23 +282,6 @@ export default function DashboardPage() {
               setSelectedSupply(request)
               overlay.open('email')
             }}
-            onMarkComplete={(request) => {
-              setSelectedSupply(request)
-              const message = request.status !== 'Email Sent' ? WARNING_MESSAGE : COMPLETE_MESSAGE
-              setConfirm({
-                message,
-                action: async () => {
-                  await fetch(`/api/supplies/${request.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
-                  })
-                  await refreshAll()
-                  showToast('success', 'Request completed.')
-                },
-              })
-              overlay.open('confirm')
-            }}
           />
 
           <SupplyDetailSheet
@@ -311,34 +290,18 @@ export default function DashboardPage() {
             request={detailType === 'supply' ? selectedSupply : null}
             onClose={() => overlay.closeTop('outside')}
             onSendEmail={() => overlay.open('email')}
-            onCompleteWithoutEmail={() => {
+            onTransition={(status) => {
               if (!selectedSupply) return
               setConfirm({
-                message: WARNING_MESSAGE,
+                message: `${status === 'Rejected' || status === 'Cancelled' ? '⛔' : '→'} Move this request from ${selectedSupply.status} to ${status}?`,
                 action: async () => {
-                  await fetch(`/api/supplies/${selectedSupply.id}/status`, {
+                  await fetchJson(`/api/supplies/${selectedSupply.id}/status`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
+                    body: JSON.stringify({ status }),
                   })
                   await refreshAll()
-                  showToast('success', 'Request completed.')
-                },
-              })
-              overlay.open('confirm')
-            }}
-            onMarkCompleted={() => {
-              if (!selectedSupply) return
-              setConfirm({
-                message: COMPLETE_MESSAGE,
-                action: async () => {
-                  await fetch(`/api/supplies/${selectedSupply.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
-                  })
-                  await refreshAll()
-                  showToast('success', 'Request completed.')
+                  showToast('success', `Request moved to ${status}.`)
                 },
               })
               overlay.open('confirm')

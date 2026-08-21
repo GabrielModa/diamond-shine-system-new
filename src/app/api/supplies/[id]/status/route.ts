@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../../../lib/prisma'
 import { requireAuth } from '../../../../../lib/auth'
-import { labelToDbStatus } from '../../../../../lib/mappers'
+import { dbStatusToLabel, labelToDbStatus, type DbSupplyStatus } from '../../../../../lib/mappers'
 import { logAudit } from '../../../../../lib/audit'
+import { canTransitionSupplyStatus } from '../../../../../lib/business-logic'
 
 const bodySchema = z.object({
-  status: z.enum(['Pending', 'Email Sent', 'Completed', 'Cancelled']),
+  status: z.enum(['Requested', 'Triaged', 'Approved', 'Ordered', 'In transit', 'Delivered', 'Rejected', 'Cancelled']),
+  note: z.string().trim().max(500).optional(),
 })
 
 export async function PATCH(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -25,34 +27,27 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  if (row.status === 'Completed' || row.status === 'Cancelled') {
-    return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
-  }
+  const currentStatus = dbStatusToLabel(row.status as DbSupplyStatus)
 
   if (auth.user.role !== 'admin') {
     if (row.submittedBy !== auth.user.email) {
       return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
     }
-    if (parsed.data.status !== 'Cancelled' || row.status !== 'Pending') {
-      return NextResponse.json({ ok: false, error: 'Only pending requests can be cancelled.' }, { status: 409 })
+    if (parsed.data.status !== 'Cancelled' || currentStatus !== 'Requested') {
+      return NextResponse.json({ ok: false, error: 'Only newly requested items can be cancelled.' }, { status: 409 })
     }
   }
 
   const nextStatus = labelToDbStatus(parsed.data.status)
-  const validTransition =
-    (row.status === 'Pending' && (nextStatus === 'EmailSent' || nextStatus === 'Completed' || nextStatus === 'Cancelled')) ||
-    (row.status === 'EmailSent' && (nextStatus === 'Completed' || nextStatus === 'Cancelled'))
-
-  if (!validTransition) {
-    return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
+  if (!canTransitionSupplyStatus(currentStatus, parsed.data.status)) {
+    return NextResponse.json({ ok: false, error: `Cannot move a ${currentStatus} request to ${parsed.data.status}.` }, { status: 409 })
   }
 
-  const data: { status: 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'; emailSentAt?: Date; completedAt?: Date } = {
+  const data: { status: DbSupplyStatus; completedAt?: Date } = {
     status: nextStatus,
   }
 
-  if (nextStatus === 'EmailSent') data.emailSentAt = new Date()
-  if (nextStatus === 'Completed') data.completedAt = new Date()
+  if (nextStatus === 'Delivered') data.completedAt = new Date()
 
   await prisma.$transaction([
     prisma.supplyRequest.update({ where: { id }, data }),
@@ -62,7 +57,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         fromStatus: row.status,
         toStatus: nextStatus,
         actorEmail: auth.user.email,
-        note: nextStatus === 'Cancelled' ? 'Cancelled by requester or administrator' : null,
+        note: parsed.data.note || (nextStatus === 'Cancelled' ? 'Cancelled by requester or administrator' : null),
       },
     }),
   ])

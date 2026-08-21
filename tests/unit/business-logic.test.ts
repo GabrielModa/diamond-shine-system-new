@@ -13,6 +13,8 @@ import {
   isSupplyOverdue,
   calculateSupplyOperationsMetrics,
   calculateFeedbackTrend,
+  canTransitionSupplyStatus,
+  getSupplyNextStatuses,
 } from '../../src/lib/business-logic'
 
 describe('calculateOverall', () => {
@@ -122,24 +124,31 @@ describe('supply SLA', () => {
 
   it('marks only unfinished requests past their deadline as overdue', () => {
     const now = new Date('2026-08-22T10:00:00Z')
-    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Pending', now)).toBe(true)
-    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Completed', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Requested', now)).toBe(true)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Delivered', now)).toBe(false)
     expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Cancelled', now)).toBe(false)
-    expect(isSupplyOverdue('2026-08-23T10:00:00Z', 'Pending', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-23T10:00:00Z', 'Requested', now)).toBe(false)
   })
 
   it('summarizes ownership, SLA compliance, and resolution time', () => {
     const metrics = calculateSupplyOperationsMetrics([
-      { status: 'Pending', createdAt: '2026-08-20T00:00:00Z' },
-      { status: 'Email Sent', createdAt: '2026-08-20T00:00:00Z', assignedTo: 'lead@test.ie' },
-      { status: 'Completed', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-20T12:00:00Z' },
-      { status: 'Completed', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-22T00:00:00Z' },
+      { status: 'Requested', createdAt: '2026-08-20T00:00:00Z' },
+      { status: 'Ordered', createdAt: '2026-08-20T00:00:00Z', assignedTo: 'lead@test.ie' },
+      { status: 'Delivered', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-20T12:00:00Z' },
+      { status: 'Delivered', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-22T00:00:00Z' },
     ])
 
     expect(metrics.unassignedCount).toBe(1)
     expect(metrics.slaRate).toBe(50)
     expect(metrics.completedOnTime).toBe(1)
     expect(metrics.averageResolutionHours).toBe(30)
+  })
+
+  it('enforces the operational lifecycle without communication states', () => {
+    expect(getSupplyNextStatuses('Requested')).toEqual(['Triaged', 'Rejected', 'Cancelled'])
+    expect(canTransitionSupplyStatus('Triaged', 'Approved')).toBe(true)
+    expect(canTransitionSupplyStatus('Approved', 'Delivered')).toBe(false)
+    expect(getSupplyNextStatuses('Delivered')).toEqual([])
   })
 
   it('returns empty KPI states when there are no completed requests', () => {

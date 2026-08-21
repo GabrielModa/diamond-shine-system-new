@@ -22,16 +22,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     ok: true,
     data: {
       ...row,
-      status: dbStatusToLabel(row.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+      status: dbStatusToLabel(row.status as import('../../../../lib/mappers').DbSupplyStatus),
       products: parseStringArray(row.products),
       items: row.items.length
         ? row.items.map(({ product, quantity }) => ({ product, quantity }))
         : parseStringArray(row.products).map((product) => ({ product, quantity: 1 })),
       history: row.statusEvents.map((event) => ({
         ...event,
-        toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+        toStatus: dbStatusToLabel(event.toStatus as import('../../../../lib/mappers').DbSupplyStatus),
         fromStatus: event.fromStatus
-          ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+          ? dbStatusToLabel(event.fromStatus as import('../../../../lib/mappers').DbSupplyStatus)
           : null,
       })),
     },

@@ -15,16 +15,21 @@ export async function GET(request: NextRequest) {
   })
   const feedback = await prisma.feedbackEntry.findMany({ orderBy: { createdAt: 'desc' } })
 
-  const byStatus = { pending: 0, emailSent: 0, completed: 0 }
+  const byStatus = { requested: 0, triaged: 0, approved: 0, ordered: 0, inTransit: 0, delivered: 0, rejected: 0, cancelled: 0 }
   const byPriority = { urgent: 0, normal: 0, low: 0 }
   const productCounts: Record<string, number> = {}
 
   for (const item of supplies) {
-    if (item.status === 'Pending') byStatus.pending += 1
-    if (item.status === 'EmailSent') byStatus.emailSent += 1
-    if (item.status === 'Completed') byStatus.completed += 1
+    if (item.status === 'Requested') byStatus.requested += 1
+    if (item.status === 'Triaged') byStatus.triaged += 1
+    if (item.status === 'Approved') byStatus.approved += 1
+    if (item.status === 'Ordered') byStatus.ordered += 1
+    if (item.status === 'InTransit') byStatus.inTransit += 1
+    if (item.status === 'Delivered') byStatus.delivered += 1
+    if (item.status === 'Rejected') byStatus.rejected += 1
+    if (item.status === 'Cancelled') byStatus.cancelled += 1
 
-    if (item.status === 'Pending') {
+    if (!['Delivered', 'Rejected', 'Cancelled'].includes(item.status)) {
       if (item.priority === 'urgent') byPriority.urgent += 1
       if (item.priority === 'normal') byPriority.normal += 1
       if (item.priority === 'low') byPriority.low += 1
@@ -64,14 +69,14 @@ export async function GET(request: NextRequest) {
           const products = parseStringArray(item.products)
           return {
             ...item,
-            status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+            status: dbStatusToLabel(item.status as import('../../../lib/mappers').DbSupplyStatus),
             products,
             items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
             history: item.statusEvents.map((event) => ({
               ...event,
-              toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+              toStatus: dbStatusToLabel(event.toStatus as import('../../../lib/mappers').DbSupplyStatus),
               fromStatus: event.fromStatus
-                ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+                ? dbStatusToLabel(event.fromStatus as import('../../../lib/mappers').DbSupplyStatus)
                 : null,
             })),
           }

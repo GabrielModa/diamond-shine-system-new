@@ -56,7 +56,7 @@ test('dashboard loads with Urgent, Normal and Low stat cards', async ({ page }) 
   await expect(page.locator('[data-testid="stat-low"]')).toBeVisible()
 })
 
-test('clicking Urgent card opens filtered list with only pending urgent items', async ({ page }) => {
+test('clicking Urgent card opens filtered list with only new urgent items', async ({ page }) => {
   await createSupply(page, {
     employeeName: 'Urgent Employee',
     clientLocation: 'TechCorp Office - Dublin 2',
@@ -70,7 +70,7 @@ test('clicking Urgent card opens filtered list with only pending urgent items', 
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()
   const total = await page.locator('.list-item').count()
   await expect(page.locator('.list-item .badge.urgent')).toHaveCount(total)
-  await expect(page.locator('.list-item .status-badge.Pending')).toHaveCount(total)
+  await expect(page.locator('.list-item .status-badge.Requested')).toHaveCount(total)
 })
 
 test('clicking a list item opens the detail sheet with correct data', async ({ page }) => {
@@ -105,7 +105,7 @@ test('clicking Send Email opens modal with pre-filled subject and body', async (
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
   await page.click('#listOverlay.overlay.active .list-open-button')
-  await page.click('button:has-text("Send Email to Client")')
+  await page.click('button:has-text("Notify client")')
   await expect(page.locator('#emailModal.modal-overlay.active')).toBeVisible()
   const subject = await page.inputValue('#emailSubject')
   const body = await page.inputValue('#emailBody')
@@ -113,7 +113,7 @@ test('clicking Send Email opens modal with pre-filled subject and body', async (
   expect(body).toContain('Diamond Shine')
 })
 
-test('completing a Pending request shows ONE confirm modal with email warning', async ({ page }) => {
+test('triaging a requested item shows one contextual confirmation', async ({ page }) => {
   await createSupply(page, {
     employeeName: 'Pending Employee',
     clientLocation: 'Red Company - Dun Laoghaire',
@@ -125,29 +125,28 @@ test('completing a Pending request shows ONE confirm modal with email warning', 
   await page.click('.stat-card.low')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
   await page.click('#listOverlay.overlay.active .list-open-button')
-  await page.click('button:has-text("Complete Without Email")')
+  await page.click('button:has-text("Triaged")')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
-  await expect(page.locator('#confirmMessage')).toContainText('has not been emailed')
+  await expect(page.locator('#confirmMessage')).toContainText('Requested to Triaged')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toHaveCount(1)
 })
 
-test('completing an Email Sent request shows ONE confirm modal without email warning', async ({ page }) => {
+test('delivering an in-transit request shows one confirmation', async ({ page }) => {
   const id = await createSupply(page, {
     employeeName: 'Email Sent Employee',
     clientLocation: 'TechCorp Office - Dublin 2',
     priority: 'urgent',
     products: ['Microfiber cloths'],
   })
-  await updateStatus(page, id, 'Email Sent')
+  for (const status of ['Triaged', 'Approved', 'Ordered', 'In transit']) await updateStatus(page, id, status)
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.click('.status-pill:has-text("Email Sent")')
+  await page.click('.status-pill:has-text("In transit")')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
   await page.click('#listOverlay.overlay.active .list-open-button')
-  await page.click('button:has-text("Mark as Completed")')
+  await page.click('button:has-text("Delivered")')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
-  await expect(page.locator('#confirmMessage')).toContainText('Mark as completed')
-  await expect(page.locator('#confirmMessage')).not.toContainText('not been emailed')
+  await expect(page.locator('#confirmMessage')).toContainText('In transit to Delivered')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toHaveCount(1)
 })
 

@@ -48,38 +48,38 @@ export default async function HomePage() {
   let metrics: Array<{ label: string; value: number; href: string; tone?: string }> = []
   if (role === 'admin') {
     const [pendingRequests, overdueRequests, pendingUsers, recentFeedback] = await Promise.all([
-      prisma.supplyRequest.count({ where: { status: 'Pending' } }),
-      prisma.supplyRequest.count({ where: { status: { notIn: ['Completed', 'Cancelled'] }, dueAt: { lt: new Date() } } }),
+      prisma.supplyRequest.count({ where: { status: 'Requested' } }),
+      prisma.supplyRequest.count({ where: { status: { notIn: ['Delivered', 'Rejected', 'Cancelled'] }, dueAt: { lt: new Date() } } }),
       prisma.user.count({ where: { status: 'pending' } }),
       prisma.feedbackEntry.count({ where: { createdAt: { gte: since } } }),
     ])
     metrics = [
-      { label: 'Pending requests', value: pendingRequests, href: '/dashboard', tone: pendingRequests ? 'attention' : 'good' },
+      { label: 'New requests', value: pendingRequests, href: '/dashboard', tone: pendingRequests ? 'attention' : 'good' },
       { label: 'Overdue requests', value: overdueRequests, href: '/dashboard', tone: overdueRequests ? 'critical' : 'good' },
       { label: 'Pending users', value: pendingUsers, href: '/users', tone: pendingUsers ? 'attention' : 'good' },
       { label: 'Feedback in 30 days', value: recentFeedback, href: '/dashboard' },
     ]
   } else if (role === 'supervisor') {
     const [ownPending, recentFeedback, activeEmployees] = await Promise.all([
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Pending' } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Requested' } }),
       prisma.feedbackEntry.count({ where: { submittedBy: email, createdAt: { gte: since } } }),
       prisma.user.count({ where: { role: 'employee', status: 'active' } }),
     ])
     metrics = [
-      { label: 'My pending requests', value: ownPending, href: '/my-requests', tone: ownPending ? 'attention' : 'good' },
+      { label: 'My new requests', value: ownPending, href: '/my-requests', tone: ownPending ? 'attention' : 'good' },
       { label: 'Feedback submitted', value: recentFeedback, href: '/feedback' },
       { label: 'Active employees', value: activeEmployees, href: '/feedback' },
     ]
   } else if (role === 'employee') {
     const [pending, inProgress, completed] = await Promise.all([
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Pending' } }),
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'EmailSent' } }),
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Completed' } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Requested' } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: { in: ['Triaged', 'Approved', 'Ordered', 'InTransit'] } } }),
+      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Delivered' } }),
     ])
     metrics = [
-      { label: 'Pending', value: pending, href: '/my-requests', tone: pending ? 'attention' : 'good' },
+      { label: 'Requested', value: pending, href: '/my-requests', tone: pending ? 'attention' : 'good' },
       { label: 'In progress', value: inProgress, href: '/my-requests' },
-      { label: 'Completed', value: completed, href: '/my-requests', tone: 'good' },
+      { label: 'Delivered', value: completed, href: '/my-requests', tone: 'good' },
     ]
   }
 
@@ -123,7 +123,7 @@ export default async function HomePage() {
             {recentRequests.map((request) => (
               <a key={request.id} href={role === 'admin' ? '/dashboard' : '/my-requests'} className="home-recent-row">
                 <div><strong>{request.clientLocation}</strong><div className="muted">{new Date(request.createdAt).toLocaleDateString('en-IE')}</div></div>
-                <div className="row tight"><span className={`badge ${request.priority}`}>{request.priority}</span><span className={`status-badge ${dbStatusToLabel(request.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled').replace(' ', '-')}`}>{dbStatusToLabel(request.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')}</span></div>
+                <div className="row tight"><span className={`badge ${request.priority}`}>{request.priority}</span><span className={`status-badge ${dbStatusToLabel(request.status as import('../../../lib/mappers').DbSupplyStatus).replace(' ', '-')}`}>{dbStatusToLabel(request.status as import('../../../lib/mappers').DbSupplyStatus)}</span></div>
               </a>
             ))}
           </div>

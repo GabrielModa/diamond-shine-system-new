@@ -61,7 +61,7 @@ describe('POST /api/supplies', () => {
       expect.arrayContaining([expect.objectContaining({ product: 'All-purpose cleaner', quantity: 3 })])
     )
     const createdEvent = await prisma.supplyStatusEvent.findFirst({ where: { requestId: res.body.data.id } })
-    expect(createdEvent).toMatchObject({ fromStatus: null, toStatus: 'Pending', actorEmail: 'employee@ds.ie' })
+    expect(createdEvent).toMatchObject({ fromStatus: null, toStatus: 'Requested', actorEmail: 'employee@ds.ie' })
     expect(typeof res.body.data.id).toBe('string')
   })
 
@@ -78,9 +78,9 @@ describe('GET /api/supplies', () => {
   beforeEach(async () => {
     await prisma.supplyRequest.createMany({
       data: [
-        { id: 'gs1', employeeName: 'A', clientLocation: 'TechCorp Office - Dublin 2', priority: 'urgent', products: '["All-purpose cleaner"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
-        { id: 'gs2', employeeName: 'B', clientLocation: 'Green Bank - Temple Bar', priority: 'normal', products: '["Bleach"]', status: 'Email Sent', submittedBy: 'employee@ds.ie' },
-        { id: 'gs3', employeeName: 'C', clientLocation: 'Blue Industries - Ballsbridge', priority: 'low', products: '["Bin bags"]', status: 'Completed', submittedBy: 'employee@ds.ie' },
+        { id: 'gs1', employeeName: 'A', clientLocation: 'TechCorp Office - Dublin 2', priority: 'urgent', products: '["All-purpose cleaner"]', status: 'Requested', submittedBy: 'employee@ds.ie' },
+        { id: 'gs2', employeeName: 'B', clientLocation: 'Green Bank - Temple Bar', priority: 'normal', products: '["Bleach"]', status: 'Approved', submittedBy: 'employee@ds.ie' },
+        { id: 'gs3', employeeName: 'C', clientLocation: 'Blue Industries - Ballsbridge', priority: 'low', products: '["Bin bags"]', status: 'Delivered', submittedBy: 'employee@ds.ie' },
       ],
     })
   })
@@ -111,9 +111,9 @@ afterAll(async () => {
 })
 
 describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
-  it('employee can cancel their own pending request', async () => {
+  it('employee can cancel their own requested item', async () => {
     const row = await prisma.supplyRequest.create({
-      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Requested', submittedBy: 'employee@ds.ie' },
     })
     const res = await request(app).patch(`/api/supplies/${row.id}/status`).set('Cookie', employeeCookie).send({ status: 'Cancelled' })
     expect(res.status).toBe(200)
@@ -123,13 +123,13 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
 
   it('employee cannot cancel another users request', async () => {
     const row = await prisma.supplyRequest.create({
-      data: { employeeName: 'Admin', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'admin@ds.ie' },
+      data: { employeeName: 'Admin', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Requested', submittedBy: 'admin@ds.ie' },
     })
     const res = await request(app).patch(`/api/supplies/${row.id}/status`).set('Cookie', employeeCookie).send({ status: 'Cancelled' })
     expect(res.status).toBe(403)
   })
 
-  it('Pending → Email Sent succeeds', async () => {
+  it('Requested → Triaged succeeds', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'status1',
@@ -137,18 +137,18 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
         clientLocation: 'TechCorp Office - Dublin 2',
         priority: 'urgent',
         products: '["All-purpose cleaner"]',
-        status: 'Pending',
+        status: 'Requested',
         submittedBy: 'admin@ds.ie',
       },
     })
     const res = await request(app)
       .patch('/api/supplies/status1/status')
       .set('Cookie', adminCookie)
-      .send({ status: 'Email Sent' })
+      .send({ status: 'Triaged' })
     expect(res.status).toBe(200)
   })
 
-  it('Email Sent → Completed succeeds', async () => {
+  it('In transit → Delivered succeeds', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'status2',
@@ -156,18 +156,18 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
         clientLocation: 'Green Bank - Temple Bar',
         priority: 'normal',
         products: '["Bleach"]',
-        status: 'EmailSent',
+        status: 'InTransit',
         submittedBy: 'admin@ds.ie',
       },
     })
     const res = await request(app)
       .patch('/api/supplies/status2/status')
       .set('Cookie', adminCookie)
-      .send({ status: 'Completed' })
+      .send({ status: 'Delivered' })
     expect(res.status).toBe(200)
   })
 
-  it('Completed → Email Sent returns 409', async () => {
+  it('Delivered → Triaged returns 409', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'status3',
@@ -175,18 +175,18 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
         clientLocation: 'Blue Industries - Ballsbridge',
         priority: 'low',
         products: '["Bin bags"]',
-        status: 'Completed',
+        status: 'Delivered',
         submittedBy: 'admin@ds.ie',
       },
     })
     const res = await request(app)
       .patch('/api/supplies/status3/status')
       .set('Cookie', adminCookie)
-      .send({ status: 'Email Sent' })
+      .send({ status: 'Triaged' })
     expect(res.status).toBe(409)
   })
 
-  it('Completed → Completed returns 409', async () => {
+  it('Delivered → Delivered returns 409', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'status4',
@@ -194,14 +194,14 @@ describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
         clientLocation: 'Red Company - Dun Laoghaire',
         priority: 'urgent',
         products: '["Paper towels"]',
-        status: 'Completed',
+        status: 'Delivered',
         submittedBy: 'admin@ds.ie',
       },
     })
     const res = await request(app)
       .patch('/api/supplies/status4/status')
       .set('Cookie', adminCookie)
-      .send({ status: 'Completed' })
+      .send({ status: 'Delivered' })
     expect(res.status).toBe(409)
   })
 })
@@ -215,7 +215,7 @@ describe('POST /api/supplies/:id/notify', () => {
         clientLocation: 'TechCorp Office - Dublin 2',
         priority: 'urgent',
         products: '["All-purpose cleaner"]',
-        status: 'Pending',
+        status: 'Requested',
         submittedBy: 'admin@ds.ie',
       },
     })
@@ -227,7 +227,7 @@ describe('POST /api/supplies/:id/notify', () => {
     expect(res.body.ok).toBe(true)
   })
 
-  it('sets status to Email Sent', async () => {
+  it('does not change operational status after sending an email', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'notify2',
@@ -235,7 +235,7 @@ describe('POST /api/supplies/:id/notify', () => {
         clientLocation: 'Green Bank - Temple Bar',
         priority: 'normal',
         products: '["Bleach"]',
-        status: 'Pending',
+        status: 'Requested',
         submittedBy: 'admin@ds.ie',
       },
     })
@@ -244,7 +244,7 @@ describe('POST /api/supplies/:id/notify', () => {
       .set('Cookie', adminCookie)
       .send({ clientEmail: 'client@example.com', subject: 'Test', htmlBody: '<p>hi</p>' })
     const updated = await prisma.supplyRequest.findUnique({ where: { id: 'notify2' } })
-    expect(updated?.status).toBe('EmailSent')
+    expect(updated?.status).toBe('Requested')
   })
 
   it('sets emailSentAt timestamp', async () => {
@@ -255,7 +255,7 @@ describe('POST /api/supplies/:id/notify', () => {
         clientLocation: 'Blue Industries - Ballsbridge',
         priority: 'low',
         products: '["Bin bags"]',
-        status: 'Pending',
+        status: 'Requested',
         submittedBy: 'admin@ds.ie',
       },
     })
@@ -271,7 +271,7 @@ describe('POST /api/supplies/:id/notify', () => {
 describe('PATCH /api/supplies/:id/assign', () => {
   it('admin assigns an active supervisor', async () => {
     const row = await prisma.supplyRequest.create({
-      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'urgent', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'urgent', products: '["Bleach"]', status: 'Requested', submittedBy: 'employee@ds.ie' },
     })
     const res = await request(app)
       .patch(`/api/supplies/${row.id}/assign`)
@@ -283,7 +283,7 @@ describe('PATCH /api/supplies/:id/assign', () => {
 
   it('rejects employees as assignees', async () => {
     const row = await prisma.supplyRequest.create({
-      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Pending', submittedBy: 'employee@ds.ie' },
+      data: { employeeName: 'Employee', clientLocation: 'TechCorp Office - Dublin 2', priority: 'normal', products: '["Bleach"]', status: 'Requested', submittedBy: 'employee@ds.ie' },
     })
     const res = await request(app)
       .patch(`/api/supplies/${row.id}/assign`)

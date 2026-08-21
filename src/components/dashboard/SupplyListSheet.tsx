@@ -30,7 +30,6 @@ type SupplyListSheetProps = {
   onClose: () => void
   onSelect: (request: SupplyRequest) => void
   onSendEmail: (request: SupplyRequest) => void
-  onMarkComplete: (request: SupplyRequest) => void
 }
 
 export function SupplyListSheet({
@@ -43,7 +42,6 @@ export function SupplyListSheet({
   onClose,
   onSelect,
   onSendEmail,
-  onMarkComplete,
 }: SupplyListSheetProps) {
   const dialogRef = useDialogFocus(active)
   const [period, setPeriod] = useState('all')
@@ -118,7 +116,7 @@ export function SupplyListSheet({
     if (filter.priority) list = list.filter((item) => item.priority === filter.priority)
     if (filter.status) list = list.filter((item) => item.status === filter.status)
     if (preset?.overdue) list = list.filter((item) => isSupplyOverdue(item.dueAt, item.status))
-    if (preset?.unassigned) list = list.filter((item) => !item.assignedTo && (item.status === 'Pending' || item.status === 'Email Sent'))
+    if (preset?.unassigned) list = list.filter((item) => !item.assignedTo && !['Delivered', 'Rejected', 'Cancelled'].includes(item.status))
 
     const now = new Date()
     if (applied.period !== 'all') {
@@ -274,7 +272,7 @@ export function SupplyListSheet({
               </span>
               <span className="list-meta">
                 <span className={`status-badge ${item.status.replace(' ', '-')}`}>
-                  {item.status === 'Pending' ? '⏳' : item.status === 'Email Sent' ? '📧' : item.status === 'Cancelled' ? '⛔' : '✅'} {item.status}
+                  {item.status === 'Requested' ? '🆕' : item.status === 'In transit' ? '🚚' : item.status === 'Cancelled' || item.status === 'Rejected' ? '⛔' : item.status === 'Delivered' ? '✅' : '⏳'} {item.status}
                 </span>
                 <span className={`badge ${item.priority}`}>
                   {item.priority === 'urgent' ? '🔴' : item.priority === 'normal' ? '🟡' : '🟢'}{' '}
@@ -284,7 +282,7 @@ export function SupplyListSheet({
               </span>
               </button>
               <div className="list-actions">
-                {item.status === 'Pending' ? (
+                {!['Delivered', 'Rejected', 'Cancelled'].includes(item.status) ? (
                   <button
                     title="Send Email"
                     aria-label={`Send email for ${item.employeeName}'s request`}
@@ -295,19 +293,6 @@ export function SupplyListSheet({
                     }}
                   >
                     📧
-                  </button>
-                ) : null}
-                {item.status === 'Email Sent' ? (
-                  <button
-                    title="Mark Complete"
-                    aria-label={`Mark ${item.employeeName}'s request complete`}
-                    className="btn-info"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onMarkComplete(item)
-                    }}
-                  >
-                    ✅
                   </button>
                 ) : null}
               </div>

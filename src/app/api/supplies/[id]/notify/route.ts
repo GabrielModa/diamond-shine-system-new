@@ -27,7 +27,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  if (row.status === 'Completed' || row.status === 'Cancelled') {
+  if (row.status === 'Delivered' || row.status === 'Rejected' || row.status === 'Cancelled') {
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
 
@@ -38,21 +38,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   })
 
   if (sendResult.ok) {
-    await prisma.$transaction([
-      prisma.supplyRequest.update({
-        where: { id },
-        data: { status: 'EmailSent', emailSentAt: new Date() },
-      }),
-      prisma.supplyStatusEvent.create({
-        data: {
-          requestId: id,
-          fromStatus: row.status,
-          toStatus: 'EmailSent',
-          actorEmail: auth.user.email,
-          note: `Client notified at ${parsed.data.clientEmail}`,
-        },
-      }),
-    ])
+    await prisma.supplyRequest.update({
+      where: { id },
+      data: { emailSentAt: new Date() },
+    })
   }
 
   await logAudit(auth.user.email, 'send_supply_email', 'supply', id, {

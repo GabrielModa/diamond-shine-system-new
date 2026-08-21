@@ -1,12 +1,18 @@
 import type { FeedbackCategory, SupplyStatus } from '../types'
 
-export function dbStatusToLabel(status: 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'): SupplyStatus {
-  if (status === 'EmailSent') return 'Email Sent'
+export type DbSupplyStatus = 'Requested' | 'Triaged' | 'Approved' | 'Ordered' | 'InTransit' | 'Delivered' | 'Rejected' | 'Cancelled'
+type LegacyDbSupplyStatus = 'Pending' | 'EmailSent' | 'Completed'
+
+export function dbStatusToLabel(status: DbSupplyStatus | LegacyDbSupplyStatus): SupplyStatus {
+  if (status === 'Pending') return 'Requested'
+  if (status === 'EmailSent') return 'Approved'
+  if (status === 'Completed') return 'Delivered'
+  if (status === 'InTransit') return 'In transit'
   return status
 }
 
-export function labelToDbStatus(status: SupplyStatus): 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled' {
-  if (status === 'Email Sent') return 'EmailSent'
+export function labelToDbStatus(status: SupplyStatus): DbSupplyStatus {
+  if (status === 'In transit') return 'InTransit'
   return status
 }
 

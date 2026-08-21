@@ -16,7 +16,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const supply = await prisma.supplyRequest.findUnique({ where: { id } })
   if (!supply) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  if (supply.status === 'Completed' || supply.status === 'Cancelled') {
+  if (supply.status === 'Delivered' || supply.status === 'Rejected' || supply.status === 'Cancelled') {
     return NextResponse.json({ ok: false, error: 'Closed requests cannot be reassigned.' }, { status: 409 })
   }
 

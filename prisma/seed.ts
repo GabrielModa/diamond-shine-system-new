@@ -99,6 +99,8 @@ async function seedUsers(hash: string) {
 
 async function seedSupplies() {
   await prisma.supplyRequest.deleteMany()
+  const lifecycle = ['Requested', 'Triaged', 'Approved', 'Ordered', 'InTransit', 'Delivered'] as const
+  const lifecycleNotes = ['Request submitted', 'Request triaged', 'Request approved', 'Order placed', 'Order dispatched', 'Delivery confirmed']
 
   for (let index = 0; index < 30; index += 1) {
     const priority = pickWeighted([
@@ -107,27 +109,29 @@ async function seedSupplies() {
       { value: 'low' as const, weight: 25 },
     ])
     const status = pickWeighted([
-      { value: 'Pending' as const, weight: 50 },
-      { value: 'EmailSent' as const, weight: 10 },
-      { value: 'Completed' as const, weight: 40 },
+      { value: 'Requested' as const, weight: 25 },
+      { value: 'Triaged' as const, weight: 15 },
+      { value: 'Approved' as const, weight: 15 },
+      { value: 'Ordered' as const, weight: 10 },
+      { value: 'InTransit' as const, weight: 10 },
+      { value: 'Delivered' as const, weight: 25 },
     ])
     const createdAt = randomDateWithinDays(90)
-    const emailSentAt = status !== 'Pending' ? new Date(createdAt.getTime() + randomInt(1, 48) * 3600 * 1000) : null
-    const completedAt =
-      status === 'Completed' && emailSentAt
-        ? new Date(emailSentAt.getTime() + randomInt(1, 72) * 3600 * 1000)
-        : status === 'Completed'
-          ? new Date(createdAt.getTime() + randomInt(6, 120) * 3600 * 1000)
-          : null
+    const statusIndex = lifecycle.indexOf(status)
+    const eventTimes = lifecycle.map((_, step) => new Date(createdAt.getTime() + step * randomInt(2, 18) * 3600 * 1000))
+    const emailSentAt = statusIndex >= 2 ? eventTimes[2] : null
+    const completedAt = status === 'Delivered' ? eventTimes[5] : null
 
     const notes = Math.random() < 0.45 ? NOTES[index % NOTES.length] : null
     const products = sampleProducts()
     const submittedBy = USERS[index % USERS.length].email
-    const statusEvents = [
-      { toStatus: 'Pending', actorEmail: submittedBy, note: 'Request submitted', createdAt },
-      ...(emailSentAt ? [{ fromStatus: 'Pending', toStatus: 'EmailSent', actorEmail: 'admin@ds.ie', note: 'Client notified', createdAt: emailSentAt }] : []),
-      ...(completedAt ? [{ fromStatus: emailSentAt ? 'EmailSent' : 'Pending', toStatus: 'Completed', actorEmail: 'admin@ds.ie', note: 'Request completed', createdAt: completedAt }] : []),
-    ]
+    const statusEvents = lifecycle.slice(0, statusIndex + 1).map((toStatus, step) => ({
+      fromStatus: step ? lifecycle[step - 1] : null,
+      toStatus,
+      actorEmail: step ? 'admin@ds.ie' : submittedBy,
+      note: lifecycleNotes[step],
+      createdAt: eventTimes[step],
+    }))
 
     await prisma.supplyRequest.create({
       data: {

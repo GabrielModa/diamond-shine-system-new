@@ -86,7 +86,7 @@ model SupplyRequest {
   priority       SupplyPriority
   products       String
   notes          String?
-  status         String         @default("Pending")
+  status         String         @default("Requested")
   submittedBy    String
   emailSentAt    DateTime?
   completedAt    DateTime?

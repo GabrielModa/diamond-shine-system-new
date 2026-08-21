@@ -87,10 +87,10 @@ export default function MyRequestsPage() {
               </div>
               {request.dueAt ? <div className={`due-label${overdue ? ' overdue' : ''}`}>Due {new Date(request.dueAt).toLocaleString('en-IE')}</div> : null}
               <div className="request-items">{items.map((item) => <span key={item.product}>{item.product} × {item.quantity}</span>)}</div>
-              {request.status === 'Cancelled' ? <div className="request-cancelled">This request was cancelled.</div> : (
+              {request.status === 'Cancelled' || request.status === 'Rejected' ? <div className="request-cancelled">This request was {request.status.toLowerCase()}.</div> : (
                 <div className="request-progress" aria-label={`Request status: ${request.status}`}>
-                {['Pending', 'Email Sent', 'Completed'].map((status, index) => {
-                  const current = ['Pending', 'Email Sent', 'Completed'].indexOf(request.status)
+                {['Requested', 'Triaged', 'Approved', 'Ordered', 'In transit', 'Delivered'].map((status, index) => {
+                  const current = ['Requested', 'Triaged', 'Approved', 'Ordered', 'In transit', 'Delivered'].indexOf(request.status)
                   return <div key={status} className={`progress-step${index <= current ? ' complete' : ''}`}><span />{status}</div>
                 })}
                 </div>
@@ -110,7 +110,7 @@ export default function MyRequestsPage() {
               ) : null}
               <div className="request-actions">
                 <button type="button" className="btn-secondary" onClick={() => repeatRequest(request)}>Repeat request</button>
-                {request.status === 'Pending' ? <button type="button" className="btn-ghost danger" disabled={workingId === request.id} onClick={() => void cancelRequest(request)}>{workingId === request.id ? 'Cancelling…' : 'Cancel request'}</button> : null}
+                {request.status === 'Requested' ? <button type="button" className="btn-ghost danger" disabled={workingId === request.id} onClick={() => void cancelRequest(request)}>{workingId === request.id ? 'Cancelling…' : 'Cancel request'}</button> : null}
               </div>
             </article>
           )

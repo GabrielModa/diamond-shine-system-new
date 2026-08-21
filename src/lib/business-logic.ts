@@ -84,7 +84,7 @@ export function isSupplyOverdue(
   status: SupplyStatus,
   now = new Date()
 ): boolean {
-  if (!dueAt || status === 'Completed' || status === 'Cancelled') return false
+  if (!dueAt || status === 'Delivered' || status === 'Rejected' || status === 'Cancelled') return false
   const due = new Date(dueAt)
   return !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()
 }
@@ -98,12 +98,13 @@ type SupplyMetricInput = {
 }
 
 export function calculateSupplyOperationsMetrics(requests: SupplyMetricInput[]) {
-  const active = requests.filter((item) => item.status === 'Pending' || item.status === 'Email Sent')
-  const completedWithSla = requests.filter((item) => item.status === 'Completed' && item.completedAt && item.dueAt)
+  const terminal: SupplyStatus[] = ['Delivered', 'Rejected', 'Cancelled']
+  const active = requests.filter((item) => !terminal.includes(item.status))
+  const completedWithSla = requests.filter((item) => item.status === 'Delivered' && item.completedAt && item.dueAt)
   const completedOnTime = completedWithSla.filter(
     (item) => new Date(item.completedAt!).getTime() <= new Date(item.dueAt!).getTime()
   ).length
-  const resolved = requests.filter((item) => item.status === 'Completed' && item.completedAt)
+  const resolved = requests.filter((item) => item.status === 'Delivered' && item.completedAt)
   const averageResolutionHours = resolved.length
     ? resolved.reduce(
         (sum, item) => sum + Math.max(0, new Date(item.completedAt!).getTime() - new Date(item.createdAt).getTime()),
@@ -118,6 +119,25 @@ export function calculateSupplyOperationsMetrics(requests: SupplyMetricInput[]) 
     completedWithSlaCount: completedWithSla.length,
     averageResolutionHours,
   }
+}
+
+const SUPPLY_TRANSITIONS: Record<SupplyStatus, SupplyStatus[]> = {
+  Requested: ['Triaged', 'Rejected', 'Cancelled'],
+  Triaged: ['Approved', 'Rejected', 'Cancelled'],
+  Approved: ['Ordered', 'Cancelled'],
+  Ordered: ['In transit', 'Cancelled'],
+  'In transit': ['Delivered'],
+  Delivered: [],
+  Rejected: [],
+  Cancelled: [],
+}
+
+export function getSupplyNextStatuses(status: SupplyStatus): SupplyStatus[] {
+  return SUPPLY_TRANSITIONS[status]
+}
+
+export function canTransitionSupplyStatus(from: SupplyStatus, to: SupplyStatus): boolean {
+  return SUPPLY_TRANSITIONS[from].includes(to)
 }
 
 export function calculateFeedbackTrend(

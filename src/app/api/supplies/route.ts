@@ -25,7 +25,7 @@ const createSchema = z.object({
 }).refine((value) => Boolean(value.items?.length || value.products?.length), { message: 'At least one item is required' })
 
 const querySchema = z.object({
-  status: z.enum(['pending', 'email-sent', 'completed', 'cancelled']).optional(),
+  status: z.enum(['requested', 'triaged', 'approved', 'ordered', 'in-transit', 'delivered', 'rejected', 'cancelled']).optional(),
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
   mine: z.enum(['true', 'false']).optional(),
@@ -56,11 +56,11 @@ export async function POST(request: NextRequest) {
       products: JSON.stringify(items.map((item) => item.product)),
       items: { create: items },
       statusEvents: {
-        create: { toStatus: 'Pending', actorEmail: auth.user.email, note: 'Request submitted' },
+        create: { toStatus: 'Requested', actorEmail: auth.user.email, note: 'Request submitted' },
       },
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
-      status: 'Pending',
+      status: 'Requested',
       dueAt: calculateSupplyDueAt(parsed.data.priority),
     },
   })
@@ -103,14 +103,9 @@ export async function GET(request: NextRequest) {
   }
 
   if (parsed.data.status) {
-    where.status =
-      parsed.data.status === 'pending'
-        ? 'Pending'
-        : parsed.data.status === 'email-sent'
-          ? 'EmailSent'
-          : parsed.data.status === 'completed'
-            ? 'Completed'
-            : 'Cancelled'
+    where.status = parsed.data.status === 'in-transit'
+      ? 'InTransit'
+      : parsed.data.status.charAt(0).toUpperCase() + parsed.data.status.slice(1)
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
   if (parsed.data.search) {
@@ -136,14 +131,14 @@ export async function GET(request: NextRequest) {
     const products = parseStringArray(item.products)
     return {
       ...item,
-      status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+      status: dbStatusToLabel(item.status as import('../../../lib/mappers').DbSupplyStatus),
       products,
       items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
       history: item.statusEvents.map((event) => ({
         ...event,
-        toStatus: dbStatusToLabel(event.toStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled'),
+        toStatus: dbStatusToLabel(event.toStatus as import('../../../lib/mappers').DbSupplyStatus),
         fromStatus: event.fromStatus
-          ? dbStatusToLabel(event.fromStatus as 'Pending' | 'EmailSent' | 'Completed' | 'Cancelled')
+          ? dbStatusToLabel(event.fromStatus as import('../../../lib/mappers').DbSupplyStatus)
           : null,
       })),
     }

@@ -7,7 +7,7 @@ export default defineConfig({
   workers: 1,
   reporter: process.env.CI ? [['line'], ['html', { open: 'never' }]] : 'list',
   use: {
-    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3000',
+    baseURL: process.env.PLAYWRIGHT_BASE_URL ?? 'http://localhost:3100',
     trace: 'on-first-retry',
     screenshot: 'only-on-failure',
     video: 'retain-on-failure',
@@ -17,9 +17,13 @@ export default defineConfig({
     { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
   ],
   webServer: {
-    command: 'npm run dev',
-    url: 'http://localhost:3000',
+    command: 'npm run start -- -p 3100',
+    url: 'http://localhost:3100',
     reuseExistingServer: true,
     timeout: 120_000,
+    env: {
+      EMAIL_TRANSPORT: 'json',
+      SESSION_SECRET: 'playwright-only-session-secret-with-32-characters',
+    },
   },
 })
