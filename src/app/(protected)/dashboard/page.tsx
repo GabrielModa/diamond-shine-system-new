@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ApiResponse, FeedbackEntry, SupplyRequest, SupplyPriority, SupplyStatus } from '../../../types'
 import { OverlayManager } from '../../../components/dashboard/OverlayManager'
 import { SuppliesStats } from '../../../components/dashboard/SuppliesStats'
@@ -43,6 +43,13 @@ type ListPreset = {
 
 type Assignee = { email: string; name: string | null; role: string; status: string }
 
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const payload = (await res.json()) as ApiResponse<T>
+  if (!res.ok || !payload.ok || !payload.data) throw new Error(payload.error || 'Request failed')
+  return payload.data
+}
+
 export default function DashboardPage() {
   const [loading, setLoading] = useState(true)
   const [dashboard, setDashboard] = useState<DashboardResponse | null>(null)
@@ -61,20 +68,12 @@ export default function DashboardPage() {
   const [newSupplies, setNewSupplies] = useState(0)
   const [assignees, setAssignees] = useState<Assignee[]>([])
 
-  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(url, {
-      credentials: 'include',
-      cache: 'no-store',
-      ...options,
-    })
-    const payload = (await res.json()) as ApiResponse<T>
-    if (!payload.ok || !payload.data) {
-      throw new Error(payload.error || 'Request failed')
-    }
-    return payload.data
-  }
+  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 3000)
+  }, [])
 
-  async function refreshAll() {
+  const refreshAll = useCallback(async () => {
     setLoading(true)
     try {
       const [dashboardRes, suppliesRes, feedbackRes, usersRes] = await Promise.allSettled([
@@ -113,7 +112,7 @@ export default function DashboardPage() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [showToast])
 
   async function refreshSuppliesOnly() {
     try {
@@ -135,7 +134,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function refreshActivityOnly() {
+  const refreshActivityOnly = useCallback(async () => {
     setSyncing(true)
     try {
       const [suppliesRes, feedbackRes] = await Promise.allSettled([
@@ -163,23 +162,18 @@ export default function DashboardPage() {
     } finally {
       setSyncing(false)
     }
-  }
+  }, [showToast, supplies])
 
   useEffect(() => {
     void refreshAll()
-  }, [])
+  }, [refreshAll])
 
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshActivityOnly()
     }, 120000)
     return () => clearInterval(interval)
-  }, [])
-
-  function showToast(type: 'success' | 'error', message: string) {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 3000)
-  }
+  }, [refreshActivityOnly])
 
   const mostRequested = dashboard?.supplies.mostRequestedProduct ?? ''
 

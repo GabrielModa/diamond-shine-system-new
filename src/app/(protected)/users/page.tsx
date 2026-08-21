@@ -1,9 +1,16 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ApiResponse, UserRole } from '../../../types'
 
 type User = { id: string; email: string; name: string | null; role: UserRole; status: 'pending' | 'active' | 'inactive'; createdAt: string }
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const payload = (await response.json()) as ApiResponse<T>
+  if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? 'Request failed')
+  return payload.data
+}
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
@@ -13,21 +20,14 @@ export default function UsersPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [loading, setLoading] = useState(true)
 
-  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
-    const payload = (await response.json()) as ApiResponse<T>
-    if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? 'Request failed')
-    return payload.data
-  }
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     setLoading(true)
     try { setUsers(await fetchJson<User[]>('/api/users')) }
     catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to load users.' }) }
     finally { setLoading(false) }
-  }
+  }, [])
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh() }, [refresh])
 
   async function inviteUser() {
     try {

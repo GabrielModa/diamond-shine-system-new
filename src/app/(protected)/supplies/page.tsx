@@ -182,7 +182,7 @@ export default function SuppliesPage() {
           <h2>Priority <span aria-hidden="true">*</span></h2>
           <p className="muted">Choose urgency to prioritize delivery.</p>
         </div>
-        <div className={`grid-2${missingFields.includes('Priority') ? ' input-error' : ''}`} role="group" aria-labelledby="priority-heading" aria-invalid={missingFields.includes('Priority')}>
+        <div className={`grid-2${missingFields.includes('Priority') ? ' input-error' : ''}`} role="group" aria-labelledby="priority-heading">
           {(['urgent', 'normal', 'low'] as const).map((item) => (
             <button
               key={item}
@@ -201,7 +201,7 @@ export default function SuppliesPage() {
           <h2>Products <span aria-hidden="true">*</span></h2>
           <p className="muted">Select the items required for the location.</p>
         </div>
-        <div className={`product-grid${missingFields.includes('Products') ? ' input-error' : ''}`} role="group" aria-labelledby="products-heading" aria-invalid={missingFields.includes('Products')}>
+        <div className={`product-grid${missingFields.includes('Products') ? ' input-error' : ''}`} role="group" aria-labelledby="products-heading">
           {PRODUCTS.map((product) => (
             <button
               key={product.value}

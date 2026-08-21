@@ -59,7 +59,10 @@ export function SupplyListSheet({
     search: '',
   })
   const [searchDebounced, setSearchDebounced] = useState('')
-  const presetKey = `${preset?.period ?? ''}|${preset?.location ?? ''}|${preset?.employee ?? ''}|${preset?.search ?? ''}|${preset?.overdue ?? ''}|${preset?.unassigned ?? ''}`
+  const presetPeriod = preset?.period
+  const presetLocation = preset?.location
+  const presetEmployee = preset?.employee
+  const presetSearch = preset?.search
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchDebounced(search.trim()), 250)
@@ -85,17 +88,17 @@ export function SupplyListSheet({
   useEffect(() => {
     if (!open || !preset) return
     const next = {
-      period: preset.period ?? 'all',
-      location: preset.location ?? 'all',
-      employee: preset.employee ?? 'all',
-      search: preset.search ?? '',
+      period: presetPeriod ?? 'all',
+      location: presetLocation ?? 'all',
+      employee: presetEmployee ?? 'all',
+      search: presetSearch ?? '',
     }
     setPeriod(next.period)
     setLocation(next.location)
     setEmployee(next.employee)
     setSearch(next.search)
     setApplied(next)
-  }, [open, presetKey])
+  }, [open, preset, presetEmployee, presetLocation, presetPeriod, presetSearch])
 
   useEffect(() => {
     if (typeof window === 'undefined') return

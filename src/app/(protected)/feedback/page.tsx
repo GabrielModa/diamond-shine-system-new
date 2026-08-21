@@ -212,7 +212,6 @@ export default function FeedbackPage() {
               data-field={field}
               role="group"
               aria-labelledby={`${field}-label`}
-              aria-invalid={showErrors && !ratings[field]}
             >
               <div className="muted" id={`${field}-label`}>{fieldLabels[field]}</div>
               <div className="row">

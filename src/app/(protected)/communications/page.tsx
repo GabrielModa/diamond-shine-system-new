@@ -1,23 +1,23 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ApiResponse } from '../../../types'
 
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const payload = (await response.json()) as ApiResponse<T>
+  if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? 'Request failed')
+  return payload.data
+}
 
 export default function CommunicationsPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '' })
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
-  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
-    const payload = (await response.json()) as ApiResponse<T>
-    if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? 'Request failed')
-    return payload.data
-  }
-
-  async function refresh() {
+  const refresh = useCallback(async () => {
     try {
       const [templateData, alertData] = await Promise.all([
         fetchJson<Template[]>('/api/templates'),
@@ -26,9 +26,9 @@ export default function CommunicationsPage() {
       setTemplates(templateData)
       setAlerts(alertData)
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to load communications.' }) }
-  }
+  }, [])
 
-  useEffect(() => { void refresh() }, [])
+  useEffect(() => { void refresh() }, [refresh])
 
   function render(value: string) {
     const sample: Record<string, string> = {

@@ -1,8 +1,5 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
-  eslint: {
-    ignoreDuringBuilds: true,
-  },
   async headers() {
     const scriptSources = process.env.NODE_ENV === 'production'
       ? "script-src 'self' 'unsafe-inline'"
