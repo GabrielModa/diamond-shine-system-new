@@ -5,7 +5,11 @@
   "scripts": {
     "test": "vitest run",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "vitest run tests/integration",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users",
+    "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
+    "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
+    "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
+    "test:integration:users": "vitest run tests/integration/users.test.ts",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit",
     "test:watch": "vitest",
@@ -43,6 +47,6 @@
     "supertest": "^7.0.0",
     "tsx": "^4.23.12",
     "typescript": "^5.8.0",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.11"
   }
 }

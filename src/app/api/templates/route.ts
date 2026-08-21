@@ -38,18 +38,15 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const existing = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
-  if (existing.length === 0) {
-    await prisma.emailTemplate.createMany({ data: DEFAULT_TEMPLATES })
-  } else {
-    for (const template of DEFAULT_TEMPLATES) {
-      await prisma.emailTemplate.upsert({
+  await Promise.all(
+    DEFAULT_TEMPLATES.map((template) =>
+      prisma.emailTemplate.upsert({
         where: { key: template.key },
         update: {},
         create: template,
       })
-    }
-  }
+    )
+  )
   const templates = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
   return NextResponse.json({ ok: true, data: templates })
 }

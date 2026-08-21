@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
 import { parse } from 'url'
@@ -13,9 +13,10 @@ vi.mock('../../src/lib/email', () => ({
 }))
 
 let app: ReturnType<typeof createServer>
+let nextApp: ReturnType<typeof next>
 
 beforeAll(async () => {
-  const nextApp = next({ dev: true, dir: process.cwd() })
+  nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => {
@@ -97,6 +98,16 @@ describe('GET /api/supplies', () => {
     expect(res.body.data.total).toBe(3)
     expect(res.body.data.items.every((item: { submittedBy: string }) => item.submittedBy === 'employee@ds.ie')).toBe(true)
   })
+
+  it('supports the dashboard batch size without rejecting the query', async () => {
+    const res = await request(app).get('/api/supplies?limit=200').set('Cookie', adminCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.items).toHaveLength(3)
+  })
+})
+
+afterAll(async () => {
+  await nextApp.close()
 })
 
 describe('PATCH /api/supplies/:id/status — status flow enforcement', () => {
@@ -280,4 +291,5 @@ describe('PATCH /api/supplies/:id/assign', () => {
       .send({ assigneeEmail: 'employee@ds.ie' })
     expect(res.status).toBe(400)
   })
+
 })

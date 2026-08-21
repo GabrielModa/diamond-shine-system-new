@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
 import { parse } from 'url'
@@ -13,10 +13,11 @@ vi.mock('../../src/lib/email', () => ({
 }))
 
 let app: ReturnType<typeof createServer>
+let nextApp: ReturnType<typeof next>
 let adminCookie: string, supervisorCookie: string, employeeCookie: string
 
 beforeAll(async () => {
-  const nextApp = next({ dev: true, dir: process.cwd() })
+  nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
@@ -57,6 +58,10 @@ describe('POST /api/feedback', () => {
     const res = await request(app).post('/api/feedback').set('Cookie', supervisorCookie).send(payload)
     expect(res.status).toBe(400)
   })
+})
+
+afterAll(async () => {
+  await nextApp.close()
 })
 
 describe('GET /api/employees', () => {

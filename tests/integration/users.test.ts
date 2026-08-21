@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach, vi } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
 import { parse } from 'url'
@@ -14,10 +14,11 @@ vi.mock('../../src/lib/email', () => ({
 }))
 
 let app: ReturnType<typeof createServer>
+let nextApp: ReturnType<typeof next>
 let adminCookie: string
 
 beforeAll(async () => {
-  const nextApp = next({ dev: true, dir: process.cwd() })
+  nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => {
@@ -34,6 +35,10 @@ beforeEach(async () => {
   await prisma.authToken.deleteMany()
   await prisma.user.deleteMany({ where: { email: { contains: '@test.io' } } })
   await prisma.user.update({ where: { email: 'admin@ds.ie' }, data: { role: 'admin', status: 'active' } })
+})
+
+afterAll(async () => {
+  await nextApp.close()
 })
 
 describe('protected page authorization', () => {
@@ -187,6 +192,17 @@ describe('GET /api/templates', () => {
     const res = await request(app).get('/api/templates').set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
+  })
+
+  it('initializes defaults safely under concurrent requests', async () => {
+    await prisma.emailTemplate.deleteMany()
+    const [first, second] = await Promise.all([
+      request(app).get('/api/templates').set('Cookie', adminCookie),
+      request(app).get('/api/templates').set('Cookie', adminCookie),
+    ])
+    expect(first.status).toBe(200)
+    expect(second.status).toBe(200)
+    expect(await prisma.emailTemplate.count()).toBe(3)
   })
 })
 

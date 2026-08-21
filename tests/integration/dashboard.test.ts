@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeAll, beforeEach } from 'vitest'
+import { describe, it, expect, beforeAll, beforeEach, afterAll } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
 import { parse } from 'url'
@@ -7,10 +7,11 @@ import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie } from './setup'
 
 let app: ReturnType<typeof createServer>
+let nextApp: ReturnType<typeof next>
 let adminCookie: string, supervisorCookie: string, employeeCookie: string
 
 beforeAll(async () => {
-  const nextApp = next({ dev: true, dir: process.cwd() })
+  nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
@@ -37,6 +38,10 @@ describe('GET /api/dashboard', () => {
   it('unauthenticated → 401', async () => {
     expect((await request(app).get('/api/dashboard')).status).toBe(401)
   })
+})
+
+afterAll(async () => {
+  await nextApp.close()
 })
 
 describe('GET /api/health', () => {
