@@ -142,6 +142,29 @@ enum SupplyPriority {
   low
 }
 
+model NotificationJob {
+  id            String   @id @default(cuid())
+  kind          String
+  status        String   @default("queued")
+  payload       Json
+  entityType    String?
+  entityId      String?
+  createdBy     String
+  attempts      Int      @default(0)
+  maxAttempts   Int      @default(5)
+  nextAttemptAt DateTime @default(now())
+  lastAttemptAt DateTime?
+  sentAt        DateTime?
+  lastError     String?
+  createdAt     DateTime @default(now())
+  updatedAt     DateTime @updatedAt
+
+  @@index([status, nextAttemptAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@map("notification_jobs")
+}
+
 model SupplyStatusEvent {
   id          String        @id @default(cuid())
   requestId   String

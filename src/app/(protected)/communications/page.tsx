@@ -4,6 +4,8 @@ import { useCallback, useEffect, useState } from 'react'
 import type { ApiResponse } from '../../../types'
 
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
+type NotificationJob = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string; sentAt?: string | null }
+type QueueData = { items: NotificationJob[]; counts: Record<string, number> }
 
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
@@ -15,16 +17,19 @@ async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
 export default function CommunicationsPage() {
   const [templates, setTemplates] = useState<Template[]>([])
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '' })
+  const [queue, setQueue] = useState<QueueData>({ items: [], counts: {} })
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
 
   const refresh = useCallback(async () => {
     try {
-      const [templateData, alertData] = await Promise.all([
+      const [templateData, alertData, queueData] = await Promise.all([
         fetchJson<Template[]>('/api/templates'),
         fetchJson<typeof alerts>('/api/settings'),
+        fetchJson<QueueData>('/api/notifications'),
       ])
       setTemplates(templateData)
       setAlerts(alertData)
+      setQueue(queueData)
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to load communications.' }) }
   }, [])
 
@@ -55,6 +60,22 @@ export default function CommunicationsPage() {
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to save recipients.' }) }
   }
 
+  async function processQueue() {
+    try {
+      const result = await fetchJson<{ processed: number }>('/api/notifications/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 20 }) })
+      setToast({ type: 'success', message: `${result.processed} notification${result.processed === 1 ? '' : 's'} processed.` })
+      await refresh()
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to process queue.' }) }
+  }
+
+  async function retryNotification(id: string) {
+    try {
+      await fetchJson(`/api/notifications/${id}/retry`, { method: 'POST' })
+      setToast({ type: 'success', message: 'Notification queued for retry.' })
+      await refresh()
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to retry notification.' }) }
+  }
+
   return (
     <main className="page-shell">
       <header className="page-header"><h1>Communications</h1><p className="muted">Control automated messages and who receives operational alerts.</p></header>
@@ -65,6 +86,17 @@ export default function CommunicationsPage() {
           <label><span>Feedback alerts</span><input type="text" value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} placeholder="quality@company.ie" /></label>
         </div>
         <div className="template-actions"><button className="btn-primary" type="button" onClick={() => void saveAlerts()}>Save recipients</button></div>
+      </section>
+      <section className="card" aria-labelledby="queue-title">
+        <div className="section-heading">
+          <div><h2 id="queue-title">Delivery queue</h2><span className="muted">Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Sent {queue.counts.sent ?? 0}</span></div>
+          <button className="btn-secondary" type="button" onClick={() => void processQueue()}>Process due messages</button>
+        </div>
+        {queue.items.length ? (
+          <div className="table-wrap"><table className="data-table"><thead><tr><th>Message</th><th>Status</th><th>Attempts</th><th>Created</th><th>Action</th></tr></thead><tbody>
+            {queue.items.map((job) => <tr key={job.id}><td>{job.kind.replaceAll('_', ' ')}</td><td><span className={`status-badge ${job.status}`}>{job.status}</span>{job.lastError ? <small className="field-error">{job.lastError}</small> : null}</td><td>{job.attempts}/{job.maxAttempts}</td><td>{new Date(job.createdAt).toLocaleString('en-IE')}</td><td>{['failed', 'exhausted'].includes(job.status) ? <button className="btn-secondary" type="button" onClick={() => void retryNotification(job.id)}>Retry</button> : '—'}</td></tr>)}
+          </tbody></table></div>
+        ) : <p className="muted">No notification jobs yet.</p>}
       </section>
       <section aria-labelledby="template-title">
         <div className="section-heading"><h2 id="template-title">Email templates</h2><span className="muted">Preview runs in a restricted sandbox</span></div>

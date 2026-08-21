@@ -5,11 +5,12 @@ import { parse } from 'url'
 import next from 'next'
 import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie, cleanSupplies } from './setup'
+import { processNotificationJob } from '../../src/lib/notification-queue'
 
 vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
   sendFeedbackNotification: vi.fn().mockResolvedValue({ ok: true }),
-  sendClientNotification: vi.fn().mockResolvedValue(undefined),
+  sendClientNotification: vi.fn().mockResolvedValue({ ok: true }),
 }))
 
 let app: ReturnType<typeof createServer>
@@ -223,8 +224,9 @@ describe('POST /api/supplies/:id/notify', () => {
       .post('/api/supplies/notify1/notify')
       .set('Cookie', adminCookie)
       .send({ clientEmail: 'client@example.com', subject: 'Test', htmlBody: '<p>hi</p>' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(202)
     expect(res.body.ok).toBe(true)
+    expect(res.body.data.queued).toBe(true)
   })
 
   it('does not change operational status after sending an email', async () => {
@@ -247,7 +249,7 @@ describe('POST /api/supplies/:id/notify', () => {
     expect(updated?.status).toBe('Requested')
   })
 
-  it('sets emailSentAt timestamp', async () => {
+  it('sets emailSentAt only after the queued notification is delivered', async () => {
     await prisma.supplyRequest.create({
       data: {
         id: 'notify3',
@@ -259,10 +261,12 @@ describe('POST /api/supplies/:id/notify', () => {
         submittedBy: 'admin@ds.ie',
       },
     })
-    await request(app)
+    const response = await request(app)
       .post('/api/supplies/notify3/notify')
       .set('Cookie', adminCookie)
       .send({ clientEmail: 'client@example.com', subject: 'Test', htmlBody: '<p>hi</p>' })
+    expect((await prisma.supplyRequest.findUnique({ where: { id: 'notify3' } }))?.emailSentAt).toBeNull()
+    await processNotificationJob(response.body.data.notificationJobId)
     const updated = await prisma.supplyRequest.findUnique({ where: { id: 'notify3' } })
     expect(updated?.emailSentAt).toBeTruthy()
   })

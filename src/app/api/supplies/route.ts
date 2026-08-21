@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { CLIENT_LOCATIONS, PRODUCTS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
-import { sendSuppliesNotification } from '../../../lib/email'
+import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
 import { logAudit } from '../../../lib/audit'
@@ -65,7 +65,12 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  const notification = await sendSuppliesNotification({
+  const notification = await enqueueNotification({
+    kind: 'supply_alert',
+    createdBy: auth.user.email,
+    entityType: 'supply',
+    entityId: created.id,
+    payload: {
     id: created.id,
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
@@ -74,16 +79,17 @@ export async function POST(request: NextRequest) {
     items,
     notes: created.notes ?? undefined,
     submittedBy: created.submittedBy,
-    createdAt: created.createdAt,
+    createdAt: created.createdAt.toISOString(),
+    },
   })
 
   await logAudit(auth.user.email, 'create_supply', 'supply', created.id, {
     employeeName: created.employeeName,
     priority: created.priority,
-    notificationSent: notification.ok,
+    notificationJobId: notification.id,
   })
 
-  return NextResponse.json({ ok: true, data: { id: created.id, notificationSent: notification.ok } }, { status: 201 })
+  return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
 
 export async function GET(request: NextRequest) {

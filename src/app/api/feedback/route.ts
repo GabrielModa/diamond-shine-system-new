@@ -4,7 +4,7 @@ import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { calculateOverall, getCategoryLabel, isValidRating } from '../../../lib/business-logic'
-import { sendFeedbackNotification } from '../../../lib/email'
+import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbCategoryToLabel, labelToDbCategory } from '../../../lib/mappers'
 import { logAudit } from '../../../lib/audit'
 
@@ -70,7 +70,12 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  const notification = await sendFeedbackNotification({
+  const notification = await enqueueNotification({
+    kind: 'feedback_alert',
+    createdBy: auth.user.email,
+    entityType: 'feedback',
+    entityId: created.id,
+    payload: {
     id: created.id,
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
@@ -82,15 +87,16 @@ export async function POST(request: NextRequest) {
     category,
     comments: created.comments ?? undefined,
     submittedBy: created.submittedBy,
-    createdAt: created.createdAt,
+    createdAt: created.createdAt.toISOString(),
+    },
   })
 
   await logAudit(auth.user.email, 'create_feedback', 'feedback', created.id, {
     employeeName: created.employeeName,
-    notificationSent: notification.ok,
+    notificationJobId: notification.id,
   })
 
-  return NextResponse.json({ ok: true, data: { id: created.id, notificationSent: notification.ok } }, { status: 201 })
+  return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
 
 export async function GET(request: NextRequest) {

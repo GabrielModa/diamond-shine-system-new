@@ -5,6 +5,7 @@ import { createSessionToken } from '../../src/lib/session'
 export const TEST_PASSWORD = 'password123'
 
 export async function seedUsers() {
+  await prisma.notificationJob.deleteMany()
   await prisma.authRateLimit.deleteMany()
   await prisma.authToken.deleteMany()
   await prisma.supplyRequest.deleteMany()
@@ -32,9 +33,11 @@ export async function getAuthCookie(email: string, password = TEST_PASSWORD): Pr
 }
 
 export async function cleanSupplies() {
+  await prisma.notificationJob.deleteMany()
   await prisma.supplyRequest.deleteMany()
 }
 
 export async function cleanFeedback() {
+  await prisma.notificationJob.deleteMany()
   await prisma.feedbackEntry.deleteMany()
 }

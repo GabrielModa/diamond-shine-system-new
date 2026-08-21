@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../../../lib/prisma'
 import { requireAuth } from '../../../../../lib/auth'
-import { sendClientNotification } from '../../../../../lib/email'
+import { enqueueNotification } from '../../../../../lib/notification-queue'
 import { logAudit } from '../../../../../lib/audit'
 
 const bodySchema = z.object({
@@ -31,22 +31,17 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
 
-  const sendResult = await sendClientNotification({
-    to: parsed.data.clientEmail,
-    subject: parsed.data.subject,
-    htmlBody: parsed.data.htmlBody,
+  const job = await enqueueNotification({
+    kind: 'client_supply',
+    createdBy: auth.user.email,
+    entityType: 'supply',
+    entityId: id,
+    payload: { to: parsed.data.clientEmail, subject: parsed.data.subject, htmlBody: parsed.data.htmlBody },
   })
-
-  if (sendResult.ok) {
-    await prisma.supplyRequest.update({
-      where: { id },
-      data: { emailSentAt: new Date() },
-    })
-  }
 
   await logAudit(auth.user.email, 'send_supply_email', 'supply', id, {
     clientEmail: parsed.data.clientEmail,
   })
 
-  return NextResponse.json({ ok: true, data: { id, sent: sendResult.ok } })
+  return NextResponse.json({ ok: true, data: { id, queued: true, notificationJobId: job.id } }, { status: 202 })
 }

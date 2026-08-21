@@ -344,17 +344,12 @@ export default function DashboardPage() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ clientEmail, subject, htmlBody }),
                 })
-                const payload = (await res.json()) as ApiResponse<{ id: string; sent: boolean }>
+                const payload = (await res.json()) as ApiResponse<{ id: string; queued: boolean; notificationJobId: string }>
                 if (!res.ok || !payload.ok) {
                   showToast('error', payload.error || 'Failed to send email.')
                   return
                 }
-                showToast(
-                  payload.data?.sent ? 'success' : 'error',
-                  payload.data?.sent
-                    ? 'Email sent successfully.'
-                    : 'Email could not be sent. Please check SMTP settings.'
-                )
+                showToast('success', 'Email queued for delivery. You can track it in Communications.')
                 overlay.closeAll()
                 await refreshAll()
               } catch {
