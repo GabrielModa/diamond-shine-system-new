@@ -4,6 +4,8 @@ Status: approved product direction, pending technical kickoff review
 Target: management web platform plus native/hybrid field app built with React Native and Expo  
 Primary outcome: make commercial-cleaning visits schedulable, executable, provable, reviewable, and supply-aware without operational WhatsApp dependency.
 
+UX/UI direction and interaction requirements are defined in `docs/UX_UI_PRODUCT_SPEC.md` and form part of every milestone's acceptance criteria.
+
 ## Product boundary
 
 ### Operations Core v1 includes
@@ -247,4 +249,3 @@ Exit criteria:
 - Supply problems create deduplicated, owned replenishment workflows.
 - Tenant isolation, permissions, audit, sync, recurrence, and critical state transitions have automated coverage.
 - The pilot measures field interaction time, WhatsApp reduction, exceptions detected, false GPS alerts, acknowledgement, stock response, and rework.
-

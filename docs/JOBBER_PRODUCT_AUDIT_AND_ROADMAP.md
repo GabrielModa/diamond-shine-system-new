@@ -4,6 +4,7 @@ Execution companions:
 
 - `docs/OPERATIONS_CORE_EXECUTION_ROADMAP.md`
 - `docs/OPERATIONS_CORE_KICKOFF_PROMPT.md`
+- `docs/UX_UI_PRODUCT_SPEC.md`
 
 Date: 22 August 2026  
 Scope: authenticated Jobber trial, employee screenshots, official Jobber help material, and the current Diamond Shine codebase.

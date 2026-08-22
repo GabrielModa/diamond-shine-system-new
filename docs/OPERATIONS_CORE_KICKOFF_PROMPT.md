@@ -13,9 +13,10 @@ Read completely before acting:
 1. `AGENTS.md`
 2. `docs/JOBBER_PRODUCT_AUDIT_AND_ROADMAP.md`
 3. `docs/OPERATIONS_CORE_EXECUTION_ROADMAP.md`
-4. `README.md`
-5. The current Prisma schema, package scripts, tests, authentication, authorization, audit, notification, supplies, feedback, and dashboard implementations.
-6. The relevant local Next.js 16 documentation in `node_modules/next/dist/docs/` before changing Next.js code, as required by `AGENTS.md`.
+4. `docs/UX_UI_PRODUCT_SPEC.md`
+5. `README.md`
+6. The current Prisma schema, package scripts, tests, authentication, authorization, audit, notification, supplies, feedback, and dashboard implementations.
+7. The relevant local Next.js 16 documentation in `node_modules/next/dist/docs/` before changing Next.js code, as required by `AGENTS.md`.
 
 ## Mission
 
@@ -50,6 +51,9 @@ Do not build a Jobber clone. Preserve Jobber's useful principles—commercial en
 - Operational approval is distinct from payroll and billing.
 - Avoid checkbox theatre: use done, N/A, blocked, problem, quantity, and evidence semantics with conditional follow-up.
 - Field UX must be faster than the current combination of generic checklists and WhatsApp.
+- Preserve familiar field-service mental models without copying Jobber's UI, wording, branding, icons, layouts, or visual trade dress.
+- Every operational screen must have one state-appropriate primary action; never place start and completion as equal adjacent actions.
+- Accessibility, offline, loading, empty, error, permission-denied, and recovery states are part of feature completion.
 
 ## Required first response and work
 
@@ -73,6 +77,7 @@ Then create only the Milestone 0 artifacts:
 - privacy, security, retention, and threat-model notes;
 - migration/backfill plan;
 - vertical-slice acceptance-test specification;
+- initial web/mobile information architecture, core journey maps, and interaction-risk review based on `docs/UX_UI_PRODUCT_SPEC.md`;
 - baseline verification report.
 
 Do not proceed to Milestone 1 until these artifacts have been reviewed and explicitly approved.
@@ -112,4 +117,3 @@ Do not proceed to Milestone 1 until these artifacts have been reviewed and expli
 The immediate objective is not to write the most code. It is to make the domain, security boundaries, offline model, state transitions, and first vertical slice precise enough that the platform can grow without a rewrite.
 
 ---
-
