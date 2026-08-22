@@ -41,7 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       organizationId: auth.user.organizationId,
       visitId: id,
       taskResultId,
-      uploadedById: auth.user.id,
+      uploadedBy: auth.user.id,
       kind: 'photo',
       storageKey: relativeKey,
       fileName,

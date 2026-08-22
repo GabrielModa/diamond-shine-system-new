@@ -95,10 +95,10 @@ describe('checkPageAccess', () => {
 
 describe('getAllowedPages', () => {
   it('admin gets the complete operations suite', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'field-control', 'home', 'my-requests', 'operations', 'schedule', 'supplies', 'users'])
+    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'schedule', 'supplies', 'users'])
   })
   it('supervisor gets operations and scheduling without administration', () => {
-    expect(getAllowedPages('supervisor').sort()).toEqual(['communications', 'feedback', 'field-control', 'home', 'my-requests', 'operations', 'schedule', 'supplies'])
+    expect(getAllowedPages('supervisor').sort()).toEqual(['communications', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'schedule', 'supplies'])
   })
   it('employee gets their schedule, supplies and tracking', () => {
     expect(getAllowedPages('employee').sort()).toEqual(['communications', 'home', 'my-requests', 'schedule', 'supplies'])

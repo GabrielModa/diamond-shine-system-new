@@ -10,6 +10,7 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   operations: { title: 'Operations Core', desc: 'Manage clients, sites, access, areas and service plans.', href: '/operations' },
   schedule: { title: 'Smart Schedule', desc: 'Dispatch recurring visits, teams and route-ready work.', href: '/schedule' },
   'field-control': { title: 'Field Control', desc: 'Monitor live work, GPS exceptions, incidents and approvals.', href: '/field-control' },
+  insights: { title: 'Operations Intelligence', desc: 'Prioritise service, quality, labour and material risks in one view.', href: '/insights' },
   supplies: {
     title: 'Supplies Requests',
     desc: 'Request cleaning products for client locations.',
@@ -147,6 +148,7 @@ export default async function HomePage() {
                 {page === 'operations' && '🏢'}
                 {page === 'schedule' && '📅'}
                 {page === 'field-control' && '🛰️'}
+                {page === 'insights' && '🧠'}
                 {page === 'my-requests' && '🧾'}
                 {page === 'feedback' && '⭐'}
                 {page === 'dashboard' && '📊'}
