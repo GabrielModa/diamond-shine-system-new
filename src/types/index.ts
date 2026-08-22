@@ -1,5 +1,5 @@
 export type UserRole = 'admin' | 'supervisor' | 'employee' | 'viewer'
-export type Page = 'home' | 'supplies' | 'my-requests' | 'feedback' | 'dashboard' | 'users' | 'communications' | 'audit'
+export type Page = 'home' | 'operations' | 'supplies' | 'my-requests' | 'feedback' | 'dashboard' | 'users' | 'communications' | 'audit'
 export type SupplyPriority = 'urgent' | 'normal' | 'low'
 export type SupplyStatus =
   | 'Requested'

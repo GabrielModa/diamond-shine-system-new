@@ -1,0 +1,114 @@
+'use client'
+
+import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+
+type Client = { id: string; displayName: string; legalName?: string | null; status: string; contacts: Array<{ name: string; email?: string | null }>; _count: { sites: number; contracts: number } }
+type Site = { id: string; clientId: string; name: string; addressLine1: string; city: string; postalCode: string; geofenceVerifiedM: number; geofenceNearM: number; geofenceSuspiciousM: number; client: { displayName: string }; access?: { entryInstructions?: string | null }; _count: { areas: number; servicePlans: number } }
+type Plan = { id: string; name: string; status: string; expectedDurationMinutes: number; requiredWorkers: number; version: number; site: { id: string; name: string; client: { displayName: string } }; _count: { tasks: number; versions: number } }
+type Tab = 'clients' | 'sites' | 'plans'
+
+async function api<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const body = await response.json()
+  if (!response.ok || !body.ok) throw new Error(body.error ?? 'Request failed')
+  return body.data as T
+}
+
+export default function OperationsHub({ canManage }: { canManage: boolean }) {
+  const [tab, setTab] = useState<Tab>('clients')
+  const [clients, setClients] = useState<Client[]>([])
+  const [sites, setSites] = useState<Site[]>([])
+  const [plans, setPlans] = useState<Plan[]>([])
+  const [query, setQuery] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [busy, setBusy] = useState(false)
+  const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', contactName: '', contactEmail: '' })
+  const [siteDraft, setSiteDraft] = useState({ clientId: '', name: '', addressLine1: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
+  const [planDraft, setPlanDraft] = useState({ siteId: '', name: '', expectedDurationMinutes: 120, requiredWorkers: 1, tasks: 'Vacuum floors\nClean bathrooms\nRemove waste' })
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try {
+      const [clientRows, siteRows, planRows] = await Promise.all([
+        api<Client[]>('/api/clients'), api<Site[]>('/api/sites'), api<Plan[]>('/api/service-plans'),
+      ])
+      setClients(clientRows); setSites(siteRows); setPlans(planRows)
+      setSiteDraft((current) => ({ ...current, clientId: current.clientId || clientRows[0]?.id || '' }))
+      setPlanDraft((current) => ({ ...current, siteId: current.siteId || siteRows[0]?.id || '' }))
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load operations.' })
+    } finally { setLoading(false) }
+  }, [])
+
+  useEffect(() => { void refresh() }, [refresh])
+
+  async function submitClient(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      await api('/api/clients', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        displayName: clientDraft.displayName, legalName: clientDraft.legalName || null,
+        contacts: clientDraft.contactName ? [{ name: clientDraft.contactName, email: clientDraft.contactEmail || null, isPrimary: true }] : [],
+      }) })
+      setClientDraft({ displayName: '', legalName: '', contactName: '', contactEmail: '' })
+      setNotice({ kind: 'success', text: 'Client created and ready for site setup.' }); await refresh()
+    } catch (error) { setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not create client.' }) }
+    finally { setBusy(false) }
+  }
+
+  async function submitSite(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      await api('/api/sites', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+        ...siteDraft, countryCode: 'IE', timezone: 'Europe/Dublin', geofenceVerifiedM: 150, geofenceNearM: 250,
+        geofenceSuspiciousM: 700, access: { entryInstructions: siteDraft.entryInstructions },
+        areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
+      }) })
+      setSiteDraft((current) => ({ ...current, name: '', addressLine1: '', postalCode: '', entryInstructions: '' }))
+      setNotice({ kind: 'success', text: 'Site created with smart distance bands and access record.' }); await refresh()
+    } catch (error) { setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not create site.' }) }
+    finally { setBusy(false) }
+  }
+
+  async function submitPlan(event: FormEvent) {
+    event.preventDefault(); setBusy(true)
+    try {
+      const tasks = planDraft.tasks.split('\n').map((title) => title.trim()).filter(Boolean).map((title, sortOrder) => ({ title, sortOrder, required: true, responseType: 'done_na_problem' }))
+      await api('/api/service-plans', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...planDraft, tasks }) })
+      setPlanDraft((current) => ({ ...current, name: '', tasks: '' }))
+      setNotice({ kind: 'success', text: 'Draft plan created. Publish it when operationally approved.' }); await refresh()
+    } catch (error) { setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not create plan.' }) }
+    finally { setBusy(false) }
+  }
+
+  async function publishPlan(id: string) {
+    setBusy(true)
+    try { await api(`/api/service-plans/${id}/publish`, { method: 'POST' }); setNotice({ kind: 'success', text: 'Immutable service-plan version published.' }); await refresh() }
+    catch (error) { setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not publish plan.' }) }
+    finally { setBusy(false) }
+  }
+
+  const needle = query.trim().toLowerCase()
+  const visibleClients = useMemo(() => clients.filter((row) => !needle || `${row.displayName} ${row.legalName ?? ''}`.toLowerCase().includes(needle)), [clients, needle])
+  const visibleSites = useMemo(() => sites.filter((row) => !needle || `${row.name} ${row.client.displayName} ${row.city}`.toLowerCase().includes(needle)), [sites, needle])
+  const visiblePlans = useMemo(() => plans.filter((row) => !needle || `${row.name} ${row.site.name} ${row.site.client.displayName}`.toLowerCase().includes(needle)), [plans, needle])
+
+  return <main className="page-shell operations-page">
+    <header className="page-header operations-hero"><div><span className="eyebrow">Cleaning operations core</span><h1>Clients, sites & service plans</h1><p className="muted">One operational chain from contract context to the exact work executed on site.</p></div><div className="operations-kpis"><span><strong>{clients.length}</strong> clients</span><span><strong>{sites.length}</strong> sites</span><span><strong>{plans.length}</strong> plans</span></div></header>
+    <section className="operations-toolbar" aria-label="Operations views">
+      <div className="segmented-control">{(['clients', 'sites', 'plans'] as Tab[]).map((item) => <button key={item} type="button" className={tab === item ? 'selected' : ''} onClick={() => setTab(item)}>{item === 'clients' ? 'Clients' : item === 'sites' ? 'Sites' : 'Service plans'}</button>)}</div>
+      <input type="search" aria-label="Search current view" placeholder="Search this view…" value={query} onChange={(event) => setQuery(event.target.value)} />
+    </section>
+    {notice ? <div className={`toast ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}>{notice.text}<button type="button" className="notice-close" onClick={() => setNotice(null)}>×</button></div> : null}
+    {loading ? <section className="card empty-state" aria-live="polite">Loading the operations chain…</section> : null}
+
+    {!loading && tab === 'clients' ? <div className="operations-split">
+      <section className="card"><div className="section-heading"><h2>Client portfolio</h2><span className="count-pill">{visibleClients.length}</span></div><div className="operations-list">{visibleClients.map((client) => <article className="operations-row" key={client.id}><div className="entity-icon">C</div><div><strong>{client.displayName}</strong><div className="muted">{client.legalName || client.contacts[0]?.name || 'Commercial account'}</div></div><div className="entity-stats"><span>{client._count.sites} sites</span><span>{client._count.contracts} contracts</span></div><span className={`status-badge ${client.status === 'active' ? 'Completed' : 'Pending'}`}>{client.status}</span></article>)}{!visibleClients.length ? <div className="empty-state">No clients found.</div> : null}</div></section>
+      {canManage ? <form className="operations-form" onSubmit={submitClient}><div><span className="eyebrow">Quick setup</span><h2>New client</h2><p className="muted">Start the operational record; sites and plans come next.</p></div><label>Display name<input required value={clientDraft.displayName} onChange={(e) => setClientDraft({ ...clientDraft, displayName: e.target.value })} /></label><label>Legal name<input value={clientDraft.legalName} onChange={(e) => setClientDraft({ ...clientDraft, legalName: e.target.value })} /></label><div className="form-pair"><label>Primary contact<input value={clientDraft.contactName} onChange={(e) => setClientDraft({ ...clientDraft, contactName: e.target.value })} /></label><label>Contact email<input type="email" value={clientDraft.contactEmail} onChange={(e) => setClientDraft({ ...clientDraft, contactEmail: e.target.value })} /></label></div><button className="btn-primary" disabled={busy}>Create client</button></form> : null}
+    </div> : null}
+
+    {!loading && tab === 'sites' ? <div className="operations-split"><section className="card"><div className="section-heading"><h2>Service locations</h2><span className="count-pill">{visibleSites.length}</span></div><div className="operations-list">{visibleSites.map((site) => <article className="operations-row" key={site.id}><div className="entity-icon site">S</div><div><strong>{site.name}</strong><div className="muted">{site.client.displayName} · {site.addressLine1}, {site.city}</div></div><div className="entity-stats"><span>{site._count.areas} areas</span><span>{site._count.servicePlans} plans</span></div><span className="distance-bands">{site.geofenceVerifiedM} / {site.geofenceNearM} / {site.geofenceSuspiciousM}m</span></article>)}</div></section>{canManage ? <form className="operations-form" onSubmit={submitSite}><div><span className="eyebrow">Location intelligence</span><h2>New site</h2></div><label>Client<select required value={siteDraft.clientId} onChange={(e) => setSiteDraft({ ...siteDraft, clientId: e.target.value })}><option value="">Select client</option>{clients.map((client) => <option key={client.id} value={client.id}>{client.displayName}</option>)}</select></label><label>Site name<input required value={siteDraft.name} onChange={(e) => setSiteDraft({ ...siteDraft, name: e.target.value })} /></label><label>Address<input required value={siteDraft.addressLine1} onChange={(e) => setSiteDraft({ ...siteDraft, addressLine1: e.target.value })} /></label><div className="form-pair"><label>City<input required value={siteDraft.city} onChange={(e) => setSiteDraft({ ...siteDraft, city: e.target.value })} /></label><label>Postcode<input required value={siteDraft.postalCode} onChange={(e) => setSiteDraft({ ...siteDraft, postalCode: e.target.value })} /></label></div><label>Entry instructions<textarea value={siteDraft.entryInstructions} onChange={(e) => setSiteDraft({ ...siteDraft, entryInstructions: e.target.value })} /></label><div className="geofence-preview"><span>Verified ≤150m</span><span>Review 151–250m</span><span>Suspicious &gt;700m</span></div><button className="btn-primary" disabled={busy || !clients.length}>Create site</button></form> : null}</div> : null}
+
+    {!loading && tab === 'plans' ? <div className="operations-split"><section className="card"><div className="section-heading"><h2>Versioned service plans</h2><span className="count-pill">{visiblePlans.length}</span></div><div className="operations-list">{visiblePlans.map((plan) => <article className="operations-row plan-row" key={plan.id}><div className="entity-icon plan">P</div><div><strong>{plan.name}</strong><div className="muted">{plan.site.client.displayName} · {plan.site.name}</div></div><div className="entity-stats"><span>{plan._count.tasks} tasks</span><span>{plan.expectedDurationMinutes} min · {plan.requiredWorkers} worker{plan.requiredWorkers === 1 ? '' : 's'}</span></div><div className="row tight"><span className={`status-badge ${plan.status === 'published' ? 'Completed' : 'Pending'}`}>{plan.status} · v{plan._count.versions}</span>{canManage ? <button type="button" className="btn-secondary" disabled={busy} onClick={() => void publishPlan(plan.id)}>Publish</button> : null}</div></article>)}</div></section>{canManage ? <form className="operations-form" onSubmit={submitPlan}><div><span className="eyebrow">Work definition</span><h2>New service plan</h2></div><label>Site<select required value={planDraft.siteId} onChange={(e) => setPlanDraft({ ...planDraft, siteId: e.target.value })}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.client.displayName} · {site.name}</option>)}</select></label><label>Plan name<input required value={planDraft.name} onChange={(e) => setPlanDraft({ ...planDraft, name: e.target.value })} /></label><div className="form-pair"><label>Expected minutes<input type="number" min="1" value={planDraft.expectedDurationMinutes} onChange={(e) => setPlanDraft({ ...planDraft, expectedDurationMinutes: Number(e.target.value) })} /></label><label>Workers<input type="number" min="1" value={planDraft.requiredWorkers} onChange={(e) => setPlanDraft({ ...planDraft, requiredWorkers: Number(e.target.value) })} /></label></div><label>Tasks <span className="muted">one per line</span><textarea required value={planDraft.tasks} onChange={(e) => setPlanDraft({ ...planDraft, tasks: e.target.value })} /></label><button className="btn-primary" disabled={busy || !sites.length}>Create draft</button></form> : null}</div> : null}
+  </main>
+}

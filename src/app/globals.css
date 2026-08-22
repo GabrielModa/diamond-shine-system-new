@@ -180,6 +180,59 @@ button:focus-visible {
 .audit-row { display: grid; grid-template-columns: minmax(220px, 1fr) 100px minmax(120px, .7fr) 180px; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .audit-row:last-child { border-bottom: 0; }
 
+.operations-page { --ops-ink: #12352c; --ops-green: #176b52; --ops-mint: #eaf6f1; }
+.operations-hero { flex-direction: row; align-items: center; justify-content: space-between; background: linear-gradient(120deg, #f4fbf7, #e6f3ed); border-color: #c5e2d6; }
+.operations-hero .eyebrow { color: var(--ops-green); }
+.operations-kpis { display: flex; gap: 10px; flex-wrap: wrap; }
+.operations-kpis span { display: grid; min-width: 92px; padding: 10px 14px; border-radius: 13px; background: rgba(255,255,255,.82); border: 1px solid #d7e9e1; color: #49645c; font-size: .72rem; }
+.operations-kpis strong { color: var(--ops-ink); font-size: 1.25rem; }
+.operations-toolbar { display: flex; justify-content: space-between; gap: 12px; align-items: center; }
+.operations-toolbar input { min-width: min(340px, 100%); }
+.segmented-control { display: inline-flex; padding: 4px; gap: 3px; border-radius: 14px; background: #e8ecea; }
+.segmented-control button { border: 0; background: transparent; padding: 8px 14px; }
+.segmented-control button.selected { color: white; background: var(--ops-ink); box-shadow: 0 5px 14px rgba(18,53,44,.2); }
+.operations-split { display: grid; grid-template-columns: minmax(0, 1.65fr) minmax(310px, .8fr); gap: 16px; align-items: start; }
+.operations-list { display: grid; }
+.operations-row { display: grid; grid-template-columns: 42px minmax(180px, 1fr) minmax(140px, auto) auto; gap: 12px; align-items: center; padding: 14px 4px; border-bottom: 1px solid #e7eeeb; }
+.operations-row:last-child { border-bottom: 0; }
+.entity-icon { display: grid; place-items: center; width: 38px; height: 38px; border-radius: 12px; color: #175b48; background: #e7f5ef; font-weight: 700; }
+.entity-icon.site { color: #205a88; background: #eaf3fb; }
+.entity-icon.plan { color: #745416; background: #fff5d9; }
+.entity-stats { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; }
+.entity-stats span, .distance-bands { padding: 5px 8px; border-radius: 999px; background: #f3f6f5; color: #52665f; font-size: .72rem; white-space: nowrap; }
+.distance-bands { background: #eef7ff; color: #285c84; }
+.operations-form { position: sticky; top: 12px; border: 1px solid #d7e7e0; box-shadow: 0 16px 38px rgba(18,53,44,.1); }
+.operations-form label { display: grid; gap: 6px; color: #435d55; font-size: .8rem; }
+.operations-form h2 { color: var(--ops-ink); }
+.operations-form .eyebrow { color: var(--ops-green); }
+.form-pair { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+.geofence-preview { display: grid; grid-template-columns: repeat(3, 1fr); gap: 5px; }
+.geofence-preview span { padding: 7px; border-radius: 9px; text-align: center; background: #edf8f3; color: #226c55; font-size: .66rem; }
+.geofence-preview span:nth-child(2) { color: #8a5b07; background: #fff7df; }
+.geofence-preview span:nth-child(3) { color: #9f3131; background: #fff0f0; }
+.notice-close { float: right; border: 0; padding: 0 6px; background: transparent; }
+
+@media (max-width: 900px) {
+  .operations-split { grid-template-columns: 1fr; }
+  .operations-form { position: static; }
+  .operations-row { grid-template-columns: 42px 1fr auto; }
+  .operations-row .entity-stats { grid-column: 2 / -1; justify-content: flex-start; }
+  .plan-row { grid-template-columns: 42px 1fr; }
+  .plan-row > .row { grid-column: 2; }
+}
+
+@media (max-width: 620px) {
+  .operations-hero, .operations-toolbar { align-items: stretch; flex-direction: column; }
+  .operations-kpis { display: grid; grid-template-columns: repeat(3, 1fr); }
+  .operations-kpis span { min-width: 0; padding: 8px; }
+  .segmented-control { width: 100%; }
+  .segmented-control button { flex: 1; padding-inline: 6px; }
+  .form-pair { grid-template-columns: 1fr; }
+  .operations-row { grid-template-columns: 36px 1fr; }
+  .operations-row > .status-badge, .operations-row > .distance-bands { grid-column: 2; justify-self: start; }
+  .geofence-preview { grid-template-columns: 1fr; }
+}
+
 .top-bar {
   position: sticky;
   top: 0;

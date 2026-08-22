@@ -9,6 +9,7 @@ import { prisma } from '../../lib/prisma'
 
 const pageMeta: Record<string, { label: string; href: string }> = {
   home: { label: 'Home', href: '/home' },
+  operations: { label: 'Operations', href: '/operations' },
   supplies: { label: 'Supplies', href: '/supplies' },
   'my-requests': { label: 'My requests', href: '/my-requests' },
   feedback: { label: 'Feedback', href: '/feedback' },

@@ -13,5 +13,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/home', '/supplies', '/my-requests', '/feedback', '/dashboard', '/users', '/communications', '/audit'],
+  matcher: ['/home', '/operations', '/supplies', '/my-requests', '/feedback', '/dashboard', '/users', '/communications', '/audit'],
 }

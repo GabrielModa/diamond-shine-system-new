@@ -7,6 +7,7 @@ import { dbStatusToLabel } from '../../../lib/mappers'
 
 const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   home: { title: 'Home', desc: 'Back to the main overview.', href: '/home' },
+  operations: { title: 'Operations Core', desc: 'Manage clients, sites, access, areas and service plans.', href: '/operations' },
   supplies: {
     title: 'Supplies Requests',
     desc: 'Request cleaning products for client locations.',
@@ -141,6 +142,7 @@ export default async function HomePage() {
             <a key={page} className="link-card" href={cardMeta[page].href}>
               <div className="card-icon">
                 {page === 'supplies' && '📦'}
+                {page === 'operations' && '🏢'}
                 {page === 'my-requests' && '🧾'}
                 {page === 'feedback' && '⭐'}
                 {page === 'dashboard' && '📊'}
