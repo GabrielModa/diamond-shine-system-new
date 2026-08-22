@@ -9,3 +9,4 @@ playwright-report/
 tsconfig.tsbuildinfo
 prisma/dev.db
 prisma/test.db
+.data/

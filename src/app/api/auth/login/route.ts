@@ -9,7 +9,7 @@ const DUMMY_PASSWORD_HASH = '$2a$12$C6UzMDM.H6dfI/f/IKcEe.yrJB7TiT.1rVZETPp1Yj3F
 
 export async function POST(request: NextRequest) {
   console.log('[API /api/auth/login POST]')
-  const body = (await request.json().catch(() => null)) as { email?: string; password?: string } | null
+  const body = (await request.json().catch(() => null)) as { email?: string; password?: string; mobile?: boolean } | null
   if (!body?.email || !body?.password) {
     return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
   }
@@ -46,13 +46,20 @@ export async function POST(request: NextRequest) {
   await clearRateLimit(limitKey)
 
   const role = membershipRoleToLegacyUserRole(membership.role)
+  const accessToken = await createSessionToken(user.email, role, membership.organizationId)
   const response = NextResponse.json({
     ok: true,
-    data: { email: user.email, role, organizationId: membership.organizationId },
+    data: {
+      email: user.email,
+      name: user.name,
+      role,
+      organizationId: membership.organizationId,
+      ...(body.mobile ? { accessToken, expiresIn: sessionCookie.maxAge } : {}),
+    },
   })
   response.cookies.set(
     sessionCookie.name,
-    await createSessionToken(user.email, role, membership.organizationId),
+    accessToken,
     {
     httpOnly: true,
     sameSite: 'lax',

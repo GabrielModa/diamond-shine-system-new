@@ -11,6 +11,7 @@ let nextApp: ReturnType<typeof next>
 let adminCookie: string
 let supervisorCookie: string
 let employeeCookie: string
+let employeeToken: string
 
 beforeAll(async () => {
   nextApp = next({ dev: true, dir: process.cwd() })
@@ -22,6 +23,8 @@ beforeAll(async () => {
   adminCookie = await getAuthCookie('admin@ds.ie')
   supervisorCookie = await getAuthCookie('super@ds.ie')
   employeeCookie = await getAuthCookie('employee@ds.ie')
+  const mobileLogin = await request(app).post('/api/auth/login').send({ email: 'employee@ds.ie', password: 'password123', mobile: true })
+  employeeToken = mobileLogin.body.data.accessToken
 })
 beforeEach(() => cleanOperations())
 afterAll(async () => { await cleanOperations(); await nextApp.close() })
@@ -391,5 +394,30 @@ describe('field execution', () => {
     expect(tracking.status).toBe(200)
     expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 1, seen: 1, acknowledged: 1 }))
     expect(tracking.body.data.items[0].recipients[0].acknowledgement).toBe('Seen and confirmed.')
+  })
+
+  it('supports secure bearer authentication for the native field app', async () => {
+    expect(employeeToken).toBeTruthy()
+    const response = await request(app)
+      .get('/api/operational-notices?scope=mine')
+      .set('Authorization', `Bearer ${employeeToken}`)
+    expect(response.status).toBe(200)
+    expect(response.body.ok).toBe(true)
+  })
+
+  it('accepts authenticated field photo evidence and links it to the checklist item', async () => {
+    const { visit } = await executionVisit({ evidence: true })
+    await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const task = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
+    const uploaded = await request(app)
+      .post(`/api/visits/${visit.id}/evidence-upload`)
+      .set('Cookie', employeeCookie)
+      .field('taskResultId', task.id)
+      .field('visibility', 'client_safe')
+      .field('phase', 'task')
+      .attach('file', Buffer.from('fake-jpeg-content'), { filename: 'proof.jpg', contentType: 'image/jpeg' })
+    expect(uploaded.status).toBe(201)
+    expect(uploaded.body.data).toEqual(expect.objectContaining({ visitId: visit.id, taskResultId: task.id, kind: 'photo', visibility: 'client_safe' }))
+    expect(await prisma.evidenceAsset.count({ where: { visitId: visit.id, taskResultId: task.id } })).toBe(1)
   })
 })

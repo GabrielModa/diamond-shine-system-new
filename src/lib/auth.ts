@@ -22,7 +22,9 @@ export interface AuthUser {
 }
 
 export async function getAuthUser(request: NextRequest): Promise<AuthUser | null> {
-  const session = await verifySessionToken(request.cookies.get(sessionCookie.name)?.value)
+  const authorization = request.headers.get('authorization')
+  const bearerToken = authorization?.startsWith('Bearer ') ? authorization.slice(7).trim() : undefined
+  const session = await verifySessionToken(bearerToken || request.cookies.get(sessionCookie.name)?.value)
   if (!session) return null
   const user = await prisma.user.findUnique({
     where: { email: session.email },
