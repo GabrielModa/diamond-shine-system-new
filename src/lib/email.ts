@@ -1,6 +1,7 @@
 import nodemailer from 'nodemailer'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL, SMTP_FROM } from './constants'
 import { prisma } from './prisma'
+import { LEGACY_ORGANIZATION_ID } from './tenancy'
 import { getSmtpConfig } from './runtime-config'
 
 export interface SupplyEmailData {
@@ -191,7 +192,11 @@ function buildFeedbackEmailHtml(data: FeedbackEmailData): string {
 
 async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback: string): Promise<string[]> {
   try {
-    const record = await prisma.notificationSetting.findUnique({ where: { key } })
+    const record = await prisma.notificationSetting.findUnique({
+      where: {
+        organizationId_key: { organizationId: LEGACY_ORGANIZATION_ID, key },
+      },
+    })
     const value = record?.recipients?.trim() || fallback
     return value
       .split(',')
@@ -271,7 +276,11 @@ function renderTemplate(template: { subject: string; body: string }, data: Recor
 
 async function getTemplate(key: string) {
   try {
-    const template = await prisma.emailTemplate.findUnique({ where: { key } })
+    const template = await prisma.emailTemplate.findUnique({
+      where: {
+        organizationId_key: { organizationId: LEGACY_ORGANIZATION_ID, key },
+      },
+    })
     if (!template) return null
     return { subject: template.subject, body: template.body }
   } catch {

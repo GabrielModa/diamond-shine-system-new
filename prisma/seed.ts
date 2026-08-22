@@ -3,6 +3,11 @@ import bcrypt from 'bcryptjs'
 import { calculateSupplyDueAt, getCategoryLabel } from '../src/lib/business-logic'
 import { labelToDbCategory } from '../src/lib/mappers'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL } from '../src/lib/constants'
+import {
+  LEGACY_ORGANIZATION_ID,
+  LEGACY_ORGANIZATION_SLUG,
+  legacyRoleToMembershipRole,
+} from '../src/lib/tenancy'
 
 const prisma = new PrismaClient()
 
@@ -89,10 +94,25 @@ function sampleProducts(): string[] {
 
 async function seedUsers(hash: string) {
   for (const user of USERS) {
-    await prisma.user.upsert({
+    const savedUser = await prisma.user.upsert({
       where: { email: user.email },
       update: { password: hash, role: user.role, name: user.name, status: user.status },
       create: { email: user.email, password: hash, role: user.role, name: user.name, status: user.status },
+    })
+    await prisma.membership.upsert({
+      where: {
+        organizationId_userId: {
+          organizationId: LEGACY_ORGANIZATION_ID,
+          userId: savedUser.id,
+        },
+      },
+      update: { role: legacyRoleToMembershipRole(user.role), status: 'active' },
+      create: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: savedUser.id,
+        role: legacyRoleToMembershipRole(user.role),
+        status: 'active',
+      },
     })
   }
 }
@@ -213,19 +233,47 @@ async function seedFeedback() {
 
 async function main() {
   const hash = await bcrypt.hash(TEST_PASSWORD, 12)
+  await prisma.organization.upsert({
+    where: { id: LEGACY_ORGANIZATION_ID },
+    update: { name: 'Diamond Shine', slug: LEGACY_ORGANIZATION_SLUG, timezone: 'Europe/Dublin' },
+    create: {
+      id: LEGACY_ORGANIZATION_ID,
+      name: 'Diamond Shine',
+      slug: LEGACY_ORGANIZATION_SLUG,
+      timezone: 'Europe/Dublin',
+    },
+  })
   await seedUsers(hash)
   await seedSupplies()
   await seedFeedback()
 
   await prisma.notificationSetting.upsert({
-    where: { key: 'supply_alerts' },
+    where: {
+      organizationId_key: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        key: 'supply_alerts',
+      },
+    },
     update: { recipients: ADMIN_EMAIL },
-    create: { key: 'supply_alerts', recipients: ADMIN_EMAIL },
+    create: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      key: 'supply_alerts',
+      recipients: ADMIN_EMAIL,
+    },
   })
   await prisma.notificationSetting.upsert({
-    where: { key: 'feedback_alerts' },
+    where: {
+      organizationId_key: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        key: 'feedback_alerts',
+      },
+    },
     update: { recipients: FEEDBACK_EMAIL },
-    create: { key: 'feedback_alerts', recipients: FEEDBACK_EMAIL },
+    create: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      key: 'feedback_alerts',
+      recipients: FEEDBACK_EMAIL,
+    },
   })
 
   console.log('✅ Seed completed')

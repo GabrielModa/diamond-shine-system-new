@@ -18,7 +18,9 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const items = await prisma.notificationSetting.findMany()
+  const items = await prisma.notificationSetting.findMany({
+    where: { organizationId: auth.user.organizationId },
+  })
   const map = new Map(items.map((item) => [item.key, item.recipients]))
 
   return NextResponse.json({
@@ -41,14 +43,32 @@ export async function PUT(request: NextRequest) {
 
   await prisma.$transaction([
     prisma.notificationSetting.upsert({
-      where: { key: 'supply_alerts' },
+      where: {
+        organizationId_key: {
+          organizationId: auth.user.organizationId,
+          key: 'supply_alerts',
+        },
+      },
       update: { recipients: parsed.data.supplyAlerts },
-      create: { key: 'supply_alerts', recipients: parsed.data.supplyAlerts },
+      create: {
+        organizationId: auth.user.organizationId,
+        key: 'supply_alerts',
+        recipients: parsed.data.supplyAlerts,
+      },
     }),
     prisma.notificationSetting.upsert({
-      where: { key: 'feedback_alerts' },
+      where: {
+        organizationId_key: {
+          organizationId: auth.user.organizationId,
+          key: 'feedback_alerts',
+        },
+      },
       update: { recipients: parsed.data.feedbackAlerts },
-      create: { key: 'feedback_alerts', recipients: parsed.data.feedbackAlerts },
+      create: {
+        organizationId: auth.user.organizationId,
+        key: 'feedback_alerts',
+        recipients: parsed.data.feedbackAlerts,
+      },
     }),
   ])
   await logAudit(auth.user.email, 'update_notification_recipients', 'settings')

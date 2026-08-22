@@ -1,6 +1,11 @@
 import { prisma } from '../../src/lib/prisma'
 import bcrypt from 'bcryptjs'
 import { createSessionToken } from '../../src/lib/session'
+import {
+  LEGACY_ORGANIZATION_ID,
+  LEGACY_ORGANIZATION_SLUG,
+  legacyRoleToMembershipRole,
+} from '../../src/lib/tenancy'
 
 export const TEST_PASSWORD = 'password123'
 
@@ -11,16 +16,39 @@ export async function seedUsers() {
   await prisma.supplyRequest.deleteMany()
   await prisma.feedbackEntry.deleteMany()
   await prisma.auditLog.deleteMany()
+  await prisma.capabilityGrant.deleteMany()
+  await prisma.membership.deleteMany()
   await prisma.user.deleteMany()
-  const hash = await bcrypt.hash(TEST_PASSWORD, 12)
-  await prisma.user.createMany({
-    data: [
-      { email: 'admin@ds.ie',    password: hash, role: 'admin',      name: 'Admin',      status: 'active' },
-      { email: 'super@ds.ie',    password: hash, role: 'supervisor', name: 'Supervisor', status: 'active' },
-      { email: 'employee@ds.ie', password: hash, role: 'employee',   name: 'Employee',   status: 'active' },
-      { email: 'viewer@ds.ie',   password: hash, role: 'viewer',     name: 'Viewer',     status: 'active' },
-    ],
+  await prisma.organization.upsert({
+    where: { id: LEGACY_ORGANIZATION_ID },
+    update: { name: 'Diamond Shine', slug: LEGACY_ORGANIZATION_SLUG, timezone: 'Europe/Dublin' },
+    create: {
+      id: LEGACY_ORGANIZATION_ID,
+      name: 'Diamond Shine',
+      slug: LEGACY_ORGANIZATION_SLUG,
+      timezone: 'Europe/Dublin',
+    },
   })
+  const hash = await bcrypt.hash(TEST_PASSWORD, 12)
+  const users = [
+    { email: 'admin@ds.ie', role: 'admin' as const, name: 'Admin' },
+    { email: 'super@ds.ie', role: 'supervisor' as const, name: 'Supervisor' },
+    { email: 'employee@ds.ie', role: 'employee' as const, name: 'Employee' },
+    { email: 'viewer@ds.ie', role: 'viewer' as const, name: 'Viewer' },
+  ]
+  for (const user of users) {
+    const savedUser = await prisma.user.create({
+      data: { ...user, password: hash, status: 'active' },
+    })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: savedUser.id,
+        role: legacyRoleToMembershipRole(user.role),
+        status: 'active',
+      },
+    })
+  }
 }
 
 export async function getAuthCookie(email: string, password = TEST_PASSWORD): Promise<string> {

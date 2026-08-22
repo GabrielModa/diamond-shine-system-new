@@ -38,16 +38,17 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  await Promise.all(
-    DEFAULT_TEMPLATES.map((template) =>
-      prisma.emailTemplate.upsert({
-        where: { key: template.key },
-        update: {},
-        create: template,
-      })
-    )
-  )
-  const templates = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
+  await prisma.emailTemplate.createMany({
+    data: DEFAULT_TEMPLATES.map((template) => ({
+      ...template,
+      organizationId: auth.user.organizationId,
+    })),
+    skipDuplicates: true,
+  })
+  const templates = await prisma.emailTemplate.findMany({
+    where: { organizationId: auth.user.organizationId },
+    orderBy: { createdAt: 'desc' },
+  })
   return NextResponse.json({ ok: true, data: templates })
 }
 
@@ -62,9 +63,19 @@ export async function PUT(request: NextRequest) {
   }
 
   const updated = await prisma.emailTemplate.upsert({
-    where: { key: parsed.data.key },
+    where: {
+      organizationId_key: {
+        organizationId: auth.user.organizationId,
+        key: parsed.data.key,
+      },
+    },
     update: { subject: parsed.data.subject, body: parsed.data.body },
-    create: { key: parsed.data.key, subject: parsed.data.subject, body: parsed.data.body },
+    create: {
+      organizationId: auth.user.organizationId,
+      key: parsed.data.key,
+      subject: parsed.data.subject,
+      body: parsed.data.body,
+    },
   })
 
   await logAudit(auth.user.email, 'update_template', 'template', updated.id, { key: updated.key })

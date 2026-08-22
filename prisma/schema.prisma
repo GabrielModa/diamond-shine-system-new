@@ -12,8 +12,63 @@ model User {
   receivedFeedback FeedbackEntry[] @relation("FeedbackEmployee")
   auditLogs       AuditLog[]      @relation("AuditActor")
   authTokens      AuthToken[]
+  memberships     Membership[]
 
   @@map("users")
+}
+
+model Organization {
+  id                   String                @id @default(cuid())
+  name                 String
+  slug                 String                @unique
+  timezone             String                @default("Europe/Dublin")
+  status               OrganizationStatus    @default(active)
+  createdAt            DateTime              @default(now())
+  updatedAt            DateTime              @updatedAt
+  memberships          Membership[]
+  capabilityGrants     CapabilityGrant[]
+  supplyRequests       SupplyRequest[]
+  feedbackEntries      FeedbackEntry[]
+  auditLogs            AuditLog[]
+  emailTemplates       EmailTemplate[]
+  notificationSettings NotificationSetting[]
+  notificationJobs     NotificationJob[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id               String           @id @default(cuid())
+  organizationId   String
+  userId           String
+  role             MembershipRole
+  status           MembershipStatus @default(active)
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capabilityGrants CapabilityGrant[]
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, role, status])
+  @@map("memberships")
+}
+
+model CapabilityGrant {
+  id             String       @id @default(cuid())
+  organizationId String
+  membershipId   String
+  capability     String
+  scopeType      ScopeType    @default(organization)
+  scopeId        String       @default("")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership     Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, capability, scopeType, scopeId])
+  @@index([organizationId, capability, scopeType, scopeId])
+  @@map("capability_grants")
 }
 
 model AuthToken {
@@ -52,6 +107,8 @@ model AuditLog {
   metadata   String?
   createdAt  DateTime @default(now())
   actor      User     @relation("AuditActor", fields: [actorEmail], references: [email])
+  organizationId String @default("org_legacy_diamond_shine")
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([actorEmail])
   @@index([createdAt])
@@ -60,22 +117,30 @@ model AuditLog {
 
 model EmailTemplate {
   id        String   @id @default(cuid())
-  key       String   @unique
+  key       String
   subject   String
   body      String
   updatedAt DateTime @updatedAt
   createdAt DateTime @default(now())
+  organizationId String @default("org_legacy_diamond_shine")
+  organization Organization @relation(fields: [organizationId], references: [id])
 
+  @@unique([organizationId, key])
+  @@index([organizationId])
   @@map("email_templates")
 }
 
 model NotificationSetting {
   id         String   @id @default(cuid())
-  key        String   @unique
+  key        String
   recipients String
   updatedAt  DateTime @updatedAt
   createdAt  DateTime @default(now())
+  organizationId String @default("org_legacy_diamond_shine")
+  organization Organization @relation(fields: [organizationId], references: [id])
 
+  @@unique([organizationId, key])
+  @@index([organizationId])
   @@map("notification_settings")
 }
 
@@ -97,10 +162,13 @@ model SupplyRequest {
   user           User           @relation(fields: [submittedBy], references: [email])
   items          SupplyRequestItem[]
   statusEvents   SupplyStatusEvent[]
+  organizationId String @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([status])
   @@index([submittedBy])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("supply_requests")
 }
 
@@ -121,11 +189,14 @@ model FeedbackEntry {
   updatedAt       DateTime         @updatedAt
   user            User             @relation("FeedbackSubmitter", fields: [submittedBy], references: [email])
   employee        User?            @relation("FeedbackEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  organizationId  String @default("org_legacy_diamond_shine")
+  organization    Organization     @relation(fields: [organizationId], references: [id])
 
   @@index([submittedBy])
   @@index([employeeName])
   @@index([employeeId])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("feedback_entries")
 }
 
@@ -158,10 +229,14 @@ model NotificationJob {
   lastError     String?
   createdAt     DateTime @default(now())
   updatedAt     DateTime @updatedAt
+  organizationId String @default("org_legacy_diamond_shine")
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([status, nextAttemptAt])
   @@index([entityType, entityId])
   @@index([createdAt])
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([organizationId, createdAt])
   @@map("notification_jobs")
 }
 
@@ -193,6 +268,38 @@ model SupplyRequestItem {
 enum AuthTokenType {
   invite
   password_reset
+}
+
+enum OrganizationStatus {
+  active
+  suspended
+  archived
+}
+
+enum MembershipRole {
+  organization_admin
+  field_supervisor
+  scheduler
+  employee
+  stock_controller
+  quality_inspector
+  finance
+  viewer
+}
+
+enum MembershipStatus {
+  invited
+  active
+  suspended
+  removed
+}
+
+enum ScopeType {
+  organization
+  region
+  contract
+  site
+  self
 }
 
 
