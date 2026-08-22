@@ -71,6 +71,9 @@ export async function cleanFeedback() {
 }
 
 export async function cleanOperations() {
+  await prisma.visitAssignment.deleteMany()
+  await prisma.visit.deleteMany()
+  await prisma.job.deleteMany()
   await prisma.servicePlanVersionTask.deleteMany()
   await prisma.servicePlanVersion.deleteMany()
   await prisma.taskTemplate.deleteMany()

@@ -94,17 +94,17 @@ describe('checkPageAccess', () => {
 })
 
 describe('getAllowedPages', () => {
-  it('admin gets all 8 pages', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'home', 'my-requests', 'supplies', 'users'])
+  it('admin gets the complete operations suite', () => {
+    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'home', 'my-requests', 'operations', 'schedule', 'supplies', 'users'])
   })
-  it('supervisor gets 4 pages (no dashboard)', () => {
-    expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'my-requests', 'supplies'])
+  it('supervisor gets operations and scheduling without administration', () => {
+    expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'my-requests', 'operations', 'schedule', 'supplies'])
   })
-  it('employee gets 3 pages (home + supplies + tracking)', () => {
-    expect(getAllowedPages('employee').sort()).toEqual(['home', 'my-requests', 'supplies'])
+  it('employee gets their schedule, supplies and tracking', () => {
+    expect(getAllowedPages('employee').sort()).toEqual(['home', 'my-requests', 'schedule', 'supplies'])
   })
-  it('viewer gets only home', () => {
-    expect(getAllowedPages('viewer')).toEqual(['home'])
+  it('viewer gets read-only operational views', () => {
+    expect(getAllowedPages('viewer')).toEqual(['home', 'operations', 'schedule'])
   })
   it('unknown role gets empty array', () => {
     expect(getAllowedPages('unknown' as never)).toEqual([])

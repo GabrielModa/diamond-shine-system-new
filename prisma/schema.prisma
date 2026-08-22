@@ -1,18 +1,19 @@
 model User {
-  id               String          @id @default(cuid())
-  email            String          @unique
+  id               String            @id @default(cuid())
+  email            String            @unique
   password         String?
   name             String?
-  role             UserRole        @default(viewer)
-  status           String          @default("pending")
-  createdAt        DateTime        @default(now())
-  updatedAt        DateTime        @updatedAt
+  role             UserRole          @default(viewer)
+  status           String            @default("pending")
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
   supplyRequests   SupplyRequest[]
-  feedbackEntries  FeedbackEntry[] @relation("FeedbackSubmitter")
-  receivedFeedback FeedbackEntry[] @relation("FeedbackEmployee")
-  auditLogs        AuditLog[]      @relation("AuditActor")
+  feedbackEntries  FeedbackEntry[]   @relation("FeedbackSubmitter")
+  receivedFeedback FeedbackEntry[]   @relation("FeedbackEmployee")
+  auditLogs        AuditLog[]        @relation("AuditActor")
   authTokens       AuthToken[]
   memberships      Membership[]
+  visitAssignments VisitAssignment[]
 
   @@map("users")
 }
@@ -43,6 +44,9 @@ model Organization {
   servicePlanVersions  ServicePlanVersion[]
   taskTemplates        TaskTemplate[]
   versionTasks         ServicePlanVersionTask[]
+  jobs                 Job[]
+  visits               Visit[]
+  visitAssignments     VisitAssignment[]
 
   @@map("organizations")
 }
@@ -140,6 +144,7 @@ model Contract {
   client           Client           @relation(fields: [clientId], references: [id])
   sites            ContractSite[]
   servicePlans     ServicePlan[]
+  jobs             Job[]
 
   @@unique([organizationId, reference])
   @@index([organizationId, clientId, status])
@@ -176,6 +181,8 @@ model Site {
   contracts           ContractSite[]
   areas               Area[]
   servicePlans        ServicePlan[]
+  jobs                Job[]
+  visits              Visit[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
@@ -278,6 +285,7 @@ model ServicePlan {
   evidencePolicy          EvidencePolicy?      @relation(fields: [evidencePolicyId], references: [id])
   tasks                   TaskTemplate[]
   versions                ServicePlanVersion[]
+  jobs                    Job[]
 
   @@index([organizationId, siteId, status])
   @@index([organizationId, contractId])
@@ -324,6 +332,8 @@ model ServicePlanVersion {
   organization            Organization             @relation(fields: [organizationId], references: [id])
   servicePlan             ServicePlan              @relation(fields: [servicePlanId], references: [id])
   tasks                   ServicePlanVersionTask[]
+  jobs                    Job[]
+  visits                  Visit[]
 
   @@unique([servicePlanId, versionNumber])
   @@unique([servicePlanId, contentHash])
@@ -353,6 +363,93 @@ model ServicePlanVersionTask {
 
   @@index([organizationId, versionId, sortOrder])
   @@map("service_plan_version_tasks")
+}
+
+model Job {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  contractId           String?
+  siteId               String
+  servicePlanId        String
+  servicePlanVersionId String
+  name                 String
+  status               JobStatus          @default(draft)
+  recurrence           Json?
+  startDate            DateTime
+  endDate              DateTime?
+  defaultStartMinutes  Int?
+  defaultDurationMin   Int
+  timezone             String             @default("Europe/Dublin")
+  requiredWorkers      Int                @default(1)
+  instructions         String?
+  version              Int                @default(1)
+  archivedAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  contract             Contract?          @relation(fields: [contractId], references: [id])
+  site                 Site               @relation(fields: [siteId], references: [id])
+  servicePlan          ServicePlan        @relation(fields: [servicePlanId], references: [id])
+  servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
+  visits               Visit[]
+
+  @@index([organizationId, status, startDate])
+  @@index([organizationId, siteId, status])
+  @@map("jobs")
+}
+
+model Visit {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  jobId                String
+  siteId               String
+  servicePlanVersionId String
+  scheduledStart       DateTime
+  scheduledEnd         DateTime
+  timezone             String             @default("Europe/Dublin")
+  status               VisitStatus        @default(scheduled)
+  sequenceNumber       Int
+  generationKey        String
+  requiredWorkers      Int                @default(1)
+  dispatchNotes        String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  cancelledAt          DateTime?
+  cancellationReason   String?
+  version              Int                @default(1)
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  job                  Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  site                 Site               @relation(fields: [siteId], references: [id])
+  servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
+  assignments          VisitAssignment[]
+
+  @@unique([jobId, generationKey])
+  @@index([organizationId, scheduledStart, status])
+  @@index([organizationId, siteId, scheduledStart])
+  @@map("visits")
+}
+
+model VisitAssignment {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  userId         String
+  status         AssignmentStatus @default(assigned)
+  assignedAt     DateTime         @default(now())
+  notifiedAt     DateTime?
+  seenAt         DateTime?
+  acknowledgedAt DateTime?
+  declinedAt     DateTime?
+  declineReason  String?
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id])
+
+  @@unique([visitId, userId])
+  @@index([organizationId, userId, status])
+  @@map("visit_assignments")
 }
 
 model AuthToken {
@@ -637,6 +734,35 @@ enum TaskResponseType {
   signature
   evidence
   stock_level
+}
+
+enum JobStatus {
+  draft
+  active
+  paused
+  completed
+  cancelled
+  archived
+}
+
+enum VisitStatus {
+  scheduled
+  dispatched
+  acknowledged
+  in_progress
+  completion_blocked
+  completed
+  cancelled
+  missed
+}
+
+enum AssignmentStatus {
+  assigned
+  notified
+  seen
+  acknowledged
+  declined
+  removed
 }
 
 datasource db {
