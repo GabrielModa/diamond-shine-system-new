@@ -312,4 +312,44 @@ describe('field execution', () => {
     expect(control.status).toBe(200)
     expect(control.body.data.summary).toEqual(expect.objectContaining({ outOfStock: 1, openRequests: 1 }))
   })
+
+  it('turns a failed quality inspection into owned corrective work and verified closure', async () => {
+    const { visit, site } = await executionVisit()
+    const inspection = await request(app).post('/api/quality/inspections').set('Cookie', adminCookie).send({
+      siteId: site.id,
+      visitId: visit.id,
+      type: 'spot_check',
+      summary: 'Post-service quality review',
+      items: [
+        { category: 'Hygiene', title: 'Washrooms meet standard', weight: 4, critical: true, result: 'fail', finding: 'Soap residue on basins' },
+        { category: 'Presentation', title: 'Bins and liners are ready', weight: 1, critical: false, result: 'pass' },
+      ],
+    })
+    expect(inspection.status).toBe(201)
+    expect(inspection.body.data.score).toBe(20)
+    expect(inspection.body.data.passed).toBe(false)
+    expect(inspection.body.data.actions).toHaveLength(1)
+    expect(inspection.body.data.actions[0].severity).toBe('critical')
+
+    let action = inspection.body.data.actions[0]
+    const accepted = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
+      status: 'accepted', version: action.version,
+    })
+    expect(accepted.status).toBe(200)
+    action = accepted.body.data
+    const resolved = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
+      status: 'resolved', version: action.version, resolutionNote: 'Basins recleaned and supervisor photo reviewed.',
+    })
+    expect(resolved.status).toBe(200)
+    action = resolved.body.data
+    const verified = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
+      status: 'verified', version: action.version, resolutionNote: 'Spot check passed after correction.',
+    })
+    expect(verified.status).toBe(200)
+    expect((await prisma.qualityInspection.findUniqueOrThrow({ where: { id: inspection.body.data.id } })).status).toBe('closed')
+
+    const control = await request(app).get('/api/quality/control').set('Cookie', adminCookie)
+    expect(control.status).toBe(200)
+    expect(control.body.data.summary).toEqual(expect.objectContaining({ inspections: 1, openActions: 0, criticalActions: 0 }))
+  })
 })

@@ -2,14 +2,21 @@ import type { Prisma } from '@prisma/client'
 import {
   sendClientNotification,
   sendFeedbackNotification,
+  sendQualityNotification,
   sendSuppliesNotification,
   type ClientEmailData,
   type FeedbackEmailData,
+  type QualityEmailData,
   type SupplyEmailData,
 } from './email'
 import { prisma } from './prisma'
 
-export type NotificationKind = 'supply_alert' | 'feedback_alert' | 'client_supply'
+export type NotificationKind =
+  | 'supply_alert'
+  | 'feedback_alert'
+  | 'client_supply'
+  | 'quality_inspection_failed'
+  | 'corrective_action_updated'
 
 type EnqueueInput = {
   organizationId: string
@@ -28,6 +35,9 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
   if (kind === 'supply_alert') return sendSuppliesNotification(payload as unknown as SupplyEmailData, organizationId)
   if (kind === 'feedback_alert') return sendFeedbackNotification(payload as unknown as FeedbackEmailData, organizationId)
   if (kind === 'client_supply') return sendClientNotification(payload as unknown as ClientEmailData)
+  if (kind === 'quality_inspection_failed' || kind === 'corrective_action_updated') {
+    return sendQualityNotification(payload as unknown as QualityEmailData, organizationId)
+  }
   return { ok: false, error: `Unsupported notification kind: ${kind}` }
 }
 

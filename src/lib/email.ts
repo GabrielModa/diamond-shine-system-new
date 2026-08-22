@@ -43,6 +43,20 @@ export interface InviteEmailData {
   inviteUrl: string
 }
 
+export interface QualityEmailData {
+  inspectionId?: string
+  actionId?: string
+  siteName: string
+  clientName: string
+  score?: number
+  grade?: string
+  correctiveActions?: number
+  title?: string
+  status?: string
+  severity?: string
+  assignedTo?: string
+}
+
 export interface PasswordResetEmailData {
   to: string
   name: string
@@ -282,6 +296,38 @@ function renderTemplate(template: { subject: string; body: string }, data: Recor
     template.body
   )
   return { subject, body }
+}
+
+export async function sendQualityNotification(
+  data: QualityEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transport = getTransport()
+    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL, organizationId)
+    const identifier = data.actionId ?? data.inspectionId ?? 'quality-update'
+    const rows = [
+      ['Client', data.clientName],
+      ['Site', data.siteName],
+      ...(data.score === undefined ? [] : [['Score', `${data.score}/100`]]),
+      ...(data.grade ? [['Grade', data.grade]] : []),
+      ...(data.correctiveActions === undefined ? [] : [['Corrective actions', `${data.correctiveActions}`]]),
+      ...(data.title ? [['Action', data.title]] : []),
+      ...(data.severity ? [['Severity', data.severity]] : []),
+      ...(data.status ? [['Status', data.status]] : []),
+      ...(data.assignedTo ? [['Assigned to', data.assignedTo]] : []),
+    ].map(([label, value]) => `<tr><td style="padding:8px 12px;font-weight:700">${escapeHtml(label)}</td><td style="padding:8px 12px">${escapeHtml(value)}</td></tr>`).join('')
+    await transport.sendMail({
+      from: SMTP_FROM,
+      to: recipients,
+      subject: `QUALITY - ${sanitizeHeader(data.clientName)} / ${sanitizeHeader(data.siteName)}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto"><h1>Diamond Shine quality update</h1><table style="width:100%;border-collapse:collapse">${rows}</table><p>Reference: ${escapeHtml(identifier)}</p></div>`,
+    })
+    return { ok: true }
+  } catch (error) {
+    console.error('[EMAIL] failed quality notification', error)
+    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+  }
 }
 
 async function getTemplate(key: string) {

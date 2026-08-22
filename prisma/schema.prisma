@@ -19,6 +19,10 @@ model User {
   incidents           Incident[]
   offlineMutations    OfflineMutation[]
   materialStockCounts MaterialStockCount[]
+  qualityInspections  QualityInspection[]  @relation("QualityInspector")
+  correctiveAssigned  CorrectiveAction[]   @relation("CorrectiveAssignee")
+  correctiveCreated   CorrectiveAction[]   @relation("CorrectiveCreator")
+  correctiveResolved  CorrectiveAction[]   @relation("CorrectiveResolver")
 
   @@map("users")
 }
@@ -62,6 +66,9 @@ model Organization {
   siteStockLevels      SiteStockLevel[]
   materialStockCounts  MaterialStockCount[]
   materialCountLines   MaterialStockCountLine[]
+  qualityInspections   QualityInspection[]
+  qualityItems         QualityInspectionItem[]
+  correctiveActions    CorrectiveAction[]
 
   @@map("organizations")
 }
@@ -201,6 +208,8 @@ model Site {
   stockLevels         SiteStockLevel[]
   materialStockCounts MaterialStockCount[]
   supplyRequests      SupplyRequest[]
+  qualityInspections  QualityInspection[]
+  correctiveActions   CorrectiveAction[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
@@ -451,6 +460,8 @@ model Visit {
   locationEvents       LocationEvent[]
   materialStockCounts  MaterialStockCount[]
   supplyRequests       SupplyRequest[]
+  qualityInspections   QualityInspection[]
+  correctiveActions    CorrectiveAction[]
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
@@ -743,6 +754,97 @@ model SupplyRequest {
   @@index([organizationId, createdAt])
   @@index([organizationId, siteId, status])
   @@map("supply_requests")
+}
+
+model QualityInspection {
+  id             String                  @id @default(cuid())
+  organizationId String
+  siteId         String
+  visitId        String?
+  inspectorId    String
+  type           QualityInspectionType   @default(routine)
+  status         QualityInspectionStatus @default(submitted)
+  score          Int
+  grade          String
+  passed         Boolean
+  summary        String?
+  clientVisible  Boolean                 @default(false)
+  inspectedAt    DateTime                @default(now())
+  submittedAt    DateTime?
+  closedAt       DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  organization   Organization            @relation(fields: [organizationId], references: [id])
+  site           Site                    @relation(fields: [siteId], references: [id])
+  visit          Visit?                  @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  inspector      User                    @relation("QualityInspector", fields: [inspectorId], references: [id])
+  items          QualityInspectionItem[]
+  actions        CorrectiveAction[]
+
+  @@index([organizationId, inspectedAt])
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, visitId])
+  @@map("quality_inspections")
+}
+
+model QualityInspectionItem {
+  id             String             @id @default(cuid())
+  organizationId String
+  inspectionId   String
+  category       String
+  title          String
+  weight         Int                @default(1)
+  result         QualityCheckResult
+  score          Int
+  critical       Boolean            @default(false)
+  finding        String?
+  requiredAction String?
+  evidence       Json?
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  inspection     QualityInspection  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  corrective     CorrectiveAction?
+
+  @@index([organizationId, inspectionId, result])
+  @@map("quality_inspection_items")
+}
+
+model CorrectiveAction {
+  id               String                   @id @default(cuid())
+  organizationId   String
+  inspectionId     String
+  inspectionItemId String?                  @unique
+  siteId           String
+  visitId          String?
+  title            String
+  description      String?
+  severity         CorrectiveActionSeverity
+  status           CorrectiveActionStatus   @default(open)
+  assignedToId     String?
+  createdById      String
+  resolvedById     String?
+  dueAt            DateTime
+  acceptedAt       DateTime?
+  resolvedAt       DateTime?
+  verifiedAt       DateTime?
+  resolutionNote   String?
+  version          Int                      @default(1)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  organization     Organization             @relation(fields: [organizationId], references: [id])
+  inspection       QualityInspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionItem   QualityInspectionItem?   @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  site             Site                     @relation(fields: [siteId], references: [id])
+  visit            Visit?                   @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  assignedTo       User?                    @relation("CorrectiveAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy        User                     @relation("CorrectiveCreator", fields: [createdById], references: [id])
+  resolvedBy       User?                    @relation("CorrectiveResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, assignedToId, status])
+  @@map("corrective_actions")
 }
 
 model FeedbackEntry {
@@ -1116,6 +1218,41 @@ enum OfflineMutationStatus {
   duplicate
   conflicted
   failed
+}
+
+enum QualityInspectionType {
+  routine
+  spot_check
+  post_incident
+  client_complaint
+  handover
+}
+
+enum QualityInspectionStatus {
+  draft
+  submitted
+  closed
+}
+
+enum QualityCheckResult {
+  pass
+  fail
+  not_applicable
+}
+
+enum CorrectiveActionSeverity {
+  minor
+  major
+  critical
+}
+
+enum CorrectiveActionStatus {
+  open
+  accepted
+  in_progress
+  resolved
+  verified
+  waived
 }
 
 datasource db {
