@@ -14,6 +14,10 @@ model User {
   authTokens       AuthToken[]
   memberships      Membership[]
   visitAssignments VisitAssignment[]
+  timeEntries      TimeEntry[]
+  evidenceAssets   EvidenceAsset[]
+  incidents        Incident[]
+  offlineMutations OfflineMutation[]
 
   @@map("users")
 }
@@ -47,6 +51,12 @@ model Organization {
   jobs                 Job[]
   visits               Visit[]
   visitAssignments     VisitAssignment[]
+  visitTaskResults     VisitTaskResult[]
+  timeEntries          TimeEntry[]
+  evidenceAssets       EvidenceAsset[]
+  incidents            Incident[]
+  locationEvents       LocationEvent[]
+  offlineMutations     OfflineMutation[]
 
   @@map("organizations")
 }
@@ -334,6 +344,7 @@ model ServicePlanVersion {
   tasks                   ServicePlanVersionTask[]
   jobs                    Job[]
   visits                  Visit[]
+  taskResults             VisitTaskResult[]
 
   @@unique([servicePlanId, versionNumber])
   @@unique([servicePlanId, contentHash])
@@ -360,6 +371,7 @@ model ServicePlanVersionTask {
   sortOrder          Int
   organization       Organization       @relation(fields: [organizationId], references: [id])
   version            ServicePlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  taskResults        VisitTaskResult[]
 
   @@index([organizationId, versionId, sortOrder])
   @@map("service_plan_version_tasks")
@@ -424,6 +436,11 @@ model Visit {
   site                 Site               @relation(fields: [siteId], references: [id])
   servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
   assignments          VisitAssignment[]
+  taskResults          VisitTaskResult[]
+  timeEntries          TimeEntry[]
+  evidenceAssets       EvidenceAsset[]
+  incidents            Incident[]
+  locationEvents       LocationEvent[]
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
@@ -450,6 +467,161 @@ model VisitAssignment {
   @@unique([visitId, userId])
   @@index([organizationId, userId, status])
   @@map("visit_assignments")
+}
+
+model VisitTaskResult {
+  id             String                 @id @default(cuid())
+  organizationId String
+  visitId        String
+  versionId      String
+  versionTaskId  String
+  status         TaskExecutionStatus    @default(pending)
+  response       Json?
+  note           String?
+  completedBy    String?
+  completedAt    DateTime?
+  version        Int                    @default(1)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id])
+  visit          Visit                  @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  planVersion    ServicePlanVersion     @relation(fields: [versionId], references: [id])
+  versionTask    ServicePlanVersionTask @relation(fields: [versionTaskId], references: [id])
+  evidence       EvidenceAsset[]
+
+  @@unique([visitId, versionTaskId])
+  @@index([organizationId, visitId, status])
+  @@map("visit_task_results")
+}
+
+model TimeEntry {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  visitId            String?
+  userId             String
+  kind               TimeEntryKind
+  status             TimeEntryStatus @default(running)
+  startedAt          DateTime
+  endedAt            DateTime?
+  durationSeconds    Int?
+  startLatitude      Decimal?        @db.Decimal(10, 7)
+  startLongitude     Decimal?        @db.Decimal(10, 7)
+  startAccuracyM     Int?
+  startDistanceM     Int?
+  startLocationClass LocationClass?
+  endLatitude        Decimal?        @db.Decimal(10, 7)
+  endLongitude       Decimal?        @db.Decimal(10, 7)
+  endAccuracyM       Int?
+  endDistanceM       Int?
+  endLocationClass   LocationClass?
+  source             String          @default("online")
+  clientMutationId   String?
+  reviewReason       String?
+  approvedBy         String?
+  approvedAt         DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  organization       Organization    @relation(fields: [organizationId], references: [id])
+  visit              Visit?          @relation(fields: [visitId], references: [id])
+  user               User            @relation(fields: [userId], references: [id])
+  locationEvents     LocationEvent[]
+
+  @@unique([organizationId, clientMutationId])
+  @@index([organizationId, userId, startedAt])
+  @@index([organizationId, visitId, status])
+  @@map("time_entries")
+}
+
+model LocationEvent {
+  id             String            @id @default(cuid())
+  organizationId String
+  visitId        String?
+  timeEntryId    String?
+  kind           LocationEventKind
+  latitude       Decimal           @db.Decimal(10, 7)
+  longitude      Decimal           @db.Decimal(10, 7)
+  accuracyM      Int?
+  distanceM      Int?
+  classification LocationClass?
+  capturedAt     DateTime
+  source         String            @default("device")
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  visit          Visit?            @relation(fields: [visitId], references: [id])
+  timeEntry      TimeEntry?        @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, visitId, capturedAt])
+  @@map("location_events")
+}
+
+model EvidenceAsset {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  taskResultId   String?
+  uploadedBy     String
+  kind           EvidenceKind
+  storageKey     String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  visibility     String           @default("internal")
+  latitude       Decimal?         @db.Decimal(10, 7)
+  longitude      Decimal?         @db.Decimal(10, 7)
+  capturedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  taskResult     VisitTaskResult? @relation(fields: [taskResultId], references: [id], onDelete: SetNull)
+  uploader       User             @relation(fields: [uploadedBy], references: [id])
+
+  @@index([organizationId, visitId, kind])
+  @@map("evidence_assets")
+}
+
+model Incident {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  reportedBy     String
+  category       IncidentCategory
+  severity       IncidentSeverity @default(medium)
+  title          String
+  description    String
+  status         IncidentStatus   @default(open)
+  resolution     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reporter       User             @relation(fields: [reportedBy], references: [id])
+
+  @@index([organizationId, status, severity, createdAt])
+  @@map("incidents")
+}
+
+model OfflineMutation {
+  id               String                @id @default(cuid())
+  organizationId   String
+  userId           String
+  clientMutationId String
+  deviceId         String
+  mutationType     String
+  entityId         String?
+  payload          Json
+  status           OfflineMutationStatus @default(processed)
+  result           Json?
+  error            String?
+  clientCreatedAt  DateTime
+  processedAt      DateTime              @default(now())
+  organization     Organization          @relation(fields: [organizationId], references: [id])
+  user             User                  @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, clientMutationId])
+  @@index([organizationId, userId, processedAt])
+  @@map("offline_mutations")
 }
 
 model AuthToken {
@@ -763,6 +935,84 @@ enum AssignmentStatus {
   acknowledged
   declined
   removed
+}
+
+enum TaskExecutionStatus {
+  pending
+  done
+  not_applicable
+  problem
+}
+
+enum TimeEntryKind {
+  visit
+  driving
+  office
+  supplies
+  break
+  general
+}
+
+enum TimeEntryStatus {
+  running
+  completed
+  needs_review
+  approved
+  rejected
+}
+
+enum LocationClass {
+  verified
+  near
+  suspicious
+  unavailable
+}
+
+enum LocationEventKind {
+  clock_in
+  clock_out
+  heartbeat
+  manual_correction
+}
+
+enum EvidenceKind {
+  photo
+  signature
+  document
+  note
+}
+
+enum IncidentCategory {
+  access
+  security
+  damage
+  safety
+  equipment
+  client
+  materials
+  other
+}
+
+enum IncidentSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum IncidentStatus {
+  open
+  acknowledged
+  in_progress
+  resolved
+  closed
+}
+
+enum OfflineMutationStatus {
+  processed
+  duplicate
+  conflicted
+  failed
 }
 
 datasource db {

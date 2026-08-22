@@ -71,6 +71,12 @@ export async function cleanFeedback() {
 }
 
 export async function cleanOperations() {
+  await prisma.evidenceAsset.deleteMany()
+  await prisma.incident.deleteMany()
+  await prisma.locationEvent.deleteMany()
+  await prisma.timeEntry.deleteMany()
+  await prisma.visitTaskResult.deleteMany()
+  await prisma.offlineMutation.deleteMany()
   await prisma.visitAssignment.deleteMany()
   await prisma.visit.deleteMany()
   await prisma.job.deleteMany()

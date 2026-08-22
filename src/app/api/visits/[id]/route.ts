@@ -10,7 +10,16 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params
   const visit = await prisma.visit.findFirst({
     where: { id, organizationId: auth.user.organizationId, ...(auth.user.membershipRole === 'employee' ? { assignments: { some: { userId: auth.user.id, status: { not: 'removed' } } } } : {}) },
-    include: { site: { include: { client: true, access: true, areas: true } }, job: true, servicePlanVersion: { include: { tasks: { orderBy: { sortOrder: 'asc' } } } }, assignments: { include: { user: { select: { id: true, name: true, email: true } } } } },
+    include: {
+      site: { include: { client: true, access: true, areas: true } },
+      job: true,
+      servicePlanVersion: { include: { tasks: { orderBy: { sortOrder: 'asc' } } } },
+      assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      taskResults: { include: { versionTask: true, evidence: true }, orderBy: { versionTask: { sortOrder: 'asc' } } },
+      timeEntries: { include: { user: { select: { id: true, name: true, email: true } } }, orderBy: { startedAt: 'desc' } },
+      evidenceAssets: { orderBy: { createdAt: 'desc' } },
+      incidents: { orderBy: { createdAt: 'desc' } },
+    },
   })
   if (!visit) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   return NextResponse.json({ ok: true, data: visit })
