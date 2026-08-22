@@ -269,4 +269,47 @@ describe('field execution', () => {
     expect(bootstrap.body.data[0].taskResults[0].status).toBe('done')
     expect(bootstrap.body.data[0].timeEntries[0].locationEvents).toHaveLength(2)
   })
+
+  it('turns a site stock count into one actionable replenishment request', async () => {
+    const { visit, site } = await executionVisit()
+    const catalog = await request(app).get('/api/materials/catalog').set('Cookie', employeeCookie)
+    expect(catalog.status).toBe(200)
+    expect(catalog.body.data.length).toBeGreaterThan(2)
+    const [emptyItem, healthyItem] = catalog.body.data
+
+    const counted = await request(app)
+      .post(`/api/sites/${site.id}/stock-counts`)
+      .set('Cookie', employeeCookie)
+      .send({
+        visitId: visit.id,
+        source: 'visit',
+        lines: [
+          { catalogItemId: emptyItem.id, quantity: 0, note: 'Empty dispenser and no reserve stock' },
+          { catalogItemId: healthyItem.id, quantity: 10 },
+        ],
+      })
+    expect(counted.status).toBe(201)
+    expect(counted.body.data.replenishment.priority).toBe('urgent')
+    expect(counted.body.data.replenishment.items[0]).toEqual(expect.objectContaining({
+      catalogItemId: emptyItem.id,
+      currentQuantity: 0,
+      targetQuantity: 10,
+      quantity: 10,
+    }))
+
+    const repeated = await request(app)
+      .post(`/api/sites/${site.id}/stock-counts`)
+      .set('Cookie', employeeCookie)
+      .send({ visitId: visit.id, lines: [{ catalogItemId: emptyItem.id, quantity: 0 }] })
+    expect(repeated.status).toBe(201)
+    expect(repeated.body.data.replenishment).toBeNull()
+    expect(await prisma.supplyRequest.count({ where: { siteId: site.id } })).toBe(1)
+
+    const stock = await request(app).get(`/api/sites/${site.id}/stock`).set('Cookie', employeeCookie)
+    expect(stock.status).toBe(200)
+    expect(stock.body.data.find((item: { id: string }) => item.id === emptyItem.id).state).toBe('out')
+    const control = await request(app).get('/api/materials/control').set('Cookie', adminCookie)
+    expect(control.status).toBe(200)
+    expect(control.body.data.summary).toEqual(expect.objectContaining({ outOfStock: 1, openRequests: 1 }))
+  })
 })

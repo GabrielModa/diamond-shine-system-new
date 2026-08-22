@@ -14,6 +14,10 @@ export async function seedUsers() {
   await prisma.authRateLimit.deleteMany()
   await prisma.authToken.deleteMany()
   await prisma.supplyRequest.deleteMany()
+  await prisma.materialStockCountLine.deleteMany()
+  await prisma.materialStockCount.deleteMany()
+  await prisma.siteStockLevel.deleteMany()
+  await prisma.materialCatalogItem.deleteMany()
   await prisma.feedbackEntry.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.capabilityGrant.deleteMany()
@@ -63,6 +67,10 @@ export async function getAuthCookie(email: string, password = TEST_PASSWORD): Pr
 export async function cleanSupplies() {
   await prisma.notificationJob.deleteMany()
   await prisma.supplyRequest.deleteMany()
+  await prisma.materialStockCountLine.deleteMany()
+  await prisma.materialStockCount.deleteMany()
+  await prisma.siteStockLevel.deleteMany()
+  await prisma.materialCatalogItem.deleteMany()
 }
 
 export async function cleanFeedback() {
@@ -71,6 +79,12 @@ export async function cleanFeedback() {
 }
 
 export async function cleanOperations() {
+  await prisma.notificationJob.deleteMany()
+  await prisma.supplyRequest.deleteMany()
+  await prisma.materialStockCountLine.deleteMany()
+  await prisma.materialStockCount.deleteMany()
+  await prisma.siteStockLevel.deleteMany()
+  await prisma.materialCatalogItem.deleteMany()
   await prisma.evidenceAsset.deleteMany()
   await prisma.incident.deleteMany()
   await prisma.locationEvent.deleteMany()

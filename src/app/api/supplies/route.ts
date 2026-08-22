@@ -1,7 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
-import { CLIENT_LOCATIONS, PRODUCTS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { enqueueNotification } from '../../../lib/notification-queue'
@@ -9,15 +8,19 @@ import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
 import { logAudit } from '../../../lib/audit'
 import { calculateSupplyDueAt } from '../../../lib/business-logic'
+import { assignedVisitFilter } from '../../../modules/execution/access'
 
 const itemSchema = z.object({
-  product: z.string().min(1).refine((value) => PRODUCTS.some((item) => item.value === value), 'Unknown product'),
+  catalogItemId: z.string().min(1).optional(),
+  product: z.string().min(1).optional(),
   quantity: z.number().int().min(1).max(999),
-})
+}).refine((value) => Boolean(value.catalogItemId || value.product), 'Material is required')
 
 const createSchema = z.object({
-  employeeName: z.string().min(1),
-  clientLocation: z.enum(CLIENT_LOCATIONS),
+  employeeName: z.string().min(1).optional(),
+  clientLocation: z.string().min(1).max(200).optional(),
+  siteId: z.string().optional(),
+  visitId: z.string().optional(),
   priority: z.enum(['urgent', 'normal', 'low']),
   items: z.array(itemSchema).min(1).optional(),
   products: z.array(z.string()).min(1).optional(),
@@ -43,16 +46,45 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const items = parsed.data.items ?? parsed.data.products!.map((product) => ({ product, quantity: 1 }))
-  if (new Set(items.map((item) => item.product)).size !== items.length) {
+  const requestedItems: Array<{ catalogItemId?: string; product?: string; quantity: number }> =
+    parsed.data.items ?? parsed.data.products!.map((product) => ({ product, quantity: 1 }))
+  const catalogIds = requestedItems.map((item) => item.catalogItemId).filter((id): id is string => Boolean(id))
+  const catalog = catalogIds.length ? await prisma.materialCatalogItem.findMany({
+    where: { organizationId: auth.user.organizationId, active: true, id: { in: catalogIds } },
+  }) : []
+  if (catalog.length !== new Set(catalogIds).size) {
+    return NextResponse.json({ ok: false, error: 'One or more materials are unavailable' }, { status: 400 })
+  }
+  const catalogById = new Map(catalog.map((item) => [item.id, item]))
+  const items = requestedItems.map((item) => ({
+    catalogItemId: item.catalogItemId,
+    product: item.catalogItemId ? catalogById.get(item.catalogItemId)!.name : item.product!,
+    quantity: item.quantity,
+  }))
+  if (new Set(items.map((item) => item.catalogItemId ?? item.product)).size !== items.length) {
     return NextResponse.json({ ok: false, error: 'Duplicate products are not allowed' }, { status: 400 })
   }
+  let site = parsed.data.siteId ? await prisma.site.findFirst({
+    where: { id: parsed.data.siteId, organizationId: auth.user.organizationId, archivedAt: null },
+  }) : null
+  if (parsed.data.siteId && !site) return NextResponse.json({ ok: false, error: 'Site not found' }, { status: 404 })
+  if (parsed.data.visitId) {
+    const visit = await prisma.visit.findFirst({
+      where: { id: parsed.data.visitId, organizationId: auth.user.organizationId, ...assignedVisitFilter(auth.user) },
+      include: { site: true },
+    })
+    if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found' }, { status: 404 })
+    if (site && site.id !== visit.siteId) return NextResponse.json({ ok: false, error: 'Visit does not belong to this site' }, { status: 400 })
+    site = visit.site
+  }
+  const clientLocation = site?.name ?? parsed.data.clientLocation
+  if (!clientLocation) return NextResponse.json({ ok: false, error: 'A site or client location is required' }, { status: 400 })
 
   const created = await prisma.supplyRequest.create({
     data: {
       organizationId: auth.user.organizationId,
-      employeeName: parsed.data.employeeName,
-      clientLocation: parsed.data.clientLocation,
+      employeeName: parsed.data.employeeName ?? auth.user.name ?? auth.user.email,
+      clientLocation,
       priority: parsed.data.priority,
       products: JSON.stringify(items.map((item) => item.product)),
       items: { create: items },
@@ -63,6 +95,9 @@ export async function POST(request: NextRequest) {
       submittedBy: auth.user.email,
       status: 'Requested',
       dueAt: calculateSupplyDueAt(parsed.data.priority),
+      siteId: site?.id,
+      visitId: parsed.data.visitId,
+      source: parsed.data.visitId ? 'visit' : 'manual',
     },
   })
 

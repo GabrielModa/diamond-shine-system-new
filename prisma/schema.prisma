@@ -1,23 +1,24 @@
 model User {
-  id               String            @id @default(cuid())
-  email            String            @unique
-  password         String?
-  name             String?
-  role             UserRole          @default(viewer)
-  status           String            @default("pending")
-  createdAt        DateTime          @default(now())
-  updatedAt        DateTime          @updatedAt
-  supplyRequests   SupplyRequest[]
-  feedbackEntries  FeedbackEntry[]   @relation("FeedbackSubmitter")
-  receivedFeedback FeedbackEntry[]   @relation("FeedbackEmployee")
-  auditLogs        AuditLog[]        @relation("AuditActor")
-  authTokens       AuthToken[]
-  memberships      Membership[]
-  visitAssignments VisitAssignment[]
-  timeEntries      TimeEntry[]
-  evidenceAssets   EvidenceAsset[]
-  incidents        Incident[]
-  offlineMutations OfflineMutation[]
+  id                  String               @id @default(cuid())
+  email               String               @unique
+  password            String?
+  name                String?
+  role                UserRole             @default(viewer)
+  status              String               @default("pending")
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  supplyRequests      SupplyRequest[]
+  feedbackEntries     FeedbackEntry[]      @relation("FeedbackSubmitter")
+  receivedFeedback    FeedbackEntry[]      @relation("FeedbackEmployee")
+  auditLogs           AuditLog[]           @relation("AuditActor")
+  authTokens          AuthToken[]
+  memberships         Membership[]
+  visitAssignments    VisitAssignment[]
+  timeEntries         TimeEntry[]
+  evidenceAssets      EvidenceAsset[]
+  incidents           Incident[]
+  offlineMutations    OfflineMutation[]
+  materialStockCounts MaterialStockCount[]
 
   @@map("users")
 }
@@ -57,6 +58,10 @@ model Organization {
   incidents            Incident[]
   locationEvents       LocationEvent[]
   offlineMutations     OfflineMutation[]
+  materialCatalogItems MaterialCatalogItem[]
+  siteStockLevels      SiteStockLevel[]
+  materialStockCounts  MaterialStockCount[]
+  materialCountLines   MaterialStockCountLine[]
 
   @@map("organizations")
 }
@@ -162,37 +167,40 @@ model Contract {
 }
 
 model Site {
-  id                  String           @id @default(cuid())
+  id                  String               @id @default(cuid())
   organizationId      String
   clientId            String
   name                String
-  status              CommercialStatus @default(active)
+  status              CommercialStatus     @default(active)
   addressLine1        String
   addressLine2        String?
   city                String
   region              String?
   postalCode          String
-  countryCode         String           @default("IE")
-  timezone            String           @default("Europe/Dublin")
-  latitude            Decimal?         @db.Decimal(10, 7)
-  longitude           Decimal?         @db.Decimal(10, 7)
+  countryCode         String               @default("IE")
+  timezone            String               @default("Europe/Dublin")
+  latitude            Decimal?             @db.Decimal(10, 7)
+  longitude           Decimal?             @db.Decimal(10, 7)
   coordinateAccuracyM Int?
-  coordinateSource    CoordinateSource @default(manual)
-  geofenceVerifiedM   Int              @default(150)
-  geofenceNearM       Int              @default(250)
-  geofenceSuspiciousM Int              @default(700)
-  version             Int              @default(1)
+  coordinateSource    CoordinateSource     @default(manual)
+  geofenceVerifiedM   Int                  @default(150)
+  geofenceNearM       Int                  @default(250)
+  geofenceSuspiciousM Int                  @default(700)
+  version             Int                  @default(1)
   archivedAt          DateTime?
-  createdAt           DateTime         @default(now())
-  updatedAt           DateTime         @updatedAt
-  organization        Organization     @relation(fields: [organizationId], references: [id])
-  client              Client           @relation(fields: [clientId], references: [id])
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  organization        Organization         @relation(fields: [organizationId], references: [id])
+  client              Client               @relation(fields: [clientId], references: [id])
   access              SiteAccess?
   contracts           ContractSite[]
   areas               Area[]
   servicePlans        ServicePlan[]
   jobs                Job[]
   visits              Visit[]
+  stockLevels         SiteStockLevel[]
+  materialStockCounts MaterialStockCount[]
+  supplyRequests      SupplyRequest[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
@@ -411,36 +419,38 @@ model Job {
 }
 
 model Visit {
-  id                   String             @id @default(cuid())
+  id                   String               @id @default(cuid())
   organizationId       String
   jobId                String
   siteId               String
   servicePlanVersionId String
   scheduledStart       DateTime
   scheduledEnd         DateTime
-  timezone             String             @default("Europe/Dublin")
-  status               VisitStatus        @default(scheduled)
+  timezone             String               @default("Europe/Dublin")
+  status               VisitStatus          @default(scheduled)
   sequenceNumber       Int
   generationKey        String
-  requiredWorkers      Int                @default(1)
+  requiredWorkers      Int                  @default(1)
   dispatchNotes        String?
   startedAt            DateTime?
   completedAt          DateTime?
   cancelledAt          DateTime?
   cancellationReason   String?
-  version              Int                @default(1)
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  organization         Organization       @relation(fields: [organizationId], references: [id])
-  job                  Job                @relation(fields: [jobId], references: [id], onDelete: Cascade)
-  site                 Site               @relation(fields: [siteId], references: [id])
-  servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
+  version              Int                  @default(1)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  organization         Organization         @relation(fields: [organizationId], references: [id])
+  job                  Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  site                 Site                 @relation(fields: [siteId], references: [id])
+  servicePlanVersion   ServicePlanVersion   @relation(fields: [servicePlanVersionId], references: [id])
   assignments          VisitAssignment[]
   taskResults          VisitTaskResult[]
   timeEntries          TimeEntry[]
   evidenceAssets       EvidenceAsset[]
   incidents            Incident[]
   locationEvents       LocationEvent[]
+  materialStockCounts  MaterialStockCount[]
+  supplyRequests       SupplyRequest[]
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
@@ -714,6 +724,9 @@ model SupplyRequest {
   completedAt    DateTime?
   dueAt          DateTime?
   assignedTo     String?
+  siteId         String?
+  visitId        String?
+  source         String              @default("manual")
   createdAt      DateTime            @default(now())
   updatedAt      DateTime            @updatedAt
   user           User                @relation(fields: [submittedBy], references: [email])
@@ -721,11 +734,14 @@ model SupplyRequest {
   statusEvents   SupplyStatusEvent[]
   organizationId String              @default("org_legacy_diamond_shine")
   organization   Organization        @relation(fields: [organizationId], references: [id])
+  site           Site?               @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  visit          Visit?              @relation(fields: [visitId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([submittedBy])
   @@index([createdAt])
   @@index([organizationId, createdAt])
+  @@index([organizationId, siteId, status])
   @@map("supply_requests")
 }
 
@@ -812,14 +828,101 @@ model SupplyStatusEvent {
 }
 
 model SupplyRequestItem {
-  id        String        @id @default(cuid())
-  requestId String
-  product   String
-  quantity  Int
-  request   SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id              String               @id @default(cuid())
+  requestId       String
+  catalogItemId   String?
+  product         String
+  quantity        Int
+  currentQuantity Int?
+  targetQuantity  Int?
+  request         SupplyRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  catalogItem     MaterialCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
 
   @@index([requestId])
+  @@index([catalogItemId])
   @@map("supply_request_items")
+}
+
+model MaterialCatalogItem {
+  id                  String                   @id @default(cuid())
+  organizationId      String
+  sku                 String
+  name                String
+  category            String
+  unit                String                   @default("unit")
+  active              Boolean                  @default(true)
+  defaultParLevel     Int                      @default(10)
+  defaultReorderPoint Int                      @default(3)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  organization        Organization             @relation(fields: [organizationId], references: [id])
+  stockLevels         SiteStockLevel[]
+  countLines          MaterialStockCountLine[]
+  requestItems        SupplyRequestItem[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, active, category, name])
+  @@map("material_catalog_items")
+}
+
+model SiteStockLevel {
+  id                String              @id @default(cuid())
+  organizationId    String
+  siteId            String
+  catalogItemId     String
+  onHand            Int                 @default(0)
+  parLevel          Int
+  reorderPoint      Int
+  estimatedDailyUse Decimal?            @db.Decimal(10, 2)
+  lastCountedAt     DateTime?
+  lastCountedBy     String?
+  version           Int                 @default(1)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  organization      Organization        @relation(fields: [organizationId], references: [id])
+  site              Site                @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  catalogItem       MaterialCatalogItem @relation(fields: [catalogItemId], references: [id])
+
+  @@unique([siteId, catalogItemId])
+  @@index([organizationId, siteId, onHand])
+  @@map("site_stock_levels")
+}
+
+model MaterialStockCount {
+  id             String                   @id @default(cuid())
+  organizationId String
+  siteId         String
+  visitId        String?
+  countedBy      String
+  source         String                   @default("visit")
+  note           String?
+  createdAt      DateTime                 @default(now())
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+  site           Site                     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  visit          Visit?                   @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  counter        User                     @relation(fields: [countedBy], references: [id])
+  lines          MaterialStockCountLine[]
+
+  @@index([organizationId, siteId, createdAt])
+  @@index([organizationId, visitId])
+  @@map("material_stock_counts")
+}
+
+model MaterialStockCountLine {
+  id               String              @id @default(cuid())
+  organizationId   String
+  stockCountId     String
+  catalogItemId    String
+  previousQuantity Int?
+  quantity         Int
+  note             String?
+  organization     Organization        @relation(fields: [organizationId], references: [id])
+  stockCount       MaterialStockCount  @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  catalogItem      MaterialCatalogItem @relation(fields: [catalogItemId], references: [id])
+
+  @@unique([stockCountId, catalogItemId])
+  @@index([organizationId, catalogItemId])
+  @@map("material_stock_count_lines")
 }
 
 enum AuthTokenType {
