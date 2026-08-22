@@ -11,6 +11,7 @@ const pageMeta: Record<string, { label: string; href: string }> = {
   home: { label: 'Home', href: '/home' },
   operations: { label: 'Operations', href: '/operations' },
   schedule: { label: 'Schedule', href: '/schedule' },
+  'field-control': { label: 'Field control', href: '/field-control' },
   supplies: { label: 'Supplies', href: '/supplies' },
   'my-requests': { label: 'My requests', href: '/my-requests' },
   feedback: { label: 'Feedback', href: '/feedback' },

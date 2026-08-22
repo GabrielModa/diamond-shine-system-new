@@ -30,6 +30,10 @@ export const stopTimeEntrySchema = z.object({
   deviceId: z.string().trim().min(1).max(160).optional(),
 }).superRefine(validateCoordinatePair)
 
+export const heartbeatSchema = z.object({
+  ...locationFields,
+}).superRefine(validateCoordinatePair)
+
 export const completeVisitSchema = z.object({
   ...locationFields,
   completedAt: z.coerce.date().optional(),
@@ -69,3 +73,20 @@ export const incidentCreateSchema = z.object({
   description: z.string().trim().min(1).max(6000),
 })
 
+export const timeEntryReviewSchema = z.object({
+  decision: z.enum(['approved', 'rejected']),
+  note: z.string().trim().max(2000).optional().nullable(),
+}).superRefine((value, context) => {
+  if (value.decision === 'rejected' && !value.note) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['note'], message: 'A rejection reason is required.' })
+  }
+})
+
+export const incidentUpdateSchema = z.object({
+  status: z.enum(['acknowledged', 'in_progress', 'resolved', 'closed']),
+  resolution: z.string().trim().max(6000).optional().nullable(),
+}).superRefine((value, context) => {
+  if ((value.status === 'resolved' || value.status === 'closed') && !value.resolution) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['resolution'], message: 'Resolution details are required.' })
+  }
+})

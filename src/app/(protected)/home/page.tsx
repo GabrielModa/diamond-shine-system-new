@@ -9,6 +9,7 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
   home: { title: 'Home', desc: 'Back to the main overview.', href: '/home' },
   operations: { title: 'Operations Core', desc: 'Manage clients, sites, access, areas and service plans.', href: '/operations' },
   schedule: { title: 'Smart Schedule', desc: 'Dispatch recurring visits, teams and route-ready work.', href: '/schedule' },
+  'field-control': { title: 'Field Control', desc: 'Monitor live work, GPS exceptions, incidents and approvals.', href: '/field-control' },
   supplies: {
     title: 'Supplies Requests',
     desc: 'Request cleaning products for client locations.',
@@ -145,6 +146,7 @@ export default async function HomePage() {
                 {page === 'supplies' && '📦'}
                 {page === 'operations' && '🏢'}
                 {page === 'schedule' && '📅'}
+                {page === 'field-control' && '🛰️'}
                 {page === 'my-requests' && '🧾'}
                 {page === 'feedback' && '⭐'}
                 {page === 'dashboard' && '📊'}

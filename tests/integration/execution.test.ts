@@ -89,6 +89,19 @@ describe('field execution', () => {
     expect(started.body.location.classification).toBe('verified')
     expect(await prisma.visitTaskResult.count({ where: { visitId: first.visit.id } })).toBe(1)
 
+    const heartbeat = await request(app).post(`/api/time-entries/${started.body.data.id}/heartbeat`).set('Cookie', employeeCookie).send({
+      latitude: 53.34981,
+      longitude: -6.26031,
+      accuracyM: 9,
+    })
+    expect(heartbeat.status).toBe(201)
+    const throttledHeartbeat = await request(app).post(`/api/time-entries/${started.body.data.id}/heartbeat`).set('Cookie', employeeCookie).send({
+      latitude: 53.34982,
+      longitude: -6.26032,
+    })
+    expect(throttledHeartbeat.status).toBe(200)
+    expect(throttledHeartbeat.body.ignored).toBe(true)
+
     const duplicate = await request(app).post(`/api/visits/${first.visit.id}/start`).set('Cookie', employeeCookie).send({
       latitude: 53.3498,
       longitude: -6.2603,
@@ -125,6 +138,16 @@ describe('field execution', () => {
     expect(stopped.status).toBe(200)
     expect(stopped.body.data.status).toBe('needs_review')
     expect(stopped.body.data.reviewReason).toContain('GPS_UNAVAILABLE')
+
+    const queue = await request(app).get('/api/time-entries?status=needs_review').set('Cookie', adminCookie)
+    expect(queue.status).toBe(200)
+    expect(queue.body.data).toHaveLength(1)
+    const control = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
+    expect(control.status).toBe(200)
+    expect(control.body.data.summary.needsReview).toBe(1)
+    const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
+    expect(approved.status).toBe(200)
+    expect(approved.body.data.status).toBe('approved')
   })
 
   it('blocks completion until required tasks and evidence are genuinely complete', async () => {
@@ -174,6 +197,12 @@ describe('field execution', () => {
     const blocked = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
     expect(blocked.status).toBe(409)
     expect(blocked.body.blockers).toContainEqual(expect.objectContaining({ code: 'CRITICAL_INCIDENT_OPEN' }))
+    const resolved = await request(app).patch(`/api/incidents/${incident.body.data.id}`).set('Cookie', adminCookie).send({
+      status: 'resolved',
+      resolution: 'Panel reset and armed by the site contact.',
+    })
+    expect(resolved.status).toBe(200)
+    const completed = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
+    expect(completed.status).toBe(200)
   })
 })
-
