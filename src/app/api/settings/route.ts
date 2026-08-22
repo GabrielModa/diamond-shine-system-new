@@ -71,7 +71,14 @@ export async function PUT(request: NextRequest) {
       },
     }),
   ])
-  await logAudit(auth.user.email, 'update_notification_recipients', 'settings')
+  await logAudit(
+    auth.user.email,
+    'update_notification_recipients',
+    'settings',
+    undefined,
+    undefined,
+    auth.user.organizationId
+  )
 
   return NextResponse.json({ ok: true, data: { ok: true } })
 }

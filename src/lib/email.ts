@@ -190,11 +190,15 @@ function buildFeedbackEmailHtml(data: FeedbackEmailData): string {
   </html>`
 }
 
-async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback: string): Promise<string[]> {
+async function getRecipients(
+  key: 'supply_alerts' | 'feedback_alerts',
+  fallback: string,
+  organizationId: string
+): Promise<string[]> {
   try {
     const record = await prisma.notificationSetting.findUnique({
       where: {
-        organizationId_key: { organizationId: LEGACY_ORGANIZATION_ID, key },
+        organizationId_key: { organizationId, key },
       },
     })
     const value = record?.recipients?.trim() || fallback
@@ -207,10 +211,13 @@ async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback:
   }
 }
 
-export async function sendSuppliesNotification(data: SupplyEmailData): Promise<{ ok: boolean }> {
+export async function sendSuppliesNotification(
+  data: SupplyEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
-    const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL)
+    const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL, organizationId)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,
@@ -224,10 +231,13 @@ export async function sendSuppliesNotification(data: SupplyEmailData): Promise<{
   }
 }
 
-export async function sendFeedbackNotification(data: FeedbackEmailData): Promise<{ ok: boolean }> {
+export async function sendFeedbackNotification(
+  data: FeedbackEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
-    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL)
+    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL, organizationId)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,

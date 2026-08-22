@@ -78,7 +78,14 @@ export async function PUT(request: NextRequest) {
     },
   })
 
-  await logAudit(auth.user.email, 'update_template', 'template', updated.id, { key: updated.key })
+  await logAudit(
+    auth.user.email,
+    'update_template',
+    'template',
+    updated.id,
+    { key: updated.key },
+    auth.user.organizationId
+  )
 
   return NextResponse.json({ ok: true, data: updated })
 }

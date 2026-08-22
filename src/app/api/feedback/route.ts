@@ -39,7 +39,17 @@ export async function POST(request: NextRequest) {
   }
 
   const employee = await prisma.user.findFirst({
-    where: { id: parsed.data.employeeId, role: 'employee', status: 'active' },
+    where: {
+      id: parsed.data.employeeId,
+      status: 'active',
+      memberships: {
+        some: {
+          organizationId: auth.user.organizationId,
+          role: 'employee',
+          status: 'active',
+        },
+      },
+    },
     select: { id: true, name: true, email: true },
   })
   if (!employee) {
@@ -56,6 +66,7 @@ export async function POST(request: NextRequest) {
 
   const created = await prisma.feedbackEntry.create({
     data: {
+      organizationId: auth.user.organizationId,
       employeeId: employee.id,
       employeeName: employee.name ?? employee.email,
       clientLocation: parsed.data.clientLocation,
@@ -71,6 +82,7 @@ export async function POST(request: NextRequest) {
   })
 
   const notification = await enqueueNotification({
+    organizationId: auth.user.organizationId,
     kind: 'feedback_alert',
     createdBy: auth.user.email,
     entityType: 'feedback',
@@ -94,7 +106,7 @@ export async function POST(request: NextRequest) {
   await logAudit(auth.user.email, 'create_feedback', 'feedback', created.id, {
     employeeName: created.employeeName,
     notificationJobId: notification.id,
-  })
+  }, auth.user.organizationId)
 
   return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
@@ -104,7 +116,10 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const where = auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : {}
+  const where = {
+    organizationId: auth.user.organizationId,
+    ...(auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : {}),
+  }
   const [total, items] = await Promise.all([
     prisma.feedbackEntry.count({ where }),
     prisma.feedbackEntry.findMany({ where, orderBy: { createdAt: 'desc' } }),

@@ -8,10 +8,21 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if ('response' in auth) return auth.response
   const { id } = await params
   const updated = await prisma.notificationJob.updateMany({
-    where: { id, status: { in: ['failed', 'exhausted'] } },
+    where: {
+      id,
+      organizationId: auth.user.organizationId,
+      status: { in: ['failed', 'exhausted'] },
+    },
     data: { status: 'queued', attempts: 0, nextAttemptAt: new Date(), lastError: null },
   })
   if (!updated.count) return NextResponse.json({ ok: false, error: 'Notification cannot be retried' }, { status: 409 })
-  await logAudit(auth.user.email, 'retry_notification', 'notification', id)
+  await logAudit(
+    auth.user.email,
+    'retry_notification',
+    'notification',
+    id,
+    undefined,
+    auth.user.organizationId
+  )
   return NextResponse.json({ ok: true, data: { id, status: 'queued' } })
 }

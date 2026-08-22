@@ -22,7 +22,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id } })
+  const row = await prisma.supplyRequest.findFirst({
+    where: { id, organizationId: auth.user.organizationId },
+  })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -32,6 +34,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const job = await enqueueNotification({
+    organizationId: auth.user.organizationId,
     kind: 'client_supply',
     createdBy: auth.user.email,
     entityType: 'supply',
@@ -41,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   await logAudit(auth.user.email, 'send_supply_email', 'supply', id, {
     clientEmail: parsed.data.clientEmail,
-  })
+  }, auth.user.organizationId)
 
   return NextResponse.json({ ok: true, data: { id, queued: true, notificationJobId: job.id } }, { status: 202 })
 }

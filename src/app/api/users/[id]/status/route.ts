@@ -19,29 +19,47 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const user = await prisma.user.findUnique({ where: { id } })
-  if (!user) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const membership = await prisma.membership.findFirst({
+    where: { userId: id, organizationId: auth.user.organizationId, status: { not: 'removed' } },
+    include: { user: true },
+  })
+  if (!membership) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const user = membership.user
 
   if (user.email === auth.user.email && parsed.data.status !== 'active') {
     return NextResponse.json({ ok: false, error: 'You cannot deactivate your own account.' }, { status: 409 })
   }
 
-  if (user.role === 'admin' && user.status === 'active' && parsed.data.status !== 'active') {
-    const activeAdmins = await prisma.user.count({ where: { role: 'admin', status: 'active' } })
+  if (membership.role === 'organization_admin' && membership.status === 'active' && parsed.data.status !== 'active') {
+    const activeAdmins = await prisma.membership.count({
+      where: {
+        organizationId: auth.user.organizationId,
+        role: 'organization_admin',
+        status: 'active',
+      },
+    })
     if (activeAdmins <= 1) {
       return NextResponse.json({ ok: false, error: 'At least one active administrator is required.' }, { status: 409 })
     }
   }
 
-  const updated = await prisma.user.update({
-    where: { id },
-    data: { status: parsed.data.status },
+  const membershipStatus = parsed.data.status === 'pending'
+    ? 'invited'
+    : parsed.data.status === 'active'
+      ? 'active'
+      : 'suspended'
+  const updated = await prisma.membership.update({
+    where: { id: membership.id },
+    data: { status: membershipStatus },
   })
+  if (parsed.data.status === 'active' && user.status !== 'active') {
+    await prisma.user.update({ where: { id: user.id }, data: { status: 'active' } })
+  }
 
-  await logAudit(auth.user.email, 'update_user_status', 'user', updated.id, {
-    email: updated.email,
+  await logAudit(auth.user.email, 'update_user_status', 'user', user.id, {
+    email: user.email,
     status: updated.status,
-  })
+  }, auth.user.organizationId)
 
-  return NextResponse.json({ ok: true, data: { id: updated.id, status: updated.status } })
+  return NextResponse.json({ ok: true, data: { id: user.id, status: parsed.data.status } })
 }

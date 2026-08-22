@@ -10,8 +10,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const row = await prisma.supplyRequest.findUnique({
-    where: { id },
+  const row = await prisma.supplyRequest.findFirst({
+    where: { id, organizationId: auth.user.organizationId },
     include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
   })
   if (!row) {

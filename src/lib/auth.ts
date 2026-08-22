@@ -4,7 +4,7 @@ import type { UserRole } from '../types'
 import { sessionCookie, verifySessionToken } from './session'
 import type { Capability, PermissionScope } from './permissions'
 import { hasCapability } from './permissions'
-import { LEGACY_ORGANIZATION_ID } from './tenancy'
+import { membershipRoleToLegacyUserRole } from './tenancy'
 
 export interface AuthUser {
   id: string
@@ -28,7 +28,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
     where: { email: session.email },
     include: {
       memberships: {
-        where: { organizationId: LEGACY_ORGANIZATION_ID, status: 'active' },
+        where: { organizationId: session.organizationId, status: 'active' },
         include: { capabilityGrants: true },
         take: 1,
       },
@@ -40,7 +40,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
   return {
     id: user.id,
     email: user.email,
-    role: user.role as UserRole,
+    role: membershipRoleToLegacyUserRole(membership.role),
     name: user.name,
     organizationId: membership.organizationId,
     membershipId: membership.id,

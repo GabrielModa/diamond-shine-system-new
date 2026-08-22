@@ -20,10 +20,21 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(genericResponse, { headers: { 'Retry-After': String(rateLimit.retryAfter) } })
   }
 
-  const user = await prisma.user.findUnique({ where: { email } })
+  const user = await prisma.user.findUnique({
+    where: { email },
+    include: {
+      memberships: {
+        where: { status: 'active', organization: { status: 'active' } },
+        orderBy: { createdAt: 'asc' },
+        take: 1,
+      },
+    },
+  })
   if (!user || user.status === 'inactive') return NextResponse.json(genericResponse)
 
-  const { token } = await issueAuthToken(user.id, 'password_reset')
+  const membership = user.memberships[0]
+  if (!membership) return NextResponse.json(genericResponse)
+  const { token } = await issueAuthToken(user.id, 'password_reset', membership.organizationId)
   const baseUrl = getApplicationUrl()
   const resetUrl = `${baseUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`
   await sendPasswordReset({ to: user.email, name: user.name ?? user.email, resetUrl })

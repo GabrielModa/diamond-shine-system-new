@@ -50,6 +50,7 @@ export async function POST(request: NextRequest) {
 
   const created = await prisma.supplyRequest.create({
     data: {
+      organizationId: auth.user.organizationId,
       employeeName: parsed.data.employeeName,
       clientLocation: parsed.data.clientLocation,
       priority: parsed.data.priority,
@@ -66,6 +67,7 @@ export async function POST(request: NextRequest) {
   })
 
   const notification = await enqueueNotification({
+    organizationId: auth.user.organizationId,
     kind: 'supply_alert',
     createdBy: auth.user.email,
     entityType: 'supply',
@@ -87,7 +89,7 @@ export async function POST(request: NextRequest) {
     employeeName: created.employeeName,
     priority: created.priority,
     notificationJobId: notification.id,
-  })
+  }, auth.user.organizationId)
 
   return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
@@ -102,7 +104,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
   }
 
-  const where: Prisma.SupplyRequestWhereInput = {}
+  const where: Prisma.SupplyRequestWhereInput = {
+    organizationId: auth.user.organizationId,
+  }
 
   if (auth.user.role === 'employee' || parsed.data.mine === 'true') {
     where.submittedBy = auth.user.email

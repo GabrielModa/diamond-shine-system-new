@@ -12,7 +12,14 @@ export async function POST(request: NextRequest) {
   const parsed = schema.safeParse(await request.json().catch(() => ({})))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
 
-  const results = await processDueNotifications(parsed.data.limit)
-  await logAudit(auth.user.email, 'process_notification_queue', 'notification', undefined, { count: results.length })
+  const results = await processDueNotifications(auth.user.organizationId, parsed.data.limit)
+  await logAudit(
+    auth.user.email,
+    'process_notification_queue',
+    'notification',
+    undefined,
+    { count: results.length },
+    auth.user.organizationId
+  )
   return NextResponse.json({ ok: true, data: { processed: results.length, results } })
 }

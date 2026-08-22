@@ -7,8 +7,16 @@ export async function GET(request: NextRequest) {
   if ('response' in auth) return auth.response
 
   const [items, counts] = await Promise.all([
-    prisma.notificationJob.findMany({ orderBy: { createdAt: 'desc' }, take: 50 }),
-    prisma.notificationJob.groupBy({ by: ['status'], _count: { _all: true } }),
+    prisma.notificationJob.findMany({
+      where: { organizationId: auth.user.organizationId },
+      orderBy: { createdAt: 'desc' },
+      take: 50,
+    }),
+    prisma.notificationJob.groupBy({
+      by: ['status'],
+      where: { organizationId: auth.user.organizationId },
+      _count: { _all: true },
+    }),
   ])
   return NextResponse.json({
     ok: true,

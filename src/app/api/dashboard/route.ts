@@ -10,10 +10,14 @@ export async function GET(request: NextRequest) {
   if ('response' in auth) return auth.response
 
   const supplies = await prisma.supplyRequest.findMany({
+    where: { organizationId: auth.user.organizationId },
     include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
     orderBy: { createdAt: 'desc' },
   })
-  const feedback = await prisma.feedbackEntry.findMany({ orderBy: { createdAt: 'desc' } })
+  const feedback = await prisma.feedbackEntry.findMany({
+    where: { organizationId: auth.user.organizationId },
+    orderBy: { createdAt: 'desc' },
+  })
 
   const byStatus = { requested: 0, triaged: 0, approved: 0, ordered: 0, inTransit: 0, delivered: 0, rejected: 0, cancelled: 0 }
   const byPriority = { urgent: 0, normal: 0, low: 0 }

@@ -11,17 +11,28 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const user = await prisma.user.findUnique({ where: { id } })
-  if (!user) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  if (user.status !== 'pending') {
+  const membership = await prisma.membership.findFirst({
+    where: { userId: id, organizationId: auth.user.organizationId, status: 'invited' },
+    include: { user: true },
+  })
+  if (!membership) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  const user = membership.user
+  if (membership.status !== 'invited') {
     return NextResponse.json({ ok: false, error: 'Invitations can only be resent to pending users.' }, { status: 409 })
   }
 
-  const { token, expiresAt } = await issueAuthToken(user.id, 'invite')
+  const { token, expiresAt } = await issueAuthToken(user.id, 'invite', auth.user.organizationId)
   const baseUrl = getApplicationUrl()
   const inviteUrl = `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(token)}`
   const sent = await sendUserInvite({ to: user.email, name: user.name ?? user.email, inviteUrl })
-  await logAudit(auth.user.email, 'resend_user_invite', 'user', user.id, { email: user.email, sent: sent.ok })
+  await logAudit(
+    auth.user.email,
+    'resend_user_invite',
+    'user',
+    user.id,
+    { email: user.email, sent: sent.ok },
+    auth.user.organizationId
+  )
 
   return NextResponse.json({ ok: true, data: { emailSent: sent.ok, inviteExpiresAt: expiresAt } })
 }

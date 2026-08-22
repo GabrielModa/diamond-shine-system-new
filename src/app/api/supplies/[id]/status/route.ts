@@ -22,7 +22,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id } })
+  const row = await prisma.supplyRequest.findFirst({
+    where: { id, organizationId: auth.user.organizationId },
+  })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
@@ -50,7 +52,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (nextStatus === 'Delivered') data.completedAt = new Date()
 
   await prisma.$transaction([
-    prisma.supplyRequest.update({ where: { id }, data }),
+    prisma.supplyRequest.updateMany({
+      where: { id, organizationId: auth.user.organizationId },
+      data,
+    }),
     prisma.supplyStatusEvent.create({
       data: {
         requestId: id,
@@ -64,7 +69,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   await logAudit(auth.user.email, 'update_supply_status', 'supply', id, {
     status: parsed.data.status,
-  })
+  }, auth.user.organizationId)
 
   return NextResponse.json({ ok: true, data: { id, status: parsed.data.status } })
 }

@@ -7,7 +7,16 @@ export async function GET(request: NextRequest) {
   if ('response' in auth) return auth.response
 
   const employees = await prisma.user.findMany({
-    where: { role: 'employee', status: 'active' },
+    where: {
+      status: 'active',
+      memberships: {
+        some: {
+          organizationId: auth.user.organizationId,
+          role: 'employee',
+          status: 'active',
+        },
+      },
+    },
     orderBy: [{ name: 'asc' }, { email: 'asc' }],
     select: { id: true, name: true, email: true },
   })

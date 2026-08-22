@@ -5,6 +5,7 @@ import { parse } from 'url'
 import next from 'next'
 import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie } from './setup'
+import { LEGACY_ORGANIZATION_ID } from '../../src/lib/tenancy'
 
 vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
@@ -113,6 +114,14 @@ describe('POST /api/auth/login', () => {
 describe('POST /api/users/:id/invite', () => {
   it('reissues a one-time invitation for a pending user', async () => {
     const user = await prisma.user.create({ data: { email: 'resend@test.io', name: 'Resend', role: 'employee', status: 'pending' } })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'invited',
+      },
+    })
     const res = await request(app).post(`/api/users/${user.id}/invite`).set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.data.tempPassword).toBeUndefined()
@@ -142,6 +151,14 @@ describe('PATCH /api/users/:id/status', () => {
     const user = await prisma.user.create({
       data: { email: 'pending@test.io', name: 'Pending', role: 'employee', status: 'pending', password: 'hash' },
     })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'invited',
+      },
+    })
     const res = await request(app)
       .patch(`/api/users/${user.id}/status`)
       .set('Cookie', adminCookie)
@@ -167,13 +184,28 @@ describe('PATCH /api/users/:id/role', () => {
     const user = await prisma.user.create({
       data: { email: 'role@test.io', name: 'Role', role: 'employee', status: 'active', password: 'hash' },
     })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'active',
+      },
+    })
     const res = await request(app)
       .patch(`/api/users/${user.id}/role`)
       .set('Cookie', adminCookie)
       .send({ role: 'supervisor' })
     expect(res.status).toBe(200)
-    const updated = await prisma.user.findUnique({ where: { id: user.id } })
-    expect(updated?.role).toBe('supervisor')
+    const updated = await prisma.membership.findUnique({
+      where: {
+        organizationId_userId: {
+          organizationId: LEGACY_ORGANIZATION_ID,
+          userId: user.id,
+        },
+      },
+    })
+    expect(updated?.role).toBe('field_supervisor')
   })
 
   it('prevents an administrator from removing their own role', async () => {
@@ -203,6 +235,44 @@ describe('GET /api/templates', () => {
     expect(first.status).toBe(200)
     expect(second.status).toBe(200)
     expect(await prisma.emailTemplate.count()).toBe(3)
+  })
+})
+
+describe('organization context', () => {
+  it('lists memberships and issues a scoped session when switching organization', async () => {
+    const organization = await prisma.organization.upsert({
+      where: { id: 'org_switch_test' },
+      update: { name: 'Switch Test', slug: 'switch-test' },
+      create: { id: 'org_switch_test', name: 'Switch Test', slug: 'switch-test' },
+    })
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@ds.ie' } })
+    await prisma.membership.upsert({
+      where: {
+        organizationId_userId: { organizationId: organization.id, userId: admin.id },
+      },
+      update: { role: 'field_supervisor', status: 'active' },
+      create: {
+        organizationId: organization.id,
+        userId: admin.id,
+        role: 'field_supervisor',
+        status: 'active',
+      },
+    })
+
+    const listed = await request(app).get('/api/organizations').set('Cookie', adminCookie)
+    expect(listed.status).toBe(200)
+    expect(listed.body.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ id: LEGACY_ORGANIZATION_ID, current: true }),
+      expect.objectContaining({ id: organization.id, role: 'supervisor', current: false }),
+    ]))
+
+    const switched = await request(app)
+      .post('/api/organizations/switch')
+      .set('Cookie', adminCookie)
+      .send({ organizationId: organization.id })
+    expect(switched.status).toBe(200)
+    expect(switched.body.data).toEqual({ organizationId: organization.id, role: 'supervisor' })
+    expect(switched.headers['set-cookie']?.[0]).toContain('ds-session=')
   })
 })
 

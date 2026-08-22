@@ -42,16 +42,17 @@ export default async function HomePage() {
   const role: UserRole = session?.role ?? 'viewer'
   const allowed = PAGE_ACCESS[role] ?? ['home']
   const email = session?.email ?? ''
+  const organizationId = session?.organizationId ?? ''
   const since = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
   const user = email ? await prisma.user.findUnique({ where: { email }, select: { name: true } }) : null
 
   let metrics: Array<{ label: string; value: number; href: string; tone?: string }> = []
   if (role === 'admin') {
     const [pendingRequests, overdueRequests, pendingUsers, recentFeedback] = await Promise.all([
-      prisma.supplyRequest.count({ where: { status: 'Requested' } }),
-      prisma.supplyRequest.count({ where: { status: { notIn: ['Delivered', 'Rejected', 'Cancelled'] }, dueAt: { lt: new Date() } } }),
-      prisma.user.count({ where: { status: 'pending' } }),
-      prisma.feedbackEntry.count({ where: { createdAt: { gte: since } } }),
+      prisma.supplyRequest.count({ where: { organizationId, status: 'Requested' } }),
+      prisma.supplyRequest.count({ where: { organizationId, status: { notIn: ['Delivered', 'Rejected', 'Cancelled'] }, dueAt: { lt: new Date() } } }),
+      prisma.membership.count({ where: { organizationId, status: 'invited' } }),
+      prisma.feedbackEntry.count({ where: { organizationId, createdAt: { gte: since } } }),
     ])
     metrics = [
       { label: 'New requests', value: pendingRequests, href: '/dashboard', tone: pendingRequests ? 'attention' : 'good' },
@@ -61,9 +62,9 @@ export default async function HomePage() {
     ]
   } else if (role === 'supervisor') {
     const [ownPending, recentFeedback, activeEmployees] = await Promise.all([
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Requested' } }),
-      prisma.feedbackEntry.count({ where: { submittedBy: email, createdAt: { gte: since } } }),
-      prisma.user.count({ where: { role: 'employee', status: 'active' } }),
+      prisma.supplyRequest.count({ where: { organizationId, submittedBy: email, status: 'Requested' } }),
+      prisma.feedbackEntry.count({ where: { organizationId, submittedBy: email, createdAt: { gte: since } } }),
+      prisma.membership.count({ where: { organizationId, role: 'employee', status: 'active' } }),
     ])
     metrics = [
       { label: 'My new requests', value: ownPending, href: '/my-requests', tone: ownPending ? 'attention' : 'good' },
@@ -72,9 +73,9 @@ export default async function HomePage() {
     ]
   } else if (role === 'employee') {
     const [pending, inProgress, completed] = await Promise.all([
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Requested' } }),
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: { in: ['Triaged', 'Approved', 'Ordered', 'InTransit'] } } }),
-      prisma.supplyRequest.count({ where: { submittedBy: email, status: 'Delivered' } }),
+      prisma.supplyRequest.count({ where: { organizationId, submittedBy: email, status: 'Requested' } }),
+      prisma.supplyRequest.count({ where: { organizationId, submittedBy: email, status: { in: ['Triaged', 'Approved', 'Ordered', 'InTransit'] } } }),
+      prisma.supplyRequest.count({ where: { organizationId, submittedBy: email, status: 'Delivered' } }),
     ])
     metrics = [
       { label: 'Requested', value: pending, href: '/my-requests', tone: pending ? 'attention' : 'good' },
@@ -85,7 +86,9 @@ export default async function HomePage() {
 
   const recentRequests = role !== 'viewer' && email
     ? await prisma.supplyRequest.findMany({
-        where: role === 'admin' ? undefined : { submittedBy: email },
+        where: role === 'admin'
+          ? { organizationId }
+          : { organizationId, submittedBy: email },
         orderBy: { createdAt: 'desc' },
         take: 4,
         select: { id: true, clientLocation: true, status: true, priority: true, createdAt: true },

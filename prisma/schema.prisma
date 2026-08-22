@@ -33,6 +33,7 @@ model Organization {
   emailTemplates       EmailTemplate[]
   notificationSettings NotificationSetting[]
   notificationJobs     NotificationJob[]
+  authTokens           AuthToken[]
 
   @@map("organizations")
 }
@@ -76,12 +77,15 @@ model AuthToken {
   tokenHash String        @unique
   type      AuthTokenType
   userId    String
+  organizationId String @default("org_legacy_diamond_shine")
   expiresAt DateTime
   usedAt    DateTime?
   createdAt DateTime      @default(now())
   user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization Organization @relation(fields: [organizationId], references: [id])
 
   @@index([userId, type])
+  @@index([organizationId, type])
   @@index([expiresAt])
   @@map("auth_tokens")
 }

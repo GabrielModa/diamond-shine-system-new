@@ -6,6 +6,7 @@ import next from 'next'
 import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie, cleanSupplies } from './setup'
 import { processNotificationJob } from '../../src/lib/notification-queue'
+import { createSessionToken } from '../../src/lib/session'
 
 vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
@@ -104,6 +105,47 @@ describe('GET /api/supplies', () => {
     const res = await request(app).get('/api/supplies?limit=200').set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.data.items).toHaveLength(3)
+  })
+
+  it('isolates requests by the organization stored in the session', async () => {
+    const organization = await prisma.organization.upsert({
+      where: { id: 'org_tenant_isolation' },
+      update: { name: 'Tenant Isolation', slug: 'tenant-isolation' },
+      create: { id: 'org_tenant_isolation', name: 'Tenant Isolation', slug: 'tenant-isolation' },
+    })
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@ds.ie' } })
+    await prisma.membership.upsert({
+      where: {
+        organizationId_userId: { organizationId: organization.id, userId: admin.id },
+      },
+      update: { role: 'organization_admin', status: 'active' },
+      create: {
+        organizationId: organization.id,
+        userId: admin.id,
+        role: 'organization_admin',
+        status: 'active',
+      },
+    })
+    await prisma.supplyRequest.create({
+      data: {
+        organizationId: organization.id,
+        employeeName: 'Tenant B',
+        clientLocation: 'Green Bank - Temple Bar',
+        priority: 'normal',
+        products: '["Bleach"]',
+        submittedBy: admin.email,
+      },
+    })
+
+    const tenantBCookie = `ds-session=${await createSessionToken(admin.email, 'admin', organization.id)}`
+    const tenantAResponse = await request(app).get('/api/supplies').set('Cookie', adminCookie)
+    const tenantBResponse = await request(app).get('/api/supplies').set('Cookie', tenantBCookie)
+
+    expect(tenantAResponse.body.data.items.every(
+      (item: { employeeName: string }) => item.employeeName !== 'Tenant B'
+    )).toBe(true)
+    expect(tenantBResponse.body.data.total).toBe(1)
+    expect(tenantBResponse.body.data.items[0].employeeName).toBe('Tenant B')
   })
 })
 
