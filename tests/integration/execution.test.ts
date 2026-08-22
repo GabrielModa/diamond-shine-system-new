@@ -205,4 +205,68 @@ describe('field execution', () => {
     const completed = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
     expect(completed.status).toBe(200)
   })
+
+  it('replays an ordered offline visit safely and returns a complete mobile snapshot', async () => {
+    const { visit } = await executionVisit()
+    const versionTask = await prisma.servicePlanVersionTask.findFirstOrThrow({
+      where: { versionId: visit.servicePlanVersionId },
+    })
+    const operations = [
+      {
+        clientMutationId: 'offline-start-0001',
+        type: 'visit.start',
+        entityId: visit.id,
+        clientCreatedAt: '2026-08-24T08:00:00.000Z',
+        payload: { latitude: 53.3498, longitude: -6.2603, accuracyM: 7 },
+      },
+      {
+        clientMutationId: 'offline-task-0001',
+        type: 'visit.task.update',
+        entityId: visit.id,
+        clientCreatedAt: '2026-08-24T08:20:00.000Z',
+        payload: { versionTaskId: versionTask.id, version: 1, status: 'done' },
+      },
+      {
+        clientMutationId: 'offline-stop-0001',
+        type: 'time.stop',
+        entityId: visit.id,
+        clientCreatedAt: '2026-08-24T09:00:00.000Z',
+        payload: { startMutationId: 'offline-start-0001', latitude: 53.3498, longitude: -6.2603 },
+      },
+      {
+        clientMutationId: 'offline-complete-0001',
+        type: 'visit.complete',
+        entityId: visit.id,
+        clientCreatedAt: '2026-08-24T09:01:00.000Z',
+        payload: { latitude: 53.3498, longitude: -6.2603 },
+      },
+    ]
+
+    const synced = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'integration-device',
+      operations,
+    })
+    expect(synced.status).toBe(200)
+    expect(synced.body.results.map((result: { status: string }) => result.status)).toEqual([
+      'processed', 'processed', 'processed', 'processed',
+    ])
+    expect((await prisma.visit.findUniqueOrThrow({ where: { id: visit.id } })).status).toBe('completed')
+    expect(await prisma.timeEntry.count({ where: { visitId: visit.id } })).toBe(1)
+
+    const duplicate = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'integration-device',
+      operations,
+    })
+    expect(duplicate.status).toBe(200)
+    expect(duplicate.body.results.every((result: { status: string }) => result.status === 'duplicate')).toBe(true)
+    expect(await prisma.timeEntry.count({ where: { visitId: visit.id } })).toBe(1)
+
+    const bootstrap = await request(app)
+      .get('/api/sync?from=2026-08-23T00:00:00.000Z&to=2026-08-25T00:00:00.000Z')
+      .set('Cookie', employeeCookie)
+    expect(bootstrap.status).toBe(200)
+    expect(bootstrap.body.data).toHaveLength(1)
+    expect(bootstrap.body.data[0].taskResults[0].status).toBe('done')
+    expect(bootstrap.body.data[0].timeEntries[0].locationEvents).toHaveLength(2)
+  })
 })

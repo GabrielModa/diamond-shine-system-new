@@ -90,3 +90,32 @@ export const incidentUpdateSchema = z.object({
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['resolution'], message: 'Resolution details are required.' })
   }
 })
+
+const syncOperationSchema = z.object({
+  clientMutationId: z.string().trim().min(8).max(160),
+  type: z.enum([
+    'visit.start',
+    'visit.task.update',
+    'visit.evidence.create',
+    'visit.incident.create',
+    'time.stop',
+    'visit.complete',
+  ]),
+  entityId: z.string().trim().min(1).max(160),
+  clientCreatedAt: z.coerce.date(),
+  payload: z.record(z.unknown()).default({}),
+})
+
+export const syncBatchSchema = z.object({
+  deviceId: z.string().trim().min(1).max(160),
+  operations: z.array(syncOperationSchema).min(1).max(100),
+})
+
+export const syncBootstrapQuerySchema = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+}).superRefine((value, context) => {
+  if (value.from && value.to && value.from > value.to) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['to'], message: 'End date must be after start date.' })
+  }
+})
