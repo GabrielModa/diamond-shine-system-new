@@ -39,7 +39,7 @@ const ROLE_CAPABILITIES: Record<MembershipRole, ReadonlySet<Capability>> = {
   field_supervisor: new Set([
     'clients.read', 'sites.read', 'service_plans.read', 'schedule.read', 'schedule.manage',
     'visits.execute', 'visits.review', 'incidents.manage', 'time.own.manage', 'time.team.review',
-    'supplies.request', 'supplies.manage', 'quality.inspect',
+    'supplies.request', 'supplies.manage', 'quality.inspect', 'communications.manage',
   ]),
   scheduler: new Set(['clients.read', 'sites.read', 'service_plans.read', 'schedule.read', 'schedule.manage']),
   employee: new Set(['clients.read', 'sites.read', 'schedule.read', 'visits.execute', 'time.own.manage', 'supplies.request']),

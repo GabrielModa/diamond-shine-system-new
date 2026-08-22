@@ -24,8 +24,8 @@ export const RATING_VALUES = [5.0, 4.5, 4.0, 3.5, 3.0, 2.5, 2.0, 1.5, 1.0] as co
 
 export const PAGE_ACCESS: Record<UserRole, Page[]> = {
   admin: ['home', 'operations', 'schedule', 'field-control', 'supplies', 'my-requests', 'feedback', 'dashboard', 'users', 'communications', 'audit'],
-  supervisor: ['home', 'operations', 'schedule', 'field-control', 'supplies', 'my-requests', 'feedback'],
-  employee: ['home', 'schedule', 'supplies', 'my-requests'],
+  supervisor: ['home', 'operations', 'schedule', 'field-control', 'supplies', 'my-requests', 'feedback', 'communications'],
+  employee: ['home', 'schedule', 'supplies', 'my-requests', 'communications'],
   viewer: ['home', 'operations', 'schedule'],
 }
 

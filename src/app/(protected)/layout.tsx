@@ -17,7 +17,7 @@ const pageMeta: Record<string, { label: string; href: string }> = {
   feedback: { label: 'Quality', href: '/feedback' },
   dashboard: { label: 'Dashboard', href: '/dashboard' },
   users: { label: 'Users', href: '/users' },
-  communications: { label: 'Communications', href: '/communications' },
+  communications: { label: 'Inbox', href: '/communications' },
   audit: { label: 'Audit', href: '/audit' },
 }
 

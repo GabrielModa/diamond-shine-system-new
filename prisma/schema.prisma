@@ -1,16 +1,16 @@
 model User {
-  id                  String               @id @default(cuid())
-  email               String               @unique
+  id                  String                       @id @default(cuid())
+  email               String                       @unique
   password            String?
   name                String?
-  role                UserRole             @default(viewer)
-  status              String               @default("pending")
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
+  role                UserRole                     @default(viewer)
+  status              String                       @default("pending")
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
   supplyRequests      SupplyRequest[]
-  feedbackEntries     FeedbackEntry[]      @relation("FeedbackSubmitter")
-  receivedFeedback    FeedbackEntry[]      @relation("FeedbackEmployee")
-  auditLogs           AuditLog[]           @relation("AuditActor")
+  feedbackEntries     FeedbackEntry[]              @relation("FeedbackSubmitter")
+  receivedFeedback    FeedbackEntry[]              @relation("FeedbackEmployee")
+  auditLogs           AuditLog[]                   @relation("AuditActor")
   authTokens          AuthToken[]
   memberships         Membership[]
   visitAssignments    VisitAssignment[]
@@ -19,22 +19,24 @@ model User {
   incidents           Incident[]
   offlineMutations    OfflineMutation[]
   materialStockCounts MaterialStockCount[]
-  qualityInspections  QualityInspection[]  @relation("QualityInspector")
-  correctiveAssigned  CorrectiveAction[]   @relation("CorrectiveAssignee")
-  correctiveCreated   CorrectiveAction[]   @relation("CorrectiveCreator")
-  correctiveResolved  CorrectiveAction[]   @relation("CorrectiveResolver")
+  qualityInspections  QualityInspection[]          @relation("QualityInspector")
+  correctiveAssigned  CorrectiveAction[]           @relation("CorrectiveAssignee")
+  correctiveCreated   CorrectiveAction[]           @relation("CorrectiveCreator")
+  correctiveResolved  CorrectiveAction[]           @relation("CorrectiveResolver")
+  noticesCreated      OperationalNotice[]          @relation("NoticeCreator")
+  noticeRecipients    OperationalNoticeRecipient[]
 
   @@map("users")
 }
 
 model Organization {
-  id                   String                   @id @default(cuid())
+  id                   String                       @id @default(cuid())
   name                 String
-  slug                 String                   @unique
-  timezone             String                   @default("Europe/Dublin")
-  status               OrganizationStatus       @default(active)
-  createdAt            DateTime                 @default(now())
-  updatedAt            DateTime                 @updatedAt
+  slug                 String                       @unique
+  timezone             String                       @default("Europe/Dublin")
+  status               OrganizationStatus           @default(active)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
   memberships          Membership[]
   capabilityGrants     CapabilityGrant[]
   supplyRequests       SupplyRequest[]
@@ -69,6 +71,8 @@ model Organization {
   qualityInspections   QualityInspection[]
   qualityItems         QualityInspectionItem[]
   correctiveActions    CorrectiveAction[]
+  operationalNotices   OperationalNotice[]
+  noticeRecipients     OperationalNoticeRecipient[]
 
   @@map("organizations")
 }
@@ -210,6 +214,7 @@ model Site {
   supplyRequests      SupplyRequest[]
   qualityInspections  QualityInspection[]
   correctiveActions   CorrectiveAction[]
+  operationalNotices  OperationalNotice[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
@@ -462,6 +467,7 @@ model Visit {
   supplyRequests       SupplyRequest[]
   qualityInspections   QualityInspection[]
   correctiveActions    CorrectiveAction[]
+  operationalNotices   OperationalNotice[]
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
@@ -754,6 +760,54 @@ model SupplyRequest {
   @@index([organizationId, createdAt])
   @@index([organizationId, siteId, status])
   @@map("supply_requests")
+}
+
+model OperationalNotice {
+  id                      String                       @id @default(cuid())
+  organizationId          String
+  siteId                  String?
+  visitId                 String?
+  type                    OperationalNoticeType        @default(general)
+  priority                OperationalNoticePriority    @default(normal)
+  title                   String
+  body                    String
+  requiresAcknowledgement Boolean                      @default(true)
+  createdById             String
+  publishedAt             DateTime                     @default(now())
+  expiresAt               DateTime?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  organization            Organization                 @relation(fields: [organizationId], references: [id])
+  site                    Site?                        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  visit                   Visit?                       @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  createdBy               User                         @relation("NoticeCreator", fields: [createdById], references: [id])
+  recipients              OperationalNoticeRecipient[]
+
+  @@index([organizationId, publishedAt])
+  @@index([organizationId, siteId, publishedAt])
+  @@index([organizationId, visitId])
+  @@map("operational_notices")
+}
+
+model OperationalNoticeRecipient {
+  id              String            @id @default(cuid())
+  organizationId  String
+  noticeId        String
+  userId          String
+  deliveredAt     DateTime          @default(now())
+  seenAt          DateTime?
+  acknowledgedAt  DateTime?
+  acknowledgement String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  notice          OperationalNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
+  @@index([organizationId, userId, acknowledgedAt, deliveredAt])
+  @@index([organizationId, noticeId, acknowledgedAt])
+  @@map("operational_notice_recipients")
 }
 
 model QualityInspection {
@@ -1226,6 +1280,22 @@ enum QualityInspectionType {
   post_incident
   client_complaint
   handover
+}
+
+enum OperationalNoticeType {
+  schedule_change
+  site_instruction
+  incident
+  materials
+  quality
+  general
+}
+
+enum OperationalNoticePriority {
+  low
+  normal
+  high
+  critical
 }
 
 enum QualityInspectionStatus {

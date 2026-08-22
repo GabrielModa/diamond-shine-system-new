@@ -35,7 +35,7 @@ const cardMeta: Record<Page, { title: string; desc: string; href: string }> = {
     desc: 'Invite, approve, and deactivate employees.',
     href: '/users',
   },
-  communications: { title: 'Communications', desc: 'Manage templates and notification recipients.', href: '/communications' },
+  communications: { title: 'Team inbox', desc: 'Read important site changes and confirm you have seen them.', href: '/communications' },
   audit: { title: 'Audit Trail', desc: 'Review accountable operational activity.', href: '/audit' },
 }
 

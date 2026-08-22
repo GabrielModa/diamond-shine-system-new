@@ -9,6 +9,7 @@ import { cleanOperations, getAuthCookie, seedUsers } from './setup'
 let app: ReturnType<typeof createServer>
 let nextApp: ReturnType<typeof next>
 let adminCookie: string
+let supervisorCookie: string
 let employeeCookie: string
 
 beforeAll(async () => {
@@ -19,6 +20,7 @@ beforeAll(async () => {
   await cleanOperations()
   await seedUsers()
   adminCookie = await getAuthCookie('admin@ds.ie')
+  supervisorCookie = await getAuthCookie('super@ds.ie')
   employeeCookie = await getAuthCookie('employee@ds.ie')
 })
 beforeEach(() => cleanOperations())
@@ -351,5 +353,43 @@ describe('field execution', () => {
     const control = await request(app).get('/api/quality/control').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
     expect(control.body.data.summary).toEqual(expect.objectContaining({ inspections: 1, openActions: 0, criticalActions: 0 }))
+  })
+
+  it('delivers operational notices with individual read and acknowledgement receipts', async () => {
+    const { visit, site, employee } = await executionVisit()
+    const published = await request(app).post('/api/operational-notices').set('Cookie', supervisorCookie).send({
+      siteId: site.id,
+      visitId: visit.id,
+      type: 'schedule_change',
+      priority: 'high',
+      title: 'Visit moved to the morning',
+      body: 'Please confirm the new arrival window before starting the visit.',
+      requiresAcknowledgement: true,
+      userIds: [employee.id],
+    })
+    expect(published.status).toBe(201)
+    expect(published.body.data.recipients).toHaveLength(1)
+
+    const inbox = await request(app).get('/api/operational-notices?scope=mine').set('Cookie', employeeCookie)
+    expect(inbox.status).toBe(200)
+    expect(inbox.body.data.summary).toEqual(expect.objectContaining({ unread: 1, awaitingAcknowledgement: 1 }))
+    expect(inbox.body.data.items[0]).toEqual(expect.objectContaining({
+      title: 'Visit moved to the morning',
+      priority: 'high',
+      requiresAcknowledgement: true,
+    }))
+
+    const acknowledged = await request(app)
+      .patch(`/api/operational-notices/${published.body.data.id}/receipt`)
+      .set('Cookie', employeeCookie)
+      .send({ action: 'acknowledged', acknowledgement: 'Seen and confirmed.' })
+    expect(acknowledged.status).toBe(200)
+    expect(acknowledged.body.data.seenAt).toBeTruthy()
+    expect(acknowledged.body.data.acknowledgedAt).toBeTruthy()
+
+    const tracking = await request(app).get('/api/operational-notices?scope=all').set('Cookie', adminCookie)
+    expect(tracking.status).toBe(200)
+    expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 1, seen: 1, acknowledged: 1 }))
+    expect(tracking.body.data.items[0].recipients[0].acknowledgement).toBe('Seen and confirmed.')
   })
 })
