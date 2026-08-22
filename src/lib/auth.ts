@@ -39,6 +39,19 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
   if (!user || user.status !== 'active') return null
   const membership = user.memberships[0]
   if (!membership) return null
+  if (session.sessionId) {
+    const mobileSession = await prisma.mobileSession.findFirst({
+      where: {
+        id: session.sessionId,
+        userId: user.id,
+        organizationId: membership.organizationId,
+        revokedAt: null,
+        expiresAt: { gt: new Date() },
+      },
+      select: { id: true },
+    })
+    if (!mobileSession) return null
+  }
   return {
     id: user.id,
     email: user.email,

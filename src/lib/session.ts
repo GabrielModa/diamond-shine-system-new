@@ -2,12 +2,21 @@ import type { UserRole } from '../types'
 import { LEGACY_ORGANIZATION_ID } from './tenancy'
 
 const SESSION_TTL_SECONDS = 60 * 60 * 12
+export const MOBILE_SESSION_TTL_SECONDS = 60 * 60 * 24 * 30
 
 type SessionPayload = {
   email: string
   role: UserRole
   organizationId: string
+  sessionId?: string
+  audience?: 'web' | 'mobile'
   exp: number
+}
+
+type SessionOptions = {
+  ttlSeconds?: number
+  sessionId?: string
+  audience?: 'web' | 'mobile'
 }
 
 function getSecret(): string {
@@ -53,14 +62,17 @@ function isRole(value: unknown): value is UserRole {
 export async function createSessionToken(
   email: string,
   role: UserRole,
-  organizationId = LEGACY_ORGANIZATION_ID
+  organizationId = LEGACY_ORGANIZATION_ID,
+  options: SessionOptions = {}
 ): Promise<string> {
   const payload = encode(
     JSON.stringify({
       email,
       role,
       organizationId,
-      exp: Math.floor(Date.now() / 1000) + SESSION_TTL_SECONDS,
+      ...(options.sessionId ? { sessionId: options.sessionId } : {}),
+      ...(options.audience ? { audience: options.audience } : {}),
+      exp: Math.floor(Date.now() / 1000) + (options.ttlSeconds ?? SESSION_TTL_SECONDS),
     })
   )
   return `${payload}.${await sign(payload)}`
@@ -90,6 +102,8 @@ export async function verifySessionToken(token: string | undefined): Promise<Ses
       organizationId: typeof parsed.organizationId === 'string'
         ? parsed.organizationId
         : LEGACY_ORGANIZATION_ID,
+      sessionId: typeof parsed.sessionId === 'string' ? parsed.sessionId : undefined,
+      audience: parsed.audience === 'mobile' ? 'mobile' : 'web',
       exp: parsed.exp,
     }
   } catch {

@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import bcrypt from 'bcryptjs'
 import { prisma } from '../../../../lib/prisma'
-import { createSessionToken, sessionCookie } from '../../../../lib/session'
+import { createSessionToken, MOBILE_SESSION_TTL_SECONDS, sessionCookie } from '../../../../lib/session'
 import { clearRateLimit, consumeRateLimit, rateLimitKey } from '../../../../lib/rate-limit'
 import { membershipRoleToLegacyUserRole } from '../../../../lib/tenancy'
 
@@ -9,7 +9,7 @@ const DUMMY_PASSWORD_HASH = '$2a$12$C6UzMDM.H6dfI/f/IKcEe.yrJB7TiT.1rVZETPp1Yj3F
 
 export async function POST(request: NextRequest) {
   console.log('[API /api/auth/login POST]')
-  const body = (await request.json().catch(() => null)) as { email?: string; password?: string; mobile?: boolean } | null
+  const body = (await request.json().catch(() => null)) as { email?: string; password?: string; mobile?: boolean; deviceName?: string } | null
   if (!body?.email || !body?.password) {
     return NextResponse.json({ ok: false, error: 'Invalid credentials' }, { status: 400 })
   }
@@ -46,7 +46,22 @@ export async function POST(request: NextRequest) {
   await clearRateLimit(limitKey)
 
   const role = membershipRoleToLegacyUserRole(membership.role)
-  const accessToken = await createSessionToken(user.email, role, membership.organizationId)
+  const mobileSession = body.mobile
+    ? await prisma.mobileSession.create({
+        data: {
+          userId: user.id,
+          organizationId: membership.organizationId,
+          deviceName: body.deviceName?.trim().slice(0, 120) || null,
+          expiresAt: new Date(Date.now() + MOBILE_SESSION_TTL_SECONDS * 1000),
+        },
+      })
+    : null
+  const tokenTtl = mobileSession ? MOBILE_SESSION_TTL_SECONDS : sessionCookie.maxAge
+  const accessToken = await createSessionToken(user.email, role, membership.organizationId, {
+    ttlSeconds: tokenTtl,
+    sessionId: mobileSession?.id,
+    audience: mobileSession ? 'mobile' : 'web',
+  })
   const response = NextResponse.json({
     ok: true,
     data: {
@@ -54,19 +69,25 @@ export async function POST(request: NextRequest) {
       name: user.name,
       role,
       organizationId: membership.organizationId,
-      ...(body.mobile ? { accessToken, expiresIn: sessionCookie.maxAge } : {}),
+      ...(body.mobile ? {
+        accessToken,
+        expiresIn: tokenTtl,
+        expiresAt: new Date(Date.now() + tokenTtl * 1000).toISOString(),
+      } : {}),
     },
   })
-  response.cookies.set(
-    sessionCookie.name,
-    accessToken,
-    {
-    httpOnly: true,
-    sameSite: 'lax',
-    path: '/',
-    maxAge: sessionCookie.maxAge,
-    secure: process.env.NODE_ENV === 'production',
-    }
-  )
+  if (!body.mobile) {
+    response.cookies.set(
+      sessionCookie.name,
+      accessToken,
+      {
+        httpOnly: true,
+        sameSite: 'lax',
+        path: '/',
+        maxAge: sessionCookie.maxAge,
+        secure: process.env.NODE_ENV === 'production',
+      }
+    )
+  }
   return response
 }

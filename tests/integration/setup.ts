@@ -10,19 +10,14 @@ import {
 export const TEST_PASSWORD = 'password123'
 
 export async function seedUsers() {
+  await cleanOperations()
   await prisma.notificationJob.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
   await prisma.operationalNotice.deleteMany()
+  await prisma.devicePushToken.deleteMany()
+  await prisma.mobileSession.deleteMany()
   await prisma.authRateLimit.deleteMany()
   await prisma.authToken.deleteMany()
-  await prisma.supplyRequest.deleteMany()
-  await prisma.materialStockCountLine.deleteMany()
-  await prisma.materialStockCount.deleteMany()
-  await prisma.siteStockLevel.deleteMany()
-  await prisma.materialCatalogItem.deleteMany()
-  await prisma.correctiveAction.deleteMany()
-  await prisma.qualityInspectionItem.deleteMany()
-  await prisma.qualityInspection.deleteMany()
   await prisma.feedbackEntry.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.capabilityGrant.deleteMany()

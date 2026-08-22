@@ -26,7 +26,10 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     where: { organizationId: user.organizationId, visitId: id },
     orderBy: { createdAt: 'desc' },
   })
-  return NextResponse.json({ ok: true, data: evidence })
+  return NextResponse.json({
+    ok: true,
+    data: evidence.map((item) => ({ ...item, downloadUrl: `/api/evidence/${item.id}` })),
+  })
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -76,4 +79,3 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }, user.organizationId)
   return NextResponse.json({ ok: true, data: evidence }, { status: 201 })
 }
-

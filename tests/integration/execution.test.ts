@@ -360,6 +360,12 @@ describe('field execution', () => {
 
   it('delivers operational notices with individual read and acknowledgement receipts', async () => {
     const { visit, site, employee } = await executionVisit()
+    const registration = await request(app).post('/api/devices/push-token').set('Cookie', employeeCookie).send({
+      token: 'ExponentPushToken[integration-device-token]',
+      platform: 'android',
+      deviceId: 'integration-phone',
+    })
+    expect(registration.status).toBe(201)
     const published = await request(app).post('/api/operational-notices').set('Cookie', supervisorCookie).send({
       siteId: site.id,
       visitId: visit.id,
@@ -372,6 +378,9 @@ describe('field execution', () => {
     })
     expect(published.status).toBe(201)
     expect(published.body.data.recipients).toHaveLength(1)
+    expect(await prisma.notificationJob.count({
+      where: { kind: 'operational_notice_push', entityId: published.body.data.id, status: 'queued' },
+    })).toBe(1)
 
     const inbox = await request(app).get('/api/operational-notices?scope=mine').set('Cookie', employeeCookie)
     expect(inbox.status).toBe(200)
@@ -409,15 +418,44 @@ describe('field execution', () => {
     const { visit } = await executionVisit({ evidence: true })
     await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
     const task = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
+    const spoofed = await request(app)
+      .post(`/api/visits/${visit.id}/evidence-upload`)
+      .set('Cookie', employeeCookie)
+      .attach('file', Buffer.from('fake-jpeg-content'), { filename: 'spoofed.jpg', contentType: 'image/jpeg' })
+    expect(spoofed.status).toBe(400)
+
+    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9])
     const uploaded = await request(app)
       .post(`/api/visits/${visit.id}/evidence-upload`)
       .set('Cookie', employeeCookie)
       .field('taskResultId', task.id)
       .field('visibility', 'client_safe')
       .field('phase', 'task')
-      .attach('file', Buffer.from('fake-jpeg-content'), { filename: 'proof.jpg', contentType: 'image/jpeg' })
+      .attach('file', jpegBytes, { filename: 'proof.jpg', contentType: 'image/jpeg' })
     expect(uploaded.status).toBe(201)
     expect(uploaded.body.data).toEqual(expect.objectContaining({ visitId: visit.id, taskResultId: task.id, kind: 'photo', visibility: 'client_safe' }))
     expect(await prisma.evidenceAsset.count({ where: { visitId: visit.id, taskResultId: task.id } })).toBe(1)
+    const downloaded = await request(app)
+      .get(`/api/evidence/${uploaded.body.data.id}`)
+      .set('Cookie', employeeCookie)
+      .buffer(true)
+    expect(downloaded.status).toBe(200)
+    expect(downloaded.headers['content-type']).toContain('image/jpeg')
+    expect(downloaded.headers['cache-control']).toContain('no-store')
+  })
+
+  it('revokes a native session on logout', async () => {
+    const before = await request(app)
+      .get('/api/operational-notices?scope=mine')
+      .set('Authorization', `Bearer ${employeeToken}`)
+    expect(before.status).toBe(200)
+    const logout = await request(app)
+      .post('/api/auth/logout')
+      .set('Authorization', `Bearer ${employeeToken}`)
+    expect(logout.status).toBe(200)
+    const after = await request(app)
+      .get('/api/operational-notices?scope=mine')
+      .set('Authorization', `Bearer ${employeeToken}`)
+    expect(after.status).toBe(401)
   })
 })

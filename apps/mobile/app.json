@@ -37,6 +37,7 @@
       "expo-router",
       "expo-secure-store",
       "expo-sqlite",
+      ["expo-notifications", { "color": "#1F7A5A", "defaultChannel": "operations" }],
       ["expo-location", { "locationWhenInUsePermission": "Allow Diamond Shine to verify your location when starting and finishing visits." }],
       ["expo-camera", { "cameraPermission": "Allow Diamond Shine to capture proof of service and site issues." }],
       [

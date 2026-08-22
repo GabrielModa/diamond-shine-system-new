@@ -10,6 +10,7 @@ import {
   type SupplyEmailData,
 } from './email'
 import { prisma } from './prisma'
+import { sendOperationalPush } from './push-notifications'
 
 export type NotificationKind =
   | 'supply_alert'
@@ -17,6 +18,7 @@ export type NotificationKind =
   | 'client_supply'
   | 'quality_inspection_failed'
   | 'corrective_action_updated'
+  | 'operational_notice_push'
 
 type EnqueueInput = {
   organizationId: string
@@ -37,6 +39,9 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
   if (kind === 'client_supply') return sendClientNotification(payload as unknown as ClientEmailData)
   if (kind === 'quality_inspection_failed' || kind === 'corrective_action_updated') {
     return sendQualityNotification(payload as unknown as QualityEmailData, organizationId)
+  }
+  if (kind === 'operational_notice_push') {
+    return sendOperationalPush(payload as unknown as Parameters<typeof sendOperationalPush>[0], organizationId)
   }
   return { ok: false, error: `Unsupported notification kind: ${kind}` }
 }
@@ -96,4 +101,14 @@ export async function processDueNotifications(organizationId: string, limit = 20
     select: { id: true },
   })
   return Promise.all(jobs.map(({ id }) => processNotificationJob(id, organizationId)))
+}
+
+export async function processGlobalDueNotifications(limit = 100) {
+  const jobs = await prisma.notificationJob.findMany({
+    where: { status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: new Date() } },
+    orderBy: { createdAt: 'asc' },
+    take: Math.min(250, Math.max(1, limit)),
+    select: { id: true },
+  })
+  return Promise.all(jobs.map(({ id }) => processNotificationJob(id)))
 }

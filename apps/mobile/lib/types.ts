@@ -74,5 +74,6 @@ export type Session = {
   name?: string | null;
   role: string;
   organizationId: string;
+  expiresAt?: string;
   baseUrl: string;
 };

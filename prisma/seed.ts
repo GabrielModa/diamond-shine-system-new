@@ -231,6 +231,161 @@ async function seedFeedback() {
   await prisma.feedbackEntry.createMany({ data: feedback })
 }
 
+async function seedOperations() {
+  const seededUsers = await prisma.user.findMany({
+    where: { email: { in: ['admin@ds.ie', 'super@ds.ie', 'employee@ds.ie', 'maria@ds.ie'] } },
+    select: { id: true, email: true },
+  })
+  const userIds = new Map(seededUsers.map((user) => [user.email, user.id]))
+  const adminId = userIds.get('admin@ds.ie')
+  const employeeId = userIds.get('employee@ds.ie')
+  const mariaId = userIds.get('maria@ds.ie')
+  if (!adminId || !employeeId || !mariaId) throw new Error('Missing operational demo users')
+
+  const catalogSeed = [
+    { sku: 'CHEM-APC-5L', name: 'All-purpose cleaner', category: 'Chemicals', unit: '5L container', defaultParLevel: 4, defaultReorderPoint: 2 },
+    { sku: 'CHEM-DIS-5L', name: 'Disinfectant', category: 'Chemicals', unit: '5L container', defaultParLevel: 4, defaultReorderPoint: 2 },
+    { sku: 'PAPER-TP-24', name: 'Toilet paper', category: 'Paper products', unit: 'case of 24', defaultParLevel: 8, defaultReorderPoint: 3 },
+    { sku: 'PAPER-HT-12', name: 'Paper towels', category: 'Paper products', unit: 'case of 12', defaultParLevel: 6, defaultReorderPoint: 2 },
+    { sku: 'WASTE-BAG-50', name: 'Bin bags', category: 'Waste', unit: 'roll of 50', defaultParLevel: 5, defaultReorderPoint: 2 },
+    { sku: 'PPE-GLOVE-100', name: 'Nitrile gloves', category: 'PPE', unit: 'box of 100', defaultParLevel: 5, defaultReorderPoint: 2 },
+    { sku: 'TOOLS-MICRO-10', name: 'Microfiber cloths', category: 'Tools', unit: 'pack of 10', defaultParLevel: 6, defaultReorderPoint: 2 },
+    { sku: 'HYGIENE-SOAP-5L', name: 'Hand soap', category: 'Hygiene', unit: '5L container', defaultParLevel: 4, defaultReorderPoint: 1 },
+  ]
+  const catalog = []
+  for (const item of catalogSeed) {
+    catalog.push(await prisma.materialCatalogItem.upsert({
+      where: { organizationId_sku: { organizationId: LEGACY_ORGANIZATION_ID, sku: item.sku } },
+      update: { ...item, active: true },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, ...item },
+    }))
+  }
+
+  const today = new Date()
+  today.setHours(0, 0, 0, 0)
+  const locations = [
+    {
+      externalId: 'demo-techcorp', client: 'TechCorp Ireland', site: 'Grand Canal Office', addressLine1: '1 Grand Canal Square', city: 'Dublin', postalCode: 'D02 P820',
+      latitude: 53.3441, longitude: -6.2383, startOffsetDays: 0, startMinutes: 9 * 60, workers: [employeeId, mariaId],
+    },
+    {
+      externalId: 'demo-greenbank', client: 'Green Bank', site: 'Temple Bar Branch', addressLine1: '12 Essex Street East', city: 'Dublin', postalCode: 'D02 TD34',
+      latitude: 53.3452, longitude: -6.2677, startOffsetDays: 1, startMinutes: 18 * 60, workers: [employeeId],
+    },
+  ]
+
+  for (const [siteIndex, location] of locations.entries()) {
+    const client = await prisma.client.upsert({
+      where: { organizationId_externalId: { organizationId: LEGACY_ORGANIZATION_ID, externalId: location.externalId } },
+      update: { displayName: location.client, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example`, status: 'active' },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, externalId: location.externalId, displayName: location.client, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example` },
+    })
+    let site = await prisma.site.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site } })
+    const siteData = {
+      addressLine1: location.addressLine1, city: location.city, postalCode: location.postalCode,
+      latitude: location.latitude, longitude: location.longitude, coordinateAccuracyM: 8, coordinateSource: 'gps_verified' as const,
+      geofenceVerifiedM: 150, geofenceNearM: 250, geofenceSuspiciousM: 700, status: 'active' as const,
+    }
+    site = site
+      ? await prisma.site.update({ where: { id: site.id }, data: siteData })
+      : await prisma.site.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site, ...siteData } })
+
+    await prisma.siteAccess.upsert({
+      where: { siteId: site.id },
+      update: { entryInstructions: 'Use the staff entrance and sign in with reception.', parkingInstructions: 'Loading bay access for ten minutes.', hazards: ['Wet floors', 'Alarmed doors'], securityCloseDown: ['Close windows', 'Switch off lights', 'Set alarm', 'Lock main door'] },
+      create: { siteId: site.id, entryInstructions: 'Use the staff entrance and sign in with reception.', parkingInstructions: 'Loading bay access for ten minutes.', hazards: ['Wet floors', 'Alarmed doors'], securityCloseDown: ['Close windows', 'Switch off lights', 'Set alarm', 'Lock main door'] },
+    })
+
+    const areaSeed = [
+      { code: 'RECEPTION', name: 'Reception', type: 'room' as const },
+      { code: 'OFFICE', name: 'Open office', type: 'zone' as const },
+      { code: 'WASHROOM', name: 'Washrooms', type: 'room' as const },
+      { code: 'KITCHEN', name: 'Kitchen', type: 'room' as const },
+    ]
+    const areas = []
+    for (const [sortOrder, area] of areaSeed.entries()) {
+      areas.push(await prisma.area.upsert({
+        where: { siteId_code: { siteId: site.id, code: area.code } },
+        update: { name: area.name, type: area.type, sortOrder, active: true },
+        create: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, ...area, sortOrder },
+      }))
+    }
+
+    for (const [materialIndex, item] of catalog.entries()) {
+      const onHandPattern = siteIndex === 0 ? [1, 3, 2, 5, 0, 4, 6, 1] : [4, 1, 7, 2, 3, 1, 4, 3]
+      await prisma.siteStockLevel.upsert({
+        where: { siteId_catalogItemId: { siteId: site.id, catalogItemId: item.id } },
+        update: { onHand: onHandPattern[materialIndex], parLevel: item.defaultParLevel, reorderPoint: item.defaultReorderPoint, estimatedDailyUse: materialIndex < 4 ? 0.7 : 0.3, lastCountedAt: new Date(), lastCountedBy: adminId },
+        create: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, catalogItemId: item.id, onHand: onHandPattern[materialIndex], parLevel: item.defaultParLevel, reorderPoint: item.defaultReorderPoint, estimatedDailyUse: materialIndex < 4 ? 0.7 : 0.3, lastCountedAt: new Date(), lastCountedBy: adminId },
+      })
+    }
+
+    let plan = await prisma.servicePlan.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
+    plan = plan
+      ? await prisma.servicePlan.update({ where: { id: plan.id }, data: { status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.workers.length } })
+      : await prisma.servicePlan.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning', description: 'Area-based routine with evidence on critical outcomes.', status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.workers.length } })
+
+    const taskSeed = [
+      { area: areas[0], title: 'Clean entrance glass and reception touchpoints', critical: false, evidenceRequired: false },
+      { area: areas[1], title: 'Vacuum floors and remove desk-area waste', critical: false, evidenceRequired: false },
+      { area: areas[2], title: 'Clean and disinfect washrooms', critical: true, evidenceRequired: true },
+      { area: areas[3], title: 'Sanitise kitchen and replenish consumables', critical: true, evidenceRequired: true },
+      { area: areas[0], title: 'Complete security close-down', critical: true, evidenceRequired: false },
+    ]
+    const tasks = []
+    for (const [sortOrder, task] of taskSeed.entries()) {
+      let savedTask = await prisma.taskTemplate.findFirst({ where: { servicePlanId: plan.id, title: task.title } })
+      const taskData = { areaId: task.area.id, instructions: 'Choose done, not applicable or problem. A problem requires a note and evidence.', responseType: 'done_na_problem' as const, critical: task.critical, required: true, evidenceRequired: task.evidenceRequired, evidenceVisibility: 'internal', sortOrder, active: true }
+      savedTask = savedTask
+        ? await prisma.taskTemplate.update({ where: { id: savedTask.id }, data: taskData })
+        : await prisma.taskTemplate.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, servicePlanId: plan.id, title: task.title, ...taskData } })
+      tasks.push(savedTask)
+    }
+
+    const contentHash = `demo-cleaning-v1-${location.externalId}`
+    let version = await prisma.servicePlanVersion.findFirst({ where: { servicePlanId: plan.id, contentHash } })
+    if (!version) {
+      version = await prisma.servicePlanVersion.create({
+        data: { organizationId: LEGACY_ORGANIZATION_ID, servicePlanId: plan.id, versionNumber: 1, expectedDurationMinutes: 120, requiredWorkers: location.workers.length, snapshot: { name: plan.name, tasks: taskSeed.map((task) => task.title) }, contentHash, publishedBy: adminId },
+      })
+    }
+    const versionTasks = []
+    for (const task of tasks) {
+      let versionTask = await prisma.servicePlanVersionTask.findFirst({ where: { versionId: version.id, sourceTaskId: task.id } })
+      if (!versionTask) {
+        versionTask = await prisma.servicePlanVersionTask.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, versionId: version.id, sourceTaskId: task.id, sourceAreaId: task.areaId, areaName: areas.find((area) => area.id === task.areaId)?.name, title: task.title, instructions: task.instructions, responseType: task.responseType, critical: task.critical, required: task.required, evidenceRequired: task.evidenceRequired, evidenceVisibility: task.evidenceVisibility, sortOrder: task.sortOrder } })
+      }
+      versionTasks.push(versionTask)
+    }
+
+    let job = await prisma.job.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
+    const scheduledStart = new Date(today.getTime() + location.startOffsetDays * 86_400_000 + location.startMinutes * 60_000)
+    job = job
+      ? await prisma.job.update({ where: { id: job.id }, data: { servicePlanId: plan.id, servicePlanVersionId: version.id, status: 'active', startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.workers.length } })
+      : await prisma.job.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, servicePlanId: plan.id, servicePlanVersionId: version.id, name: 'Regular office cleaning', status: 'active', recurrence: { frequency: 'weekly', interval: 1 }, startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.workers.length, instructions: 'Review access notes, complete tasks by area and report shortages before leaving.' } })
+    const generationKey = `demo-${scheduledStart.toISOString().slice(0, 10)}`
+    const visit = await prisma.visit.upsert({
+      where: { jobId_generationKey: { jobId: job.id, generationKey } },
+      update: { scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', requiredWorkers: location.workers.length, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, jobId: job.id, siteId: site.id, servicePlanVersionId: version.id, scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', sequenceNumber: 1, generationKey, requiredWorkers: location.workers.length, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
+    })
+    for (const workerId of location.workers) {
+      await prisma.visitAssignment.upsert({
+        where: { visitId_userId: { visitId: visit.id, userId: workerId } },
+        update: { status: 'notified', notifiedAt: new Date() },
+        create: { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, userId: workerId, status: 'notified', notifiedAt: new Date() },
+      })
+    }
+    for (const versionTask of versionTasks) {
+      await prisma.visitTaskResult.upsert({
+        where: { visitId_versionTaskId: { visitId: visit.id, versionTaskId: versionTask.id } },
+        update: {},
+        create: { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, versionId: version.id, versionTaskId: versionTask.id },
+      })
+    }
+  }
+}
+
 async function main() {
   const hash = await bcrypt.hash(TEST_PASSWORD, 12)
   await prisma.organization.upsert({
@@ -244,6 +399,7 @@ async function main() {
     },
   })
   await seedUsers(hash)
+  await seedOperations()
   await seedSupplies()
   await seedFeedback()
 

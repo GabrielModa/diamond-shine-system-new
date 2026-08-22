@@ -12,6 +12,8 @@ model User {
   receivedFeedback    FeedbackEntry[]              @relation("FeedbackEmployee")
   auditLogs           AuditLog[]                   @relation("AuditActor")
   authTokens          AuthToken[]
+  mobileSessions      MobileSession[]
+  devicePushTokens    DevicePushToken[]
   memberships         Membership[]
   visitAssignments    VisitAssignment[]
   timeEntries         TimeEntry[]
@@ -46,6 +48,8 @@ model Organization {
   notificationSettings NotificationSetting[]
   notificationJobs     NotificationJob[]
   authTokens           AuthToken[]
+  mobileSessions       MobileSession[]
+  devicePushTokens     DevicePushToken[]
   clients              Client[]
   contracts            Contract[]
   sites                Site[]
@@ -667,6 +671,41 @@ model AuthToken {
   @@index([organizationId, type])
   @@index([expiresAt])
   @@map("auth_tokens")
+}
+
+model MobileSession {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  deviceName     String?
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([organizationId, revokedAt, expiresAt])
+  @@map("mobile_sessions")
+}
+
+model DevicePushToken {
+  id               String       @id @default(cuid())
+  userId           String
+  organizationId   String
+  token            String       @unique
+  platform         String
+  deviceId         String?
+  active           Boolean      @default(true)
+  lastRegisteredAt DateTime     @default(now())
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, active])
+  @@index([organizationId, active, updatedAt])
+  @@map("device_push_tokens")
 }
 
 model AuthRateLimit {

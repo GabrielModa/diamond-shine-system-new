@@ -3,6 +3,7 @@ import { prisma } from '../../../lib/prisma'
 import { requireAuth, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { operationalNoticeCreateSchema, operationalNoticeQuerySchema } from '../../../modules/communications/schemas'
+import { enqueueNotification } from '../../../lib/notification-queue'
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
@@ -114,5 +115,19 @@ export async function POST(request: NextRequest) {
     siteId: created.siteId,
     visitId: created.visitId,
   }, organizationId)
+  await enqueueNotification({
+    organizationId,
+    kind: 'operational_notice_push',
+    createdBy: auth.user.email,
+    entityType: 'operational_notice',
+    entityId: created.id,
+    payload: {
+      userIds,
+      title: created.title,
+      body: created.body,
+      noticeId: created.id,
+      priority: created.priority,
+    },
+  })
   return NextResponse.json({ ok: true, data: created }, { status: 201 })
 }

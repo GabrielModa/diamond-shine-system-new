@@ -8,12 +8,17 @@ test.beforeEach(async ({ page }) => {
   await page.waitForURL(/\/home/)
 })
 
-test('full happy path: supervisor submits a performance evaluation', async ({ page }) => {
+test('full happy path: supervisor records an outcome inspection', async ({ page }) => {
   await page.goto('/feedback')
-  await page.selectOption('#employeeId', { label: 'Strikerlift' })
-  for (const field of ['cleanliness', 'punctuality', 'equipment', 'clientRelations']) {
-    await page.locator(`[data-field="${field}"] [data-score="4.5"]`).click()
+  await expect(page.getByRole('heading', { name: 'Quality control' })).toBeVisible()
+  await page.getByRole('button', { name: 'New inspection' }).click()
+  await expect(page.getByLabel('Client site')).toHaveValue(/.+/)
+  const checkGroups = page.locator('.quality-result-buttons')
+  await expect(checkGroups).toHaveCount(7)
+  for (let index = 0; index < 7; index += 1) {
+    await checkGroups.nth(index).getByRole('button', { name: 'Pass', exact: true }).click()
   }
-  await page.click('#submitBtn')
-  await expect(page.locator('.toast.success')).toBeVisible()
+  await page.getByLabel('Inspection summary').fill('All audited standards met during the site walk-through.')
+  await page.getByRole('button', { name: 'Submit inspection & open actions' }).click()
+  await expect(page.getByRole('status')).toContainText('Inspection 100/100 saved.')
 })
