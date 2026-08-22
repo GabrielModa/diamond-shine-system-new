@@ -1,30 +1,30 @@
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  password        String?
-  name            String?
-  role            UserRole        @default(viewer)
-  status          String          @default("pending")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  supplyRequests  SupplyRequest[]
-  feedbackEntries FeedbackEntry[] @relation("FeedbackSubmitter")
+  id               String          @id @default(cuid())
+  email            String          @unique
+  password         String?
+  name             String?
+  role             UserRole        @default(viewer)
+  status           String          @default("pending")
+  createdAt        DateTime        @default(now())
+  updatedAt        DateTime        @updatedAt
+  supplyRequests   SupplyRequest[]
+  feedbackEntries  FeedbackEntry[] @relation("FeedbackSubmitter")
   receivedFeedback FeedbackEntry[] @relation("FeedbackEmployee")
-  auditLogs       AuditLog[]      @relation("AuditActor")
-  authTokens      AuthToken[]
-  memberships     Membership[]
+  auditLogs        AuditLog[]      @relation("AuditActor")
+  authTokens       AuthToken[]
+  memberships      Membership[]
 
   @@map("users")
 }
 
 model Organization {
-  id                   String                @id @default(cuid())
+  id                   String                   @id @default(cuid())
   name                 String
-  slug                 String                @unique
-  timezone             String                @default("Europe/Dublin")
-  status               OrganizationStatus    @default(active)
-  createdAt            DateTime              @default(now())
-  updatedAt            DateTime              @updatedAt
+  slug                 String                   @unique
+  timezone             String                   @default("Europe/Dublin")
+  status               OrganizationStatus       @default(active)
+  createdAt            DateTime                 @default(now())
+  updatedAt            DateTime                 @updatedAt
   memberships          Membership[]
   capabilityGrants     CapabilityGrant[]
   supplyRequests       SupplyRequest[]
@@ -34,20 +34,29 @@ model Organization {
   notificationSettings NotificationSetting[]
   notificationJobs     NotificationJob[]
   authTokens           AuthToken[]
+  clients              Client[]
+  contracts            Contract[]
+  sites                Site[]
+  areas                Area[]
+  evidencePolicies     EvidencePolicy[]
+  servicePlans         ServicePlan[]
+  servicePlanVersions  ServicePlanVersion[]
+  taskTemplates        TaskTemplate[]
+  versionTasks         ServicePlanVersionTask[]
 
   @@map("organizations")
 }
 
 model Membership {
-  id               String           @id @default(cuid())
+  id               String            @id @default(cuid())
   organizationId   String
   userId           String
   role             MembershipRole
-  status           MembershipStatus @default(active)
-  createdAt        DateTime         @default(now())
-  updatedAt        DateTime         @updatedAt
-  organization     Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  user             User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  status           MembershipStatus  @default(active)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
   capabilityGrants CapabilityGrant[]
 
   @@unique([organizationId, userId])
@@ -72,17 +81,291 @@ model CapabilityGrant {
   @@map("capability_grants")
 }
 
+model Client {
+  id             String           @id @default(cuid())
+  organizationId String
+  displayName    String
+  legalName      String?
+  type           ClientType       @default(commercial)
+  status         CommercialStatus @default(active)
+  billingEmail   String?
+  phone          String?
+  externalId     String?
+  version        Int              @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  contacts       Contact[]
+  contracts      Contract[]
+  sites          Site[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, status, displayName])
+  @@map("clients")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String
+  name      String
+  role      String?
+  email     String?
+  phone     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, isPrimary])
+  @@map("contacts")
+}
+
+model Contract {
+  id               String           @id @default(cuid())
+  organizationId   String
+  clientId         String
+  name             String
+  reference        String?
+  status           CommercialStatus @default(draft)
+  startDate        DateTime?
+  endDate          DateTime?
+  currency         String           @default("EUR")
+  completionPolicy Json?
+  version          Int              @default(1)
+  archivedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  client           Client           @relation(fields: [clientId], references: [id])
+  sites            ContractSite[]
+  servicePlans     ServicePlan[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId, clientId, status])
+  @@map("contracts")
+}
+
+model Site {
+  id                  String           @id @default(cuid())
+  organizationId      String
+  clientId            String
+  name                String
+  status              CommercialStatus @default(active)
+  addressLine1        String
+  addressLine2        String?
+  city                String
+  region              String?
+  postalCode          String
+  countryCode         String           @default("IE")
+  timezone            String           @default("Europe/Dublin")
+  latitude            Decimal?         @db.Decimal(10, 7)
+  longitude           Decimal?         @db.Decimal(10, 7)
+  coordinateAccuracyM Int?
+  coordinateSource    CoordinateSource @default(manual)
+  geofenceVerifiedM   Int              @default(150)
+  geofenceNearM       Int              @default(250)
+  geofenceSuspiciousM Int              @default(700)
+  version             Int              @default(1)
+  archivedAt          DateTime?
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id])
+  client              Client           @relation(fields: [clientId], references: [id])
+  access              SiteAccess?
+  contracts           ContractSite[]
+  areas               Area[]
+  servicePlans        ServicePlan[]
+
+  @@index([organizationId, clientId, status])
+  @@index([organizationId, postalCode])
+  @@map("sites")
+}
+
+model ContractSite {
+  contractId String
+  siteId     String
+  createdAt  DateTime @default(now())
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@id([contractId, siteId])
+  @@index([siteId])
+  @@map("contract_sites")
+}
+
+model SiteAccess {
+  id                    String   @id @default(cuid())
+  siteId                String   @unique
+  accessWindows         Json?
+  entryInstructions     String?
+  keyInstructions       String?
+  alarmInstructions     String?
+  parkingInstructions   String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  hazards               Json?
+  equipment             Json?
+  securityCloseDown     Json?
+  updatedAt             DateTime @updatedAt
+  createdAt             DateTime @default(now())
+  site                  Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("site_access")
+}
+
+model Area {
+  id             String         @id @default(cuid())
+  organizationId String
+  siteId         String
+  parentId       String?
+  name           String
+  type           AreaType       @default(room)
+  code           String?
+  sortOrder      Int            @default(0)
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  site           Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  parent         Area?          @relation("AreaHierarchy", fields: [parentId], references: [id])
+  children       Area[]         @relation("AreaHierarchy")
+  taskTemplates  TaskTemplate[]
+
+  @@unique([siteId, code])
+  @@index([organizationId, siteId, parentId, sortOrder])
+  @@map("areas")
+}
+
+model EvidencePolicy {
+  id                  String        @id @default(cuid())
+  organizationId      String
+  name                String
+  requireStartPhoto   Boolean       @default(false)
+  requireFinishPhoto  Boolean       @default(false)
+  requireSignature    Boolean       @default(false)
+  requireProblemPhoto Boolean       @default(true)
+  minimumPhotoCount   Int           @default(0)
+  rules               Json?
+  archivedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  organization        Organization  @relation(fields: [organizationId], references: [id])
+  servicePlans        ServicePlan[]
+
+  @@index([organizationId, archivedAt])
+  @@map("evidence_policies")
+}
+
+model ServicePlan {
+  id                      String               @id @default(cuid())
+  organizationId          String
+  contractId              String?
+  siteId                  String
+  evidencePolicyId        String?
+  name                    String
+  description             String?
+  status                  ServicePlanStatus    @default(draft)
+  expectedDurationMinutes Int
+  requiredWorkers         Int                  @default(1)
+  version                 Int                  @default(1)
+  archivedAt              DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  organization            Organization         @relation(fields: [organizationId], references: [id])
+  contract                Contract?            @relation(fields: [contractId], references: [id])
+  site                    Site                 @relation(fields: [siteId], references: [id])
+  evidencePolicy          EvidencePolicy?      @relation(fields: [evidencePolicyId], references: [id])
+  tasks                   TaskTemplate[]
+  versions                ServicePlanVersion[]
+
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, contractId])
+  @@map("service_plans")
+}
+
+model TaskTemplate {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  servicePlanId      String
+  areaId             String?
+  title              String
+  instructions       String?
+  responseType       TaskResponseType @default(done_na_problem)
+  critical           Boolean          @default(false)
+  required           Boolean          @default(true)
+  evidenceRequired   Boolean          @default(false)
+  evidenceVisibility String           @default("internal")
+  options            Json?
+  conditionalRules   Json?
+  sortOrder          Int              @default(0)
+  active             Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  organization       Organization     @relation(fields: [organizationId], references: [id])
+  servicePlan        ServicePlan      @relation(fields: [servicePlanId], references: [id], onDelete: Cascade)
+  area               Area?            @relation(fields: [areaId], references: [id])
+
+  @@index([organizationId, servicePlanId, areaId, sortOrder])
+  @@map("task_templates")
+}
+
+model ServicePlanVersion {
+  id                      String                   @id @default(cuid())
+  organizationId          String
+  servicePlanId           String
+  versionNumber           Int
+  expectedDurationMinutes Int
+  requiredWorkers         Int
+  snapshot                Json
+  contentHash             String
+  publishedAt             DateTime                 @default(now())
+  publishedBy             String
+  organization            Organization             @relation(fields: [organizationId], references: [id])
+  servicePlan             ServicePlan              @relation(fields: [servicePlanId], references: [id])
+  tasks                   ServicePlanVersionTask[]
+
+  @@unique([servicePlanId, versionNumber])
+  @@unique([servicePlanId, contentHash])
+  @@index([organizationId, publishedAt])
+  @@map("service_plan_versions")
+}
+
+model ServicePlanVersionTask {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  versionId          String
+  sourceTaskId       String
+  sourceAreaId       String?
+  areaName           String?
+  title              String
+  instructions       String?
+  responseType       TaskResponseType
+  critical           Boolean
+  required           Boolean
+  evidenceRequired   Boolean
+  evidenceVisibility String
+  options            Json?
+  conditionalRules   Json?
+  sortOrder          Int
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  version            ServicePlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, versionId, sortOrder])
+  @@map("service_plan_version_tasks")
+}
+
 model AuthToken {
-  id        String        @id @default(cuid())
-  tokenHash String        @unique
-  type      AuthTokenType
-  userId    String
-  organizationId String @default("org_legacy_diamond_shine")
-  expiresAt DateTime
-  usedAt    DateTime?
-  createdAt DateTime      @default(now())
-  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
-  organization Organization @relation(fields: [organizationId], references: [id])
+  id             String        @id @default(cuid())
+  tokenHash      String        @unique
+  type           AuthTokenType
+  userId         String
+  organizationId String        @default("org_legacy_diamond_shine")
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime      @default(now())
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id])
 
   @@index([userId, type])
   @@index([organizationId, type])
@@ -103,31 +386,32 @@ model AuthRateLimit {
 }
 
 model AuditLog {
-  id         String   @id @default(cuid())
-  actorEmail String
-  action     String
-  targetType String
-  targetId   String?
-  metadata   String?
-  createdAt  DateTime @default(now())
-  actor      User     @relation("AuditActor", fields: [actorEmail], references: [email])
-  organizationId String @default("org_legacy_diamond_shine")
-  organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  actorEmail     String
+  action         String
+  targetType     String
+  targetId       String?
+  metadata       String?
+  createdAt      DateTime     @default(now())
+  actor          User         @relation("AuditActor", fields: [actorEmail], references: [email])
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([actorEmail])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("audit_logs")
 }
 
 model EmailTemplate {
-  id        String   @id @default(cuid())
-  key       String
-  subject   String
-  body      String
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
-  organizationId String @default("org_legacy_diamond_shine")
-  organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  key            String
+  subject        String
+  body           String
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, key])
   @@index([organizationId])
@@ -135,13 +419,13 @@ model EmailTemplate {
 }
 
 model NotificationSetting {
-  id         String   @id @default(cuid())
-  key        String
-  recipients String
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
-  organizationId String @default("org_legacy_diamond_shine")
-  organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  key            String
+  recipients     String
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@unique([organizationId, key])
   @@index([organizationId])
@@ -149,25 +433,25 @@ model NotificationSetting {
 }
 
 model SupplyRequest {
-  id             String         @id @default(cuid())
+  id             String              @id @default(cuid())
   employeeName   String
   clientLocation String
   priority       SupplyPriority
   products       String
   notes          String?
-  status         String         @default("Requested")
+  status         String              @default("Requested")
   submittedBy    String
   emailSentAt    DateTime?
   completedAt    DateTime?
   dueAt          DateTime?
   assignedTo     String?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  user           User           @relation(fields: [submittedBy], references: [email])
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  user           User                @relation(fields: [submittedBy], references: [email])
   items          SupplyRequestItem[]
   statusEvents   SupplyStatusEvent[]
-  organizationId String @default("org_legacy_diamond_shine")
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  organizationId String              @default("org_legacy_diamond_shine")
+  organization   Organization        @relation(fields: [organizationId], references: [id])
 
   @@index([status])
   @@index([submittedBy])
@@ -177,7 +461,7 @@ model SupplyRequest {
 }
 
 model FeedbackEntry {
-  id              String           @id @default(cuid())
+  id              String       @id @default(cuid())
   employeeName    String
   employeeId      String?
   clientLocation  String
@@ -189,12 +473,12 @@ model FeedbackEntry {
   category        String
   comments        String?
   submittedBy     String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  user            User             @relation("FeedbackSubmitter", fields: [submittedBy], references: [email])
-  employee        User?            @relation("FeedbackEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
-  organizationId  String @default("org_legacy_diamond_shine")
-  organization    Organization     @relation(fields: [organizationId], references: [id])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation("FeedbackSubmitter", fields: [submittedBy], references: [email])
+  employee        User?        @relation("FeedbackEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  organizationId  String       @default("org_legacy_diamond_shine")
+  organization    Organization @relation(fields: [organizationId], references: [id])
 
   @@index([submittedBy])
   @@index([employeeName])
@@ -218,23 +502,23 @@ enum SupplyPriority {
 }
 
 model NotificationJob {
-  id            String   @id @default(cuid())
-  kind          String
-  status        String   @default("queued")
-  payload       Json
-  entityType    String?
-  entityId      String?
-  createdBy     String
-  attempts      Int      @default(0)
-  maxAttempts   Int      @default(5)
-  nextAttemptAt DateTime @default(now())
-  lastAttemptAt DateTime?
-  sentAt        DateTime?
-  lastError     String?
-  createdAt     DateTime @default(now())
-  updatedAt     DateTime @updatedAt
-  organizationId String @default("org_legacy_diamond_shine")
-  organization Organization @relation(fields: [organizationId], references: [id])
+  id             String       @id @default(cuid())
+  kind           String
+  status         String       @default("queued")
+  payload        Json
+  entityType     String?
+  entityId       String?
+  createdBy      String
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(5)
+  nextAttemptAt  DateTime     @default(now())
+  lastAttemptAt  DateTime?
+  sentAt         DateTime?
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([status, nextAttemptAt])
   @@index([entityType, entityId])
@@ -245,14 +529,14 @@ model NotificationJob {
 }
 
 model SupplyStatusEvent {
-  id          String        @id @default(cuid())
-  requestId   String
-  fromStatus  String?
-  toStatus    String
-  actorEmail  String
-  note        String?
-  createdAt   DateTime      @default(now())
-  request     SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  id         String        @id @default(cuid())
+  requestId  String
+  fromStatus String?
+  toStatus   String
+  actorEmail String
+  note       String?
+  createdAt  DateTime      @default(now())
+  request    SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
 
   @@index([requestId, createdAt])
   @@map("supply_status_events")
@@ -306,6 +590,54 @@ enum ScopeType {
   self
 }
 
+enum ClientType {
+  commercial
+  residential
+  public_sector
+  internal
+}
+
+enum CommercialStatus {
+  draft
+  active
+  paused
+  ended
+  archived
+}
+
+enum CoordinateSource {
+  manual
+  geocoded
+  gps_verified
+  imported
+}
+
+enum AreaType {
+  building
+  floor
+  zone
+  room
+  fixture
+  asset
+}
+
+enum ServicePlanStatus {
+  draft
+  published
+  archived
+}
+
+enum TaskResponseType {
+  done_na_problem
+  yes_no
+  count
+  option
+  text
+  date
+  signature
+  evidence
+  stock_level
+}
 
 datasource db {
   provider = "postgresql"

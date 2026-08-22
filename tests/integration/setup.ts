@@ -69,3 +69,18 @@ export async function cleanFeedback() {
   await prisma.notificationJob.deleteMany()
   await prisma.feedbackEntry.deleteMany()
 }
+
+export async function cleanOperations() {
+  await prisma.servicePlanVersionTask.deleteMany()
+  await prisma.servicePlanVersion.deleteMany()
+  await prisma.taskTemplate.deleteMany()
+  await prisma.servicePlan.deleteMany()
+  await prisma.evidencePolicy.deleteMany()
+  await prisma.contractSite.deleteMany()
+  await prisma.area.deleteMany()
+  await prisma.siteAccess.deleteMany()
+  await prisma.site.deleteMany()
+  await prisma.contract.deleteMany()
+  await prisma.contact.deleteMany()
+  await prisma.client.deleteMany()
+}
