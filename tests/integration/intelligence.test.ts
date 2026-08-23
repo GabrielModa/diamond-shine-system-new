@@ -10,6 +10,7 @@ let nextApp: ReturnType<typeof next>
 let adminCookie: string
 
 beforeAll(async () => {
+  process.env.NEXT_TEST_DIST_DIR = '.next-integration'
   nextApp = next({ dev: true, dir: process.cwd() })
   await nextApp.prepare()
   app = createServer((req, res) => nextApp.getRequestHandler()(req, res, parse(req.url!, true)))

@@ -12,6 +12,7 @@ let adminCookie: string
 let employeeCookie: string
 
 beforeAll(async () => {
+  process.env.NEXT_TEST_DIST_DIR = '.next-integration'
   nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
   await nextApp.prepare()

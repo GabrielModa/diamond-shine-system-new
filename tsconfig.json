@@ -32,7 +32,10 @@
     "playwright.config.ts",
     ".next/types/**/*.ts",
     ".next/dev/types/**/*.ts",
-    ".next/dev/dev/types/**/*.ts"
+    ".next/dev/dev/types/**/*.ts",
+    ".next-integration/dev/types/**/*.ts",
+    ".next-integration/dev/dev/types/**/*.ts",
+    ".next-integration/types/**/*.ts"
   ],
   "exclude": [
     "node_modules"

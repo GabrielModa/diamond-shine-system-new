@@ -23,6 +23,7 @@ export default defineConfig({
     timeout: 120_000,
     env: {
       EMAIL_TRANSPORT: 'json',
+      NEXT_TEST_DIST_DIR: '.next-integration',
       SESSION_SECRET: 'playwright-only-session-secret-with-32-characters',
       PORT: '3100',
     },

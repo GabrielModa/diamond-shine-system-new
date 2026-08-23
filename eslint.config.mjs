@@ -14,6 +14,7 @@ export default defineConfig([
   },
   globalIgnores([
     '.next/**',
+    '.next-integration/**',
     'node_modules/**',
     'playwright-report/**',
     'test-results/**',

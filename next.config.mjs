@@ -1,5 +1,8 @@
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  // Integration tests use an isolated Next build directory, so a running local
+  // development server remains available while the API suite is executing.
+  distDir: process.env.NEXT_TEST_DIST_DIR || '.next',
   async headers() {
     const scriptSources = process.env.NODE_ENV === 'production'
       ? "script-src 'self' 'unsafe-inline'"
