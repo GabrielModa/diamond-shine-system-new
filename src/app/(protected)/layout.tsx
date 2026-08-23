@@ -7,23 +7,23 @@ import TopNav from '../../components/TopNav'
 import { sessionCookie, verifySessionToken } from '../../lib/session'
 import { prisma } from '../../lib/prisma'
 
-const pageMeta: Record<string, { label: string; href: string; section: 'manage' | 'operate' | 'legacy' }> = {
-  home: { label: 'Overview', href: '/home', section: 'manage' },
-  clients: { label: 'Clients', href: '/clients', section: 'manage' },
-  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'manage' },
-  operations: { label: 'Service setup', href: '/operations', section: 'manage' },
-  schedule: { label: 'Schedule', href: '/schedule', section: 'operate' },
-  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'operate' },
-  'field-control': { label: 'Field control', href: '/field-control', section: 'operate' },
-  quality: { label: 'Quality', href: '/quality', section: 'operate' },
-  insights: { label: 'Intelligence', href: '/insights', section: 'operate' },
-  supplies: { label: 'Supplies', href: '/supplies', section: 'operate' },
-  communications: { label: 'Inbox', href: '/communications', section: 'operate' },
-  'my-requests': { label: 'My requests', href: '/my-requests', section: 'legacy' },
-  feedback: { label: 'Quality feedback', href: '/feedback', section: 'legacy' },
-  dashboard: { label: 'Legacy dashboard', href: '/dashboard', section: 'legacy' },
-  users: { label: 'Users', href: '/users', section: 'legacy' },
-  audit: { label: 'Audit trail', href: '/audit', section: 'legacy' },
+const pageMeta: Record<string, { label: string; href: string; section: 'control' | 'analytics' | 'admin' | 'workspace' }> = {
+  home: { label: 'Command centre', href: '/home', section: 'control' },
+  schedule: { label: 'Schedule', href: '/schedule', section: 'control' },
+  'field-control': { label: 'Field control', href: '/field-control', section: 'control' },
+  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control' },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'control' },
+  communications: { label: 'Inbox', href: '/communications', section: 'control' },
+  insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics' },
+  quality: { label: 'Quality control', href: '/quality', section: 'analytics' },
+  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics' },
+  dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics' },
+  clients: { label: 'Clients & sites', href: '/clients', section: 'admin' },
+  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin' },
+  operations: { label: 'Service setup', href: '/operations', section: 'admin' },
+  users: { label: 'People & access', href: '/users', section: 'admin' },
+  audit: { label: 'Audit trail', href: '/audit', section: 'admin' },
+  'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace' },
 }
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {

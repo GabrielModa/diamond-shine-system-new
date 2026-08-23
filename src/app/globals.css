@@ -2028,6 +2028,26 @@ button,
 .top-nav .nav-mobile-panel .nav-logout-form { display: block; }
 .nav-mobile-panel .nav-logout { width: 100%; min-height: 44px; }
 
+/* Product-area navigation: a small set of decision-oriented doors instead of a long row of pages. */
+.top-nav .nav-links { align-items: center; flex-wrap: nowrap; gap: 6px; }
+.nav-workspace-menu { position: relative; }
+.nav-workspace-menu summary { display: flex; align-items: center; gap: 7px; min-height: 40px; padding: 8px 11px; color: #344251; border: 1px solid transparent; border-radius: 11px; cursor: pointer; font-size: .83rem; font-weight: 800; list-style: none; white-space: nowrap; }
+.nav-workspace-menu summary::-webkit-details-marker { display: none; }
+.nav-workspace-menu summary span { color: var(--surface-muted); font-size: .9rem; }
+.nav-workspace-menu:hover summary, .nav-workspace-menu[open] summary { border-color: var(--border); background: #f7f8fc; }
+.nav-workspace-menu.active summary { color: #fff; border-color: #5145d6; background: linear-gradient(120deg, #4338ca, #6657e8); box-shadow: 0 8px 18px rgb(79 70 229 / 24%); }
+.nav-workspace-menu.active summary span { color: #e6e3ff; }
+.nav-workspace-panel { position: absolute; top: calc(100% + 10px); left: 0; z-index: 60; display: grid; gap: 4px; width: 265px; padding: 10px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: var(--shadow-strong); }
+.nav-workspace-panel p { margin: 3px 6px 8px; color: var(--surface-muted); font-size: .72rem; line-height: 1.35; }
+.nav-workspace-panel .nav-workspace-link { padding: 10px 11px; border-radius: 10px; background: transparent; font-size: .83rem; font-weight: 750; }
+.nav-workspace-panel .nav-workspace-link:hover { background: #f0f2f9; }
+.nav-workspace-panel .nav-workspace-link.active { background: #ecebff; color: #4034bf; }
+.nav-mobile-group { display: grid; gap: 5px; padding: 4px 0 9px; border-bottom: 1px solid var(--border); }
+.nav-mobile-group:last-child { border-bottom: 0; }
+.nav-mobile-group small { padding: 0 12px; color: var(--surface-muted); font-size: .72rem; line-height: 1.35; }
+.nav-mobile-group .nav-section-label { display: block; margin: 4px 12px 0; }
+.nav-mobile-group .nav-link { display: block; }
+
 @media (max-width: 860px) {
   .top-nav {
     position: sticky;
@@ -2039,6 +2059,12 @@ button,
   }
   .top-nav .nav-desktop { display: none; }
   .nav-mobile-menu { display: block; position: relative; margin-left: auto; }
+}
+
+@media (min-width: 861px) and (max-width: 1180px) {
+  .top-nav .nav-brand { min-width: 122px; }
+  .nav-workspace-menu summary { padding-inline: 8px; font-size: .76rem; }
+  .nav-workspace-menu summary span { display: none; }
 }
 
 /* Global purple-grey polish */
