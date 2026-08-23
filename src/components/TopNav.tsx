@@ -24,8 +24,15 @@ export default function TopNav({ items }: { items: NavItem[] }) {
     const closeOnOutsideClick = (event: MouseEvent) => {
       if (navRef.current && !navRef.current.contains(event.target as Node)) setOpenSection(null)
     }
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setOpenSection(null)
+    }
     document.addEventListener('mousedown', closeOnOutsideClick)
-    return () => document.removeEventListener('mousedown', closeOnOutsideClick)
+    document.addEventListener('keydown', closeOnEscape)
+    return () => {
+      document.removeEventListener('mousedown', closeOnOutsideClick)
+      document.removeEventListener('keydown', closeOnEscape)
+    }
   }, [])
 
   const navLinks = (section: NavSection, className = '') => items.filter((item) => item.section === section).map((item) => {
@@ -57,8 +64,8 @@ export default function TopNav({ items }: { items: NavItem[] }) {
       </div>
       <div className="nav-links nav-desktop">
         {groups.map((group) => items.some((item) => item.section === group.section) ? <div key={group.section} className="nav-workspace-menu">
-          <button type="button" className={sectionHasActivePage(group.section) ? 'active' : ''} aria-expanded={openSection === group.section} onClick={() => setOpenSection((current) => current === group.section ? null : group.section)}>{group.label}<span aria-hidden="true">⌄</span></button>
-          {openSection === group.section ? <div className="nav-workspace-panel" role="menu"><p>{group.description}</p>{navLinks(group.section, 'nav-workspace-link')}</div> : null}
+          <button type="button" className={sectionHasActivePage(group.section) ? 'active' : ''} aria-controls={`nav-section-${group.section}`} aria-expanded={openSection === group.section} onClick={() => setOpenSection((current) => current === group.section ? null : group.section)}>{group.label}<span aria-hidden="true">⌄</span></button>
+          {openSection === group.section ? <div id={`nav-section-${group.section}`} className="nav-workspace-panel" role="menu"><p>{group.description}</p>{navLinks(group.section, 'nav-workspace-link')}</div> : null}
         </div> : null)}
       </div>
       <form className="nav-logout-form nav-desktop" action="/api/auth/logout" method="post">
