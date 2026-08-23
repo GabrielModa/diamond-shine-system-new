@@ -7,19 +7,23 @@ import TopNav from '../../components/TopNav'
 import { sessionCookie, verifySessionToken } from '../../lib/session'
 import { prisma } from '../../lib/prisma'
 
-const pageMeta: Record<string, { label: string; href: string }> = {
-  home: { label: 'Home', href: '/home' },
-  operations: { label: 'Operations', href: '/operations' },
-  schedule: { label: 'Schedule', href: '/schedule' },
-  'field-control': { label: 'Field control', href: '/field-control' },
-  insights: { label: 'Intelligence', href: '/insights' },
-  supplies: { label: 'Supplies', href: '/supplies' },
-  'my-requests': { label: 'My requests', href: '/my-requests' },
-  feedback: { label: 'Quality', href: '/feedback' },
-  dashboard: { label: 'Dashboard', href: '/dashboard' },
-  users: { label: 'Users', href: '/users' },
-  communications: { label: 'Inbox', href: '/communications' },
-  audit: { label: 'Audit', href: '/audit' },
+const pageMeta: Record<string, { label: string; href: string; section: 'manage' | 'operate' | 'legacy' }> = {
+  home: { label: 'Overview', href: '/home', section: 'manage' },
+  clients: { label: 'Clients', href: '/clients', section: 'manage' },
+  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'manage' },
+  operations: { label: 'Service setup', href: '/operations', section: 'manage' },
+  schedule: { label: 'Schedule', href: '/schedule', section: 'operate' },
+  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'operate' },
+  'field-control': { label: 'Field control', href: '/field-control', section: 'operate' },
+  quality: { label: 'Quality', href: '/quality', section: 'operate' },
+  insights: { label: 'Intelligence', href: '/insights', section: 'operate' },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'operate' },
+  communications: { label: 'Inbox', href: '/communications', section: 'operate' },
+  'my-requests': { label: 'My requests', href: '/my-requests', section: 'legacy' },
+  feedback: { label: 'Quality feedback', href: '/feedback', section: 'legacy' },
+  dashboard: { label: 'Legacy dashboard', href: '/dashboard', section: 'legacy' },
+  users: { label: 'Users', href: '/users', section: 'legacy' },
+  audit: { label: 'Audit trail', href: '/audit', section: 'legacy' },
 }
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../../../lib/prisma'
 import { requireCapability } from '../../../../../lib/auth'
+import { logAudit } from '../../../../../lib/audit'
 import { acknowledgementSchema } from '../../../../../modules/scheduling/schemas'
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -20,5 +21,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     declineReason: parsed.data.status === 'declined' ? parsed.data.reason : null,
   } })
   if (parsed.data.status === 'acknowledged') await prisma.visit.updateMany({ where: { id, status: { in: ['scheduled', 'dispatched'] } }, data: { status: 'acknowledged' } })
+  await logAudit(auth.user.email, 'visit_assignment_response', 'visit_assignment', updated.id, { visitId: id, status: updated.status, reason: updated.declineReason }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: updated })
 }

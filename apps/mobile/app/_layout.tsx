@@ -19,6 +19,8 @@ export default function RootLayout() {
         <Stack.Screen name="index" options={{ headerShown: false }} />
         <Stack.Screen name="login" options={{ headerShown: false }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
+        <Stack.Screen name="availability" options={{ title: 'Availability' }} />
+        <Stack.Screen name="time-records" options={{ title: 'Location & time' }} />
         <Stack.Screen name="visit/[id]" options={{ title: 'Visit' }} />
         <Stack.Screen name="stock/[siteId]" options={{ title: 'Site materials' }} />
         <Stack.Screen name="camera/[visitId]" options={{ headerShown: false, presentation: 'fullScreenModal' }} />

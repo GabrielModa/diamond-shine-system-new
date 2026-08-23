@@ -40,7 +40,7 @@ export const siteAccessSchema = z.object({
 
 export const areaSchema = z.object({
   name: z.string().trim().min(1).max(160),
-  type: z.enum(['building', 'floor', 'zone', 'room', 'fixture', 'asset']).default('room'),
+  type: z.enum(['building', 'floor', 'zone', 'room', 'fixture', 'asset', 'external']).transform((value) => value === 'external' ? 'zone' as const : value).default('room'),
   code: z.string().trim().max(80).optional().nullable(),
   parentId: z.string().optional().nullable(),
   sortOrder: z.number().int().min(0).default(0),

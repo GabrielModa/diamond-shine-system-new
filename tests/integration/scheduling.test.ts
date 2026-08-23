@@ -75,8 +75,32 @@ describe('jobs and visits', () => {
     expect(conflict.status).toBe(409); expect(conflict.body.code).toBe('ASSIGNEE_OVERLAP')
     const valid = await request(app).patch(`/api/visits/${secondVisit.id}`).set('Cookie', adminCookie).send({ version: secondVisit.version, scheduledStart: '2026-08-24T11:00:00.000Z', scheduledEnd: '2026-08-24T12:00:00.000Z', assigneeIds: [employee.id] })
     expect(valid.status).toBe(200)
+    const notice = await prisma.operationalNotice.findFirstOrThrow({ where: { visitId: secondVisit.id }, include: { recipients: true } })
+    expect(notice.requiresAcknowledgement).toBe(true)
+    expect(notice.recipients.map((recipient) => recipient.userId)).toEqual([employee.id])
     const stale = await request(app).patch(`/api/visits/${secondVisit.id}`).set('Cookie', adminCookie).send({ version: secondVisit.version, dispatchNotes: 'stale' })
     expect(stale.status).toBe(409)
     expect(firstVisit.scheduledStart.toISOString()).toBe('2026-08-24T08:00:00.000Z')
+  })
+
+  it('turns employee unavailability into a schedule guard instead of a message', async () => {
+    const plan = await publishedPlan()
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const declared = await request(app).post('/api/availability').set('Cookie', employeeCookie).send({
+      startsAt: '2026-08-24T08:00:00.000Z', endsAt: '2026-08-24T12:00:00.000Z', reason: 'Medical appointment',
+    })
+    expect(declared.status).toBe(201)
+    const ownAvailability = await request(app).get('/api/availability').set('Cookie', employeeCookie)
+    expect(ownAvailability.status).toBe(200); expect(ownAvailability.body.data).toHaveLength(1)
+    const blocked = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id, name: 'Unavailable worker', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id],
+    })
+    expect(blocked.status).toBe(409); expect(blocked.body.code).toBe('ASSIGNEE_UNAVAILABLE')
+    const cancelled = await request(app).delete(`/api/availability/${declared.body.data.id}`).set('Cookie', employeeCookie)
+    expect(cancelled.status).toBe(200)
+    const scheduled = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id, name: 'Available again', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id],
+    })
+    expect(scheduled.status).toBe(201)
   })
 })

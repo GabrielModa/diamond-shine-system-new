@@ -17,13 +17,14 @@ export default defineConfig({
     { name: 'mobile-chrome', use: { ...devices['Pixel 7'] } },
   ],
   webServer: {
-    command: 'npm run start -- -p 3100',
+    command: 'node node_modules/next/dist/bin/next start',
     url: 'http://localhost:3100',
     reuseExistingServer: true,
     timeout: 120_000,
     env: {
       EMAIL_TRANSPORT: 'json',
       SESSION_SECRET: 'playwright-only-session-secret-with-32-characters',
+      PORT: '3100',
     },
   },
 })

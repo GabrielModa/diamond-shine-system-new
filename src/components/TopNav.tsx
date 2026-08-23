@@ -3,12 +3,12 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-type NavItem = { label: string; href: string }
+type NavItem = { label: string; href: string; section: 'manage' | 'operate' | 'legacy' }
 
 export default function TopNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname()
 
-  const navLinks = (className = '') => items.map((item) => {
+  const navLinks = (section: NavItem['section'], className = '') => items.filter((item) => item.section === section).map((item) => {
     const isActive = pathname === item.href
 
     return (
@@ -33,7 +33,9 @@ export default function TopNav({ items }: { items: NavItem[] }) {
         </div>
       </div>
       <div className="nav-links nav-desktop">
-        {navLinks()}
+        <span className="nav-section-label">Manage</span>{navLinks('manage')}
+        <span className="nav-section-label">Operate</span>{navLinks('operate')}
+        {items.some((item) => item.section === 'legacy') ? <details className="nav-legacy-menu"><summary>Legacy</summary><div>{navLinks('legacy', 'nav-legacy-link')}</div></details> : null}
       </div>
       <form className="nav-logout-form nav-desktop" action="/api/auth/logout" method="post">
         <button type="submit" className="nav-logout">Log out</button>
@@ -44,7 +46,11 @@ export default function TopNav({ items }: { items: NavItem[] }) {
           <span aria-hidden="true">☰</span>
         </summary>
         <div className="nav-mobile-panel">
-          <div className="nav-mobile-links">{navLinks()}</div>
+          <div className="nav-mobile-links">
+            <span className="nav-section-label">Manage</span>{navLinks('manage')}
+            <span className="nav-section-label">Operate</span>{navLinks('operate')}
+            {items.some((item) => item.section === 'legacy') ? <><span className="nav-section-label">Legacy workspace</span>{navLinks('legacy')}</> : null}
+          </div>
           <form className="nav-logout-form" action="/api/auth/logout" method="post">
             <button type="submit" className="nav-logout">Log out</button>
           </form>

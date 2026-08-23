@@ -9,7 +9,9 @@ import { PATCH as updateTask } from '../visits/[id]/tasks/[taskId]/route'
 import { POST as createEvidence } from '../visits/[id]/evidence/route'
 import { POST as createIncident } from '../visits/[id]/incidents/route'
 import { POST as stopTime } from '../time-entries/[id]/stop/route'
+import { POST as startTime } from '../time-entries/route'
 import { POST as completeVisit } from '../visits/[id]/complete/route'
+import { POST as createStockCount } from '../sites/[id]/stock-counts/route'
 
 type SyncOperation = ReturnType<typeof syncBatchSchema.parse>['operations'][number]
 
@@ -81,6 +83,22 @@ async function dispatchOperation(
       params: Promise.resolve({ id: operation.entityId }),
     })
   }
+  if (operation.type === 'material.stock.count') {
+    return createStockCount(replayRequest(request, `/api/sites/${operation.entityId}/stock-counts`, 'POST', payload), {
+      params: Promise.resolve({ id: operation.entityId }),
+    })
+  }
+  if (operation.type === 'time.start') {
+    return startTime(replayRequest(request, '/api/time-entries', 'POST', {
+      ...payload,
+      kind: operation.entityId,
+      source: 'offline',
+      startedAt: payload.startedAt ?? operation.clientCreatedAt,
+      capturedAt: payload.capturedAt ?? operation.clientCreatedAt,
+      clientMutationId: operation.clientMutationId,
+      deviceId,
+    }))
+  }
   if (operation.type === 'time.stop') {
     let timeEntryId = typeof payload.timeEntryId === 'string' ? payload.timeEntryId : operation.entityId
     if (typeof payload.startMutationId === 'string') {
@@ -126,19 +144,20 @@ export async function POST(request: NextRequest) {
         },
       },
     })
-    if (existing) {
+    if (existing?.status === 'processed') {
       results.push({
         clientMutationId: operation.clientMutationId,
-        status: existing.status === 'processed' ? 'duplicate' : existing.status,
-        httpStatus: existing.status === 'processed' || existing.status === 'duplicate' ? 200 : 409,
+        status: 'duplicate',
+        httpStatus: 200,
         data: existing.result,
         error: existing.error,
       })
       continue
     }
 
-    await prisma.offlineMutation.create({
-      data: {
+    await prisma.offlineMutation.upsert({
+      where: { organizationId_clientMutationId: { organizationId: auth.user.organizationId, clientMutationId: operation.clientMutationId } },
+      create: {
         organizationId: auth.user.organizationId,
         userId: auth.user.id,
         clientMutationId: operation.clientMutationId,
@@ -150,6 +169,7 @@ export async function POST(request: NextRequest) {
         error: 'PROCESSING',
         clientCreatedAt: operation.clientCreatedAt,
       },
+      update: { status: 'failed', error: 'PROCESSING' },
     })
 
     try {

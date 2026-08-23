@@ -44,6 +44,8 @@ The mobile app stores its session in the platform keychain and its offline queue
 
 ## Quality gate
 
+See the complete [web and mobile testing guide](docs/TESTING.md) for a practical end-to-end demonstration, seeded local accounts and the offline validation scenario.
+
 Run the same checks used by CI:
 
 ```bash

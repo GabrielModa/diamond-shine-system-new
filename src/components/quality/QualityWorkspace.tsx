@@ -26,6 +26,7 @@ type Inspection = {
   summary?: string | null
   inspectedAt: string
   status: string
+  clientVisible?: boolean
   site: Site
   inspector: { name?: string | null; email: string }
   _count?: { actions: number }
@@ -91,6 +92,7 @@ export default function QualityWorkspace() {
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
+  const [clientReport, setClientReport] = useState<{ client: string; site: string; service: string; serviceDate: string; score: number; grade: string; summary?: string | null; completedStandards: Array<{ category: string; title: string }>; followUps: Array<{ title: string; severity: string; status: string; dueAt: string }>; status: string } | null>(null)
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -183,6 +185,17 @@ export default function QualityWorkspace() {
     }
   }
 
+  async function previewClientReport(inspectionId: string) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      setClientReport(await api(`/api/quality/inspections/${inspectionId}/client-report`))
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not create client-safe report preview.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const summaryCards = control ? [
     ['30-day score', control.summary.averageScore == null ? '—' : `${control.summary.averageScore}`, `${control.summary.inspections} inspections`],
     ['Pass rate', control.summary.passRate == null ? '—' : `${control.summary.passRate}%`, 'Verified quality'],
@@ -264,8 +277,9 @@ export default function QualityWorkspace() {
       </section> : null}
 
       {tab === 'history' && control ? <section className="card"><h2>Inspection history</h2><div className="quality-history">{control.inspections.map((inspection) => <article key={inspection.id}>
-        <span className={`quality-score ${inspection.passed ? 'pass' : 'fail'}`}>{inspection.score}</span><div><strong>{inspection.site.client.displayName} · {inspection.site.name}</strong><small>{inspection.inspector.name ?? inspection.inspector.email} · {formatDate(inspection.inspectedAt)}</small></div><span>{inspection._count?.actions ?? 0} actions</span>
+        <span className={`quality-score ${inspection.passed ? 'pass' : 'fail'}`}>{inspection.score}</span><div><strong>{inspection.site.client.displayName} · {inspection.site.name}</strong><small>{inspection.inspector.name ?? inspection.inspector.email} · {formatDate(inspection.inspectedAt)}</small></div><span>{inspection._count?.actions ?? 0} actions</span>{inspection.clientVisible ? <button type="button" className="btn-secondary compact" disabled={busy} onClick={() => void previewClientReport(inspection.id)}>Client report</button> : null}
       </article>)}{control.inspections.length === 0 ? <p className="empty-copy">No inspections yet.</p> : null}</div></section> : null}
+      {clientReport ? <section className="client-report-card card" aria-live="polite"><div className="section-heading"><div><span className="eyebrow">Client-safe service report</span><h2>{clientReport.client} · {clientReport.site}</h2><p className="muted">No employee identities, internal notes, GPS or internal evidence.</p></div><button type="button" className="btn-ghost" onClick={() => setClientReport(null)}>Close</button></div><div className="client-report-summary"><strong>{clientReport.score}/100 · {clientReport.grade}</strong><span>{formatDate(clientReport.serviceDate)} · {clientReport.service}</span><span className="status-pill">{clientReport.status.replaceAll('_', ' ')}</span></div>{clientReport.summary ? <p>{clientReport.summary}</p> : null}<div className="client-report-columns"><div><h3>Completed standards</h3>{clientReport.completedStandards.length ? <ul>{clientReport.completedStandards.map((item) => <li key={`${item.category}-${item.title}`}>{item.title}</li>)}</ul> : <p className="muted">Verified during inspection.</p>}</div><div><h3>Follow-up</h3>{clientReport.followUps.length ? <ul>{clientReport.followUps.map((item) => <li key={`${item.title}-${item.dueAt}`}>{item.title} · {item.status.replaceAll('_', ' ')}</li>)}</ul> : <p className="muted">No client-facing follow-up is open.</p>}</div></div></section> : null}
     </main>
   )
 }

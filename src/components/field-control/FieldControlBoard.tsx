@@ -15,6 +15,7 @@ type TimeEntry = {
   user: Person
   visit: { id: string; site: { name: string; client: { displayName: string } } } | null
   locationEvents: LocationEvent[]
+  disputes?: Array<{ id: string; reason: string; createdAt: string }>
 }
 type Incident = {
   id: string
@@ -27,6 +28,8 @@ type Incident = {
   reporter: Person
   visit: { id: string; scheduledStart: string; site: { name: string; client: { displayName: string } } }
 }
+type VisitReview = { id: string; decision: string; note: string | null; createdAt: string; reviewer: Person }
+type VisitReviewCandidate = { id: string; completedAt: string | null; site: { name: string; client: { displayName: string } }; taskResults: Array<{ status: string }>; evidenceAssets: Array<{ id: string; kind: string; visibility: string }>; incidents: Array<{ id: string; status: string; severity: string }>; reviews: VisitReview[] }
 type Visit = {
   id: string
   scheduledStart: string
@@ -44,6 +47,7 @@ type ControlData = {
   summary: { visits: number; completed: number; inProgress: number; blocked: number; activeTimers: number; needsReview: number; openIncidents: number; criticalIncidents: number }
   visits: Visit[]
   reviewEntries: TimeEntry[]
+  visitReviews: VisitReviewCandidate[]
   activeTimers: Array<Omit<TimeEntry, 'locationEvents' | 'startDistanceM' | 'startLocationClass' | 'reviewReason' | 'durationSeconds'>>
   incidents: Incident[]
 }
@@ -112,6 +116,30 @@ export default function FieldControlBoard() {
     }
   }
 
+  async function resolveDispute(disputeId: string, decision: 'accepted' | 'declined') {
+    const resolution = notes[disputeId] || ''
+    setBusyId(disputeId)
+    try {
+      await api(`/api/time-entry-disputes/${disputeId}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ decision, resolution }),
+      })
+      setNotice({ kind: 'success', text: decision === 'accepted' ? 'Correction request accepted.' : 'Correction request closed with an explanation.' })
+      await refresh(true)
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not resolve the correction request.' })
+    } finally { setBusyId(null) }
+  }
+
+  async function reviewVisit(visitId: string, decision: 'approved' | 'rework_requested' | 'rejected') {
+    setBusyId(visitId)
+    try {
+      await api(`/api/visits/${visitId}/review`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ decision, note: notes[visitId] || undefined }) })
+      setNotice({ kind: 'success', text: decision === 'approved' ? 'Visit evidence approved.' : 'Visit returned to the field team with rework instructions.' })
+      await refresh(true)
+    } catch (error) { setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not review visit evidence.' }) } finally { setBusyId(null) }
+  }
+
   async function updateIncident(incidentId: string, status: 'acknowledged' | 'in_progress' | 'resolved') {
     setBusyId(incidentId)
     try {
@@ -178,13 +206,15 @@ export default function FieldControlBoard() {
 
       {tab === 'review' ? <section className="review-list">
         <div className="section-heading"><h2>Exception-based time review</h2><span className="muted">Clean entries pass automatically; only anomalies land here.</span></div>
+        {data.visitReviews.map((visit) => { const completed = visit.taskResults.filter((task) => task.status === 'done' || task.status === 'not_applicable').length; const latest = visit.reviews[0]; return <article className="review-card card" key={visit.id}><header><div><strong>{visit.site.client.displayName} · {visit.site.name}</strong><span>Completed {visit.completedAt ? time(visit.completedAt) : '—'} · evidence awaiting operational approval</span></div><div><strong>{completed}/{visit.taskResults.length || '—'} tasks</strong><span>{visit.evidenceAssets.length} proof items</span></div></header><div className="review-reasons"><span>{visit.evidenceAssets.filter((asset) => asset.kind === 'photo').length} photos</span><span>{visit.incidents.filter((incident) => !['resolved', 'closed'].includes(incident.status)).length} open incidents</span>{latest ? <span>Previous decision: {latest.decision.replaceAll('_', ' ')}</span> : <span>First review</span>}</div><div className="review-actions"><label>Supervisor decision note<input value={notes[visit.id] ?? ''} onChange={(event) => setNotes({ ...notes, [visit.id]: event.target.value })} placeholder="Required if returning for rework" /></label><button className="btn-secondary" disabled={busyId === visit.id || !(notes[visit.id] ?? '').trim()} onClick={() => void reviewVisit(visit.id, 'rejected')}>Reject</button><button className="btn-secondary" disabled={busyId === visit.id || !(notes[visit.id] ?? '').trim()} onClick={() => void reviewVisit(visit.id, 'rework_requested')}>Send for rework</button><button className="btn-primary" disabled={busyId === visit.id} onClick={() => void reviewVisit(visit.id, 'approved')}>Approve evidence</button></div></article> })}
         {data.reviewEntries.map((entry) => <article className="review-card card" key={entry.id}>
           <header><div><strong>{personName(entry.user)}</strong><span>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General time'}</span></div><div><strong>{duration(entry.durationSeconds)}</strong><span>{time(entry.startedAt)}</span></div></header>
           <div className="review-reasons"><span className={`location-pill ${entry.startLocationClass ?? 'unavailable'}`}>{entry.startLocationClass ?? 'unavailable'}</span><span>{entry.startDistanceM == null ? 'No site distance' : `${entry.startDistanceM}m from site`}</span><span>{entry.reviewReason}</span></div>
+          {entry.disputes?.map((dispute) => <div className="review-actions dispute-action" key={dispute.id}><strong>Worker correction request</strong><span>{dispute.reason}</span><label>Response to worker<input value={notes[dispute.id] ?? ''} onChange={(event) => setNotes({ ...notes, [dispute.id]: event.target.value })} placeholder="Explain the decision" /></label><button className="btn-secondary" disabled={busyId === dispute.id || !(notes[dispute.id] ?? '').trim()} onClick={() => void resolveDispute(dispute.id, 'declined')}>Decline</button><button className="btn-primary" disabled={busyId === dispute.id || !(notes[dispute.id] ?? '').trim()} onClick={() => void resolveDispute(dispute.id, 'accepted')}>Accept</button></div>)}
           <div className="gps-timeline" aria-label="GPS waypoint timeline">{entry.locationEvents.map((point) => <div key={point.id} className={`gps-point ${point.classification ?? 'unavailable'}`}><i /><strong>{point.kind.replace('_', ' ')}</strong><span>{time(point.capturedAt)}</span><small>{point.distanceM == null ? 'GPS only' : `${point.distanceM}m`}</small></div>)}{!entry.locationEvents.length ? <span className="muted">No GPS waypoints captured.</span> : null}</div>
           <div className="review-actions"><label>Manager note<input value={notes[entry.id] ?? ''} onChange={(event) => setNotes({ ...notes, [entry.id]: event.target.value })} placeholder="Required when rejecting" /></label><button className="btn-secondary" disabled={busyId === entry.id || !(notes[entry.id] ?? '').trim()} onClick={() => void review(entry.id, 'rejected')}>Return</button><button className="btn-primary" disabled={busyId === entry.id} onClick={() => void review(entry.id, 'approved')}>Approve</button></div>
         </article>)}
-        {!data.reviewEntries.length ? <div className="card empty-state">No time entries need review.</div> : null}
+        {!data.reviewEntries.length && !data.visitReviews.length ? <div className="card empty-state">No time entries or visit evidence need review.</div> : null}
       </section> : null}
 
       {tab === 'incidents' ? <section className="incident-list">
@@ -199,4 +229,3 @@ export default function FieldControlBoard() {
     </> : null}
   </main>
 }
-

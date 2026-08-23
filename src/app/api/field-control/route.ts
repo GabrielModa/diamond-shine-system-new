@@ -22,7 +22,7 @@ export async function GET(request: NextRequest) {
   const from = parsed.data.from ?? startOfDay()
   const to = parsed.data.to ?? new Date(from.getTime() + 86_400_000)
   const organizationId = auth.user.organizationId
-  const [visits, reviewEntries, activeTimers, incidents] = await Promise.all([
+  const [visits, reviewEntries, visitReviews, activeTimers, incidents] = await Promise.all([
     prisma.visit.findMany({
       where: { organizationId, scheduledStart: { gte: from, lt: to } },
       include: {
@@ -43,8 +43,21 @@ export async function GET(request: NextRequest) {
         user: { select: { id: true, name: true, email: true } },
         visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
         locationEvents: { orderBy: { capturedAt: 'asc' } },
+        disputes: { where: { status: 'open' }, select: { id: true, reason: true, createdAt: true } },
       },
       orderBy: { startedAt: 'desc' },
+      take: 100,
+    }),
+    prisma.visit.findMany({
+      where: { organizationId, status: 'completed', completedAt: { gte: new Date(from.getTime() - 7 * 86_400_000), lt: to } },
+      include: {
+        site: { select: { name: true, client: { select: { displayName: true } } } },
+        taskResults: { select: { status: true } },
+        evidenceAssets: { select: { id: true, kind: true, visibility: true } },
+        incidents: { select: { id: true, status: true, severity: true } },
+        reviews: { orderBy: { createdAt: 'desc' }, take: 1, include: { reviewer: { select: { id: true, name: true, email: true } } } },
+      },
+      orderBy: { completedAt: 'desc' },
       take: 100,
     }),
     prisma.timeEntry.findMany({
@@ -76,15 +89,15 @@ export async function GET(request: NextRequest) {
         inProgress: visits.filter((visit) => visit.status === 'in_progress').length,
         blocked: visits.filter((visit) => visit.status === 'completion_blocked').length,
         activeTimers: activeTimers.length,
-        needsReview: reviewEntries.length,
+        needsReview: reviewEntries.length + visitReviews.filter((visit) => visit.reviews[0]?.decision !== 'approved').length,
         openIncidents: incidents.length,
         criticalIncidents: incidents.filter((incident) => incident.severity === 'critical').length,
       },
       visits,
       reviewEntries,
+      visitReviews: visitReviews.filter((visit) => visit.reviews[0]?.decision !== 'approved'),
       activeTimers,
       incidents,
     },
   })
 }
-

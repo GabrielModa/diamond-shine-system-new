@@ -16,7 +16,9 @@ model User {
   devicePushTokens    DevicePushToken[]
   memberships         Membership[]
   visitAssignments    VisitAssignment[]
+  visitReviews        VisitReview[]
   timeEntries         TimeEntry[]
+  timeEntryDisputes   TimeEntryDispute[]
   evidenceAssets      EvidenceAsset[]
   incidents           Incident[]
   offlineMutations    OfflineMutation[]
@@ -27,6 +29,7 @@ model User {
   correctiveResolved  CorrectiveAction[]           @relation("CorrectiveResolver")
   noticesCreated      OperationalNotice[]          @relation("NoticeCreator")
   noticeRecipients    OperationalNoticeRecipient[]
+  availability        Availability[]
 
   @@map("users")
 }
@@ -62,8 +65,10 @@ model Organization {
   jobs                 Job[]
   visits               Visit[]
   visitAssignments     VisitAssignment[]
+  visitReviews         VisitReview[]
   visitTaskResults     VisitTaskResult[]
   timeEntries          TimeEntry[]
+  timeEntryDisputes    TimeEntryDispute[]
   evidenceAssets       EvidenceAsset[]
   incidents            Incident[]
   locationEvents       LocationEvent[]
@@ -77,6 +82,7 @@ model Organization {
   correctiveActions    CorrectiveAction[]
   operationalNotices   OperationalNotice[]
   noticeRecipients     OperationalNoticeRecipient[]
+  availability         Availability[]
 
   @@map("organizations")
 }
@@ -452,6 +458,8 @@ model Visit {
   dispatchNotes        String?
   startedAt            DateTime?
   completedAt          DateTime?
+  reopenedAt           DateTime?
+  reopenReason         String?
   cancelledAt          DateTime?
   cancellationReason   String?
   version              Int                  @default(1)
@@ -472,11 +480,29 @@ model Visit {
   qualityInspections   QualityInspection[]
   correctiveActions    CorrectiveAction[]
   operationalNotices   OperationalNotice[]
+  reviews              VisitReview[]
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
   @@index([organizationId, siteId, scheduledStart])
   @@map("visits")
+}
+
+model VisitReview {
+  id             String       @id @default(cuid())
+  organizationId String
+  visitId        String
+  decision       String
+  note           String?
+  reviewedBy     String
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  visit          Visit        @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reviewer       User         @relation(fields: [reviewedBy], references: [id])
+
+  @@index([organizationId, visitId, createdAt])
+  @@index([organizationId, decision, createdAt])
+  @@map("visit_reviews")
 }
 
 model VisitAssignment {
@@ -498,6 +524,24 @@ model VisitAssignment {
   @@unique([visitId, userId])
   @@index([organizationId, userId, status])
   @@map("visit_assignments")
+}
+
+model Availability {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  cancelledAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId, startsAt, endsAt])
+  @@index([organizationId, startsAt, endsAt])
+  @@map("availability")
 }
 
 model VisitTaskResult {
@@ -556,11 +600,34 @@ model TimeEntry {
   visit              Visit?          @relation(fields: [visitId], references: [id])
   user               User            @relation(fields: [userId], references: [id])
   locationEvents     LocationEvent[]
+  disputes           TimeEntryDispute[]
 
   @@unique([organizationId, clientMutationId])
   @@index([organizationId, userId, startedAt])
   @@index([organizationId, visitId, status])
   @@map("time_entries")
+}
+
+model TimeEntryDispute {
+  id             String    @id @default(cuid())
+  organizationId String
+  timeEntryId    String
+  userId         String
+  reason         String
+  status         String    @default("open")
+  resolution     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  timeEntry      TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, timeEntryId])
+  @@index([organizationId, userId, createdAt])
+  @@map("time_entry_disputes")
 }
 
 model LocationEvent {

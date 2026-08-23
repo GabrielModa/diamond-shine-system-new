@@ -4,7 +4,7 @@ import type { Session, Visit } from './types';
 
 export type OfflineOperation = {
   clientMutationId: string;
-  type: 'visit.start' | 'visit.task.update' | 'visit.evidence.create' | 'visit.incident.create' | 'time.stop' | 'visit.complete';
+  type: 'visit.start' | 'visit.task.update' | 'visit.evidence.create' | 'visit.incident.create' | 'material.stock.count' | 'time.start' | 'time.stop' | 'visit.complete';
   entityId: string;
   clientCreatedAt: string;
   payload: Record<string, unknown>;
@@ -23,6 +23,7 @@ async function db() {
   await value.execAsync(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS cached_visits (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
+    CREATE TABLE IF NOT EXISTS cached_stock (site_id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
     CREATE TABLE IF NOT EXISTS mutation_queue (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
     CREATE TABLE IF NOT EXISTS evidence_queue (id TEXT PRIMARY KEY NOT NULL, visit_id TEXT NOT NULL, task_result_id TEXT, uri TEXT NOT NULL, mime_type TEXT NOT NULL, phase TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
     CREATE TABLE IF NOT EXISTS local_timers (visit_id TEXT PRIMARY KEY NOT NULL, start_mutation_id TEXT NOT NULL, started_at TEXT NOT NULL);
@@ -53,6 +54,17 @@ export async function cachedVisit(id: string) {
   const connection = await db();
   const row = await connection.getFirstAsync<{ payload: string }>('SELECT payload FROM cached_visits WHERE id = ?', id);
   return row ? JSON.parse(row.payload) as Visit : null;
+}
+
+export async function cacheStock<T>(siteId: string, items: T[]) {
+  const connection = await db();
+  await connection.runAsync('INSERT OR REPLACE INTO cached_stock (site_id, payload, updated_at) VALUES (?, ?, ?)', siteId, JSON.stringify(items), new Date().toISOString());
+}
+
+export async function cachedStock<T>(siteId: string) {
+  const connection = await db();
+  const row = await connection.getFirstAsync<{ payload: string }>('SELECT payload FROM cached_stock WHERE site_id = ?', siteId);
+  return row ? JSON.parse(row.payload) as T[] : [];
 }
 
 export async function enqueue(operation: OfflineOperation) {
@@ -86,6 +98,14 @@ export async function getLocalTimer(visitId: string) {
   const row = await connection.getFirstAsync<{ visit_id: string; start_mutation_id: string; started_at: string }>(
     'SELECT visit_id, start_mutation_id, started_at FROM local_timers WHERE visit_id = ?',
     visitId,
+  );
+  return row ? { visitId: row.visit_id, startMutationId: row.start_mutation_id, startedAt: row.started_at } satisfies LocalTimer : null;
+}
+
+export async function getGenericLocalTimer() {
+  const connection = await db();
+  const row = await connection.getFirstAsync<{ visit_id: string; start_mutation_id: string; started_at: string }>(
+    "SELECT visit_id, start_mutation_id, started_at FROM local_timers WHERE visit_id LIKE 'general:%' LIMIT 1",
   );
   return row ? { visitId: row.visit_id, startMutationId: row.start_mutation_id, startedAt: row.started_at } satisfies LocalTimer : null;
 }

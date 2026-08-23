@@ -4,5 +4,5 @@ import OperationsHub from '../../../components/operations/OperationsHub'
 
 export default async function OperationsPage() {
   const session = await verifySessionToken((await cookies()).get(sessionCookie.name)?.value)
-  return <OperationsHub canManage={session?.role === 'admin'} />
+  return <OperationsHub canManage={session?.role === 'admin' || session?.role === 'supervisor'} />
 }

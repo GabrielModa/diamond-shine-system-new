@@ -34,3 +34,16 @@ export const acknowledgementSchema = z.object({
   status: z.enum(['seen', 'acknowledged', 'declined']),
   reason: z.string().trim().max(1000).optional().nullable(),
 })
+
+export const availabilityCreateSchema = z.object({
+  userId: z.string().min(1).optional(),
+  startsAt: z.coerce.date(),
+  endsAt: z.coerce.date(),
+  reason: z.string().trim().max(1000).optional().nullable(),
+}).refine((value) => value.endsAt > value.startsAt, { message: 'End must be after start.', path: ['endsAt'] })
+
+export const availabilityQuerySchema = z.object({
+  from: z.coerce.date().optional(),
+  to: z.coerce.date().optional(),
+  userId: z.string().min(1).optional(),
+})

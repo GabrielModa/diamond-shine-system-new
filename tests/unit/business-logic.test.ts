@@ -68,6 +68,8 @@ describe('isValidRating', () => {
 describe('checkPageAccess', () => {
   describe('admin', () => {
     it('can access home', () => expect(checkPageAccess('admin', 'home')).toBe(true))
+    it('can access work orders', () => expect(checkPageAccess('admin', 'work-orders')).toBe(true))
+    it('can access quality control', () => expect(checkPageAccess('admin', 'quality')).toBe(true))
     it('can access supplies', () => expect(checkPageAccess('admin', 'supplies')).toBe(true))
     it('can access feedback', () => expect(checkPageAccess('admin', 'feedback')).toBe(true))
     it('can access dashboard', () => expect(checkPageAccess('admin', 'dashboard')).toBe(true))
@@ -75,6 +77,8 @@ describe('checkPageAccess', () => {
   })
   describe('supervisor', () => {
     it('can access home', () => expect(checkPageAccess('supervisor', 'home')).toBe(true))
+    it('can access work orders', () => expect(checkPageAccess('supervisor', 'work-orders')).toBe(true))
+    it('can access quality control', () => expect(checkPageAccess('supervisor', 'quality')).toBe(true))
     it('can access supplies', () => expect(checkPageAccess('supervisor', 'supplies')).toBe(true))
     it('can access feedback', () => expect(checkPageAccess('supervisor', 'feedback')).toBe(true))
     it('cannot access dashboard', () => expect(checkPageAccess('supervisor', 'dashboard')).toBe(false))
@@ -95,16 +99,16 @@ describe('checkPageAccess', () => {
 
 describe('getAllowedPages', () => {
   it('admin gets the complete operations suite', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'communications', 'dashboard', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'schedule', 'supplies', 'users'])
+    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'clients', 'communications', 'dashboard', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'quality', 'schedule', 'supplies', 'timesheets', 'users', 'work-orders'])
   })
   it('supervisor gets operations and scheduling without administration', () => {
-    expect(getAllowedPages('supervisor').sort()).toEqual(['communications', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'schedule', 'supplies'])
+    expect(getAllowedPages('supervisor').sort()).toEqual(['clients', 'communications', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'quality', 'schedule', 'supplies', 'timesheets', 'work-orders'])
   })
   it('employee gets their schedule, supplies and tracking', () => {
-    expect(getAllowedPages('employee').sort()).toEqual(['communications', 'home', 'my-requests', 'schedule', 'supplies'])
+    expect(getAllowedPages('employee').sort()).toEqual(['communications', 'home', 'my-requests', 'schedule', 'supplies', 'timesheets'])
   })
   it('viewer gets read-only operational views', () => {
-    expect(getAllowedPages('viewer')).toEqual(['home', 'operations', 'schedule'])
+    expect(getAllowedPages('viewer')).toEqual(['home', 'clients', 'operations', 'schedule'])
   })
   it('unknown role gets empty array', () => {
     expect(getAllowedPages('unknown' as never)).toEqual([])

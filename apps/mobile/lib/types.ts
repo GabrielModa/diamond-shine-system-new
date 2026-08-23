@@ -34,6 +34,7 @@ export type TaskResult = {
 
 export type TimeEntry = {
   id: string;
+  kind: 'visit' | 'driving' | 'office' | 'supplies' | 'break' | 'general';
   status: string;
   startedAt: string;
   endedAt?: string | null;
@@ -49,10 +50,22 @@ export type Visit = {
   completionNotes?: string | null;
   site: Site;
   job?: { id: string; name: string };
-  assignments?: Array<{ user: Person }>;
+  assignments?: Array<{
+    id: string;
+    status: 'assigned' | 'notified' | 'seen' | 'acknowledged' | 'declined' | 'removed';
+    declineReason?: string | null;
+    seenAt?: string | null;
+    acknowledgedAt?: string | null;
+    declinedAt?: string | null;
+    user: Person;
+  }>;
   taskResults?: TaskResult[];
   timeEntries?: TimeEntry[];
   incidents?: Array<{ id: string; title: string; severity: string; status: string }>;
+  completedAt?: string | null;
+  reopenedAt?: string | null;
+  reopenReason?: string | null;
+  reviews?: Array<{ id: string; decision: string; note?: string | null; createdAt: string; reviewer: Person }>;
 };
 
 export type Notice = {

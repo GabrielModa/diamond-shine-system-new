@@ -80,6 +80,7 @@ export async function cleanFeedback() {
 
 export async function cleanOperations() {
   await prisma.notificationJob.deleteMany()
+  await prisma.availability.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
   await prisma.operationalNotice.deleteMany()
   await prisma.supplyRequest.deleteMany()
@@ -92,6 +93,7 @@ export async function cleanOperations() {
   await prisma.qualityInspection.deleteMany()
   await prisma.evidenceAsset.deleteMany()
   await prisma.incident.deleteMany()
+  await prisma.timeEntryDispute.deleteMany()
   await prisma.locationEvent.deleteMany()
   await prisma.timeEntry.deleteMany()
   await prisma.visitTaskResult.deleteMany()

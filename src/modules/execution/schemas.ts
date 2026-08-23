@@ -23,6 +23,14 @@ export const startVisitSchema = z.object({
   deviceId: z.string().trim().min(1).max(160).optional(),
 }).superRefine(validateCoordinatePair)
 
+export const startTimeEntrySchema = z.object({
+  ...locationFields,
+  kind: z.enum(['driving', 'office', 'supplies', 'break', 'general']),
+  startedAt: z.coerce.date().optional(),
+  clientMutationId: z.string().trim().min(8).max(160).optional(),
+  deviceId: z.string().trim().min(1).max(160).optional(),
+}).superRefine(validateCoordinatePair)
+
 export const stopTimeEntrySchema = z.object({
   ...locationFields,
   endedAt: z.coerce.date().optional(),
@@ -82,6 +90,24 @@ export const timeEntryReviewSchema = z.object({
   }
 })
 
+export const timeEntryDisputeCreateSchema = z.object({
+  reason: z.string().trim().min(8).max(2000),
+})
+
+export const timeEntryDisputeResolveSchema = z.object({
+  decision: z.enum(['accepted', 'declined']),
+  resolution: z.string().trim().min(3).max(2000),
+})
+
+export const visitReviewSchema = z.object({
+  decision: z.enum(['approved', 'rework_requested', 'rejected']),
+  note: z.string().trim().max(3000).optional().nullable(),
+}).superRefine((value, context) => {
+  if (value.decision !== 'approved' && !value.note) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['note'], message: 'Explain what needs to be corrected.' })
+  }
+})
+
 export const incidentUpdateSchema = z.object({
   status: z.enum(['acknowledged', 'in_progress', 'resolved', 'closed']),
   resolution: z.string().trim().max(6000).optional().nullable(),
@@ -98,6 +124,8 @@ const syncOperationSchema = z.object({
     'visit.task.update',
     'visit.evidence.create',
     'visit.incident.create',
+    'material.stock.count',
+    'time.start',
     'time.stop',
     'visit.complete',
   ]),

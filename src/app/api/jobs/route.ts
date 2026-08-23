@@ -40,6 +40,15 @@ export async function POST(request: NextRequest) {
   if (until < parsed.data.startAt) return NextResponse.json({ ok: false, error: 'Generation end must be after the start.' }, { status: 400 })
   const occurrences = generateOccurrences({ startAt: parsed.data.startAt, until, recurrence: parsed.data.recurrence })
   if (!occurrences.length) return NextResponse.json({ ok: false, error: 'Recurrence did not generate any visits.' }, { status: 400 })
+  if (assigneeIds.length) {
+    const finish = new Date(Math.max(...occurrences.map((start) => start.getTime() + duration * 60_000)))
+    const availability = await prisma.availability.findMany({
+      where: { organizationId: auth.user.organizationId, userId: { in: assigneeIds }, cancelledAt: null, startsAt: { lt: finish }, endsAt: { gt: occurrences[0] } },
+      include: { user: { select: { name: true, email: true } } },
+    })
+    const conflicts = availability.filter((entry) => occurrences.some((start) => start < entry.endsAt && new Date(start.getTime() + duration * 60_000) > entry.startsAt))
+    if (conflicts.length) return NextResponse.json({ ok: false, error: 'An assigned worker is unavailable for one or more generated visits.', code: 'ASSIGNEE_UNAVAILABLE', data: conflicts.map((entry) => ({ user: entry.user.name ?? entry.user.email, startsAt: entry.startsAt, endsAt: entry.endsAt, reason: entry.reason })) }, { status: 409 })
+  }
 
   const job = await prisma.$transaction(async (tx) => {
     const created = await tx.job.create({ data: {

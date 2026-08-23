@@ -81,6 +81,45 @@ async function executionVisit(options: { evidence?: boolean; assigned?: boolean 
 }
 
 describe('field execution', () => {
+  it('tracks non-visit work and breaks online or through the offline queue', async () => {
+    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+      kind: 'office',
+      startedAt: '2026-08-24T07:00:00.000Z',
+      latitude: 53.3498,
+      longitude: -6.2603,
+      clientMutationId: 'general-start-online-0001',
+    })
+    expect(started.status).toBe(201)
+    expect(started.body.data).toEqual(expect.objectContaining({ kind: 'office', status: 'running' }))
+    expect(started.body.data.locationEvents).toHaveLength(1)
+
+    const duplicate = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+      kind: 'office', clientMutationId: 'general-start-online-0001',
+    })
+    expect(duplicate.status).toBe(200)
+    expect(duplicate.body.duplicate).toBe(true)
+
+    const parallel = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'break' })
+    expect(parallel.status).toBe(409)
+    expect(parallel.body.code).toBe('TIMER_ALREADY_RUNNING')
+    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T07:30:00.000Z' })).status).toBe(200)
+
+    const synced = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'offline-timesheet-device',
+      operations: [
+        { clientMutationId: 'general-start-offline-0001', type: 'time.start', entityId: 'break', clientCreatedAt: '2026-08-24T08:00:00.000Z', payload: {} },
+        { clientMutationId: 'general-stop-offline-0001', type: 'time.stop', entityId: 'general-start-offline-0001', clientCreatedAt: '2026-08-24T08:15:00.000Z', payload: { startMutationId: 'general-start-offline-0001' } },
+      ],
+    })
+    expect(synced.status).toBe(200)
+    expect(synced.body.results.map((result: { status: string }) => result.status)).toEqual(['processed', 'processed'])
+
+    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', employeeCookie)
+    expect(mine.status).toBe(200)
+    expect(mine.body.data.map((entry: { kind: string }) => entry.kind).sort()).toEqual(['break', 'office'])
+    expect(mine.body.data.every((entry: { status: string }) => entry.status === 'completed')).toBe(true)
+  })
+
   it('starts idempotently, prevents parallel timers, and stops with verified GPS', async () => {
     const first = await executionVisit()
     const started = await request(app).post(`/api/visits/${first.visit.id}/start`).set('Cookie', employeeCookie).send({
@@ -153,6 +192,41 @@ describe('field execution', () => {
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
     expect(approved.body.data.status).toBe('approved')
+  })
+
+  it('lets a worker review a minimized location history and request a fair correction', async () => {
+    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+      kind: 'office', startedAt: '2026-08-24T07:00:00.000Z', latitude: 53.3498, longitude: -6.2603,
+    })
+    expect(started.status).toBe(201)
+    await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T07:15:00.000Z' })
+    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', employeeCookie)
+    expect(mine.status).toBe(200)
+    expect(mine.body.data[0].locationEvents[0]).not.toHaveProperty('latitude')
+    const dispute = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', employeeCookie).send({ reason: 'The reading was taken at the site entrance, not away from work.' })
+    expect(dispute.status).toBe(201)
+    expect(dispute.body.data.status).toBe('open')
+    const forbidden = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', adminCookie).send({ reason: 'Trying to submit a correction for someone else.' })
+    expect(forbidden.status).toBe(403)
+    const resolved = await request(app).patch(`/api/time-entry-disputes/${dispute.body.data.id}`).set('Cookie', adminCookie).send({ decision: 'accepted', resolution: 'Confirmed against the supervisor record.' })
+    expect(resolved.status).toBe(200)
+    expect(resolved.body.data.status).toBe('accepted')
+  })
+
+  it('keeps the original completion when a supervisor sends visit evidence back for rework', async () => {
+    const { visit } = await executionVisit()
+    const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const result = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
+    expect((await request(app).patch(`/api/visits/${visit.id}/tasks/${result.id}`).set('Cookie', employeeCookie).send({ version: result.version, status: 'done' })).status).toBe(200)
+    expect((await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
+    const rework = await request(app).post(`/api/visits/${visit.id}/review`).set('Cookie', adminCookie).send({ decision: 'rework_requested', note: 'Please add a final photo of the reception area.' })
+    expect(rework.status).toBe(200)
+    expect(rework.body.rework).toBe(true)
+    const detail = await request(app).get(`/api/visits/${visit.id}`).set('Cookie', adminCookie)
+    expect(detail.body.data.status).toBe('in_progress')
+    expect(detail.body.data.completedAt).toBeTruthy()
+    expect(detail.body.data.reopenedAt).toBeTruthy()
+    expect(detail.body.data.reviews[0]).toEqual(expect.objectContaining({ decision: 'rework_requested' }))
   })
 
   it('blocks completion until required tasks and evidence are genuinely complete', async () => {
@@ -313,6 +387,19 @@ describe('field execution', () => {
     const stock = await request(app).get(`/api/sites/${site.id}/stock`).set('Cookie', employeeCookie)
     expect(stock.status).toBe(200)
     expect(stock.body.data.find((item: { id: string }) => item.id === emptyItem.id).state).toBe('out')
+    const offlineCount = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'offline-stock-device',
+      operations: [{
+        clientMutationId: 'offline-stock-count-0001',
+        type: 'material.stock.count',
+        entityId: site.id,
+        clientCreatedAt: '2026-08-24T10:00:00.000Z',
+        payload: { visitId: visit.id, source: 'visit', lines: [{ catalogItemId: healthyItem.id, quantity: 8 }] },
+      }],
+    })
+    expect(offlineCount.status).toBe(200)
+    expect(offlineCount.body.results[0].status).toBe('processed')
+    expect((await prisma.siteStockLevel.findUniqueOrThrow({ where: { siteId_catalogItemId: { siteId: site.id, catalogItemId: healthyItem.id } } })).onHand).toBe(8)
     const control = await request(app).get('/api/materials/control').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
     expect(control.body.data.summary).toEqual(expect.objectContaining({ outOfStock: 1, openRequests: 1 }))
@@ -325,6 +412,7 @@ describe('field execution', () => {
       visitId: visit.id,
       type: 'spot_check',
       summary: 'Post-service quality review',
+      clientVisible: true,
       items: [
         { category: 'Hygiene', title: 'Washrooms meet standard', weight: 4, critical: true, result: 'fail', finding: 'Soap residue on basins' },
         { category: 'Presentation', title: 'Bins and liners are ready', weight: 1, critical: false, result: 'pass' },
@@ -335,6 +423,16 @@ describe('field execution', () => {
     expect(inspection.body.data.passed).toBe(false)
     expect(inspection.body.data.actions).toHaveLength(1)
     expect(inspection.body.data.actions[0].severity).toBe('critical')
+
+    const clientReport = await request(app).get(`/api/quality/inspections/${inspection.body.data.id}/client-report`).set('Cookie', adminCookie)
+    expect(clientReport.status).toBe(200)
+    expect(clientReport.body.data).toEqual(expect.objectContaining({
+      client: site.client.displayName,
+      site: site.name,
+      score: 20,
+      status: 'follow_up_in_progress',
+    }))
+    expect(JSON.stringify(clientReport.body.data)).not.toContain('employee@ds.ie')
 
     let action = inspection.body.data.actions[0]
     const accepted = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
