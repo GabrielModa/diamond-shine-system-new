@@ -2031,13 +2031,12 @@ button,
 /* Product-area navigation: a small set of decision-oriented doors instead of a long row of pages. */
 .top-nav .nav-links { align-items: center; flex-wrap: nowrap; gap: 6px; }
 .nav-workspace-menu { position: relative; }
-.nav-workspace-menu summary { display: flex; align-items: center; gap: 7px; min-height: 40px; padding: 8px 11px; color: #344251; border: 1px solid transparent; border-radius: 11px; cursor: pointer; font-size: .83rem; font-weight: 800; list-style: none; white-space: nowrap; }
-.nav-workspace-menu summary::-webkit-details-marker { display: none; }
-.nav-workspace-menu summary span { color: var(--surface-muted); font-size: .9rem; }
-.nav-workspace-menu:hover summary, .nav-workspace-menu[open] summary { border-color: var(--border); background: #f7f8fc; }
-.nav-workspace-menu.active summary { color: #fff; border-color: #5145d6; background: linear-gradient(120deg, #4338ca, #6657e8); box-shadow: 0 8px 18px rgb(79 70 229 / 24%); }
-.nav-workspace-menu.active summary span { color: #e6e3ff; }
-.nav-workspace-panel { position: absolute; top: calc(100% + 10px); left: 0; z-index: 60; display: grid; gap: 4px; width: 265px; padding: 10px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: var(--shadow-strong); }
+.nav-workspace-menu > button { display: flex; align-items: center; gap: 7px; min-height: 40px; padding: 8px 11px; color: #344251; border: 1px solid transparent; border-radius: 11px; background: transparent; box-shadow: none; cursor: pointer; font-size: .83rem; font-weight: 800; white-space: nowrap; }
+.nav-workspace-menu > button span { color: var(--surface-muted); font-size: .9rem; }
+.nav-workspace-menu > button:hover, .nav-workspace-menu > button[aria-expanded="true"] { border-color: var(--border); background: #f7f8fc; }
+.nav-workspace-menu > button.active { color: #fff; border-color: #5145d6; background: linear-gradient(120deg, #4338ca, #6657e8); box-shadow: 0 8px 18px rgb(79 70 229 / 24%); }
+.nav-workspace-menu > button.active span { color: #e6e3ff; }
+.nav-workspace-panel { position: absolute; top: calc(100% + 10px); left: 0; z-index: 100; display: grid; gap: 4px; width: 265px; padding: 10px; border: 1px solid var(--border); border-radius: 16px; background: #fff; box-shadow: var(--shadow-strong); }
 .nav-workspace-panel p { margin: 3px 6px 8px; color: var(--surface-muted); font-size: .72rem; line-height: 1.35; }
 .nav-workspace-panel .nav-workspace-link { padding: 10px 11px; border-radius: 10px; background: transparent; font-size: .83rem; font-weight: 750; }
 .nav-workspace-panel .nav-workspace-link:hover { background: #f0f2f9; }
@@ -2047,6 +2046,32 @@ button,
 .nav-mobile-group small { padding: 0 12px; color: var(--surface-muted); font-size: .72rem; line-height: 1.35; }
 .nav-mobile-group .nav-section-label { display: block; margin: 4px 12px 0; }
 .nav-mobile-group .nav-link { display: block; }
+
+/* Dispatch uses a contained sheet, so calendar context stays visible while a job is created. */
+.schedule-overlay { z-index: 90; align-items: flex-start; overflow-y: auto; padding: 40px 20px; }
+.schedule-sheet { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); width: min(860px, 96vw); margin: auto; gap: 14px; padding: 24px; background: #fff; }
+.schedule-sheet > header, .schedule-sheet > .team-picker, .schedule-sheet > footer { grid-column: 1 / -1; }
+.schedule-sheet > header, .schedule-sheet > footer { display: flex; align-items: flex-start; justify-content: space-between; gap: 16px; }
+.schedule-sheet h2, .schedule-sheet p { margin: 3px 0 0; }
+.schedule-sheet > label { display: grid; gap: 6px; color: var(--surface-muted); font-size: .78rem; font-weight: 850; }
+.team-picker { margin: 0; padding: 0; border: 0; }
+.team-picker legend { margin-bottom: 8px; color: var(--text); font-size: .88rem; font-weight: 900; }
+.team-picker legend span { margin-left: 7px; color: var(--surface-muted); font-size: .75rem; font-weight: 700; }
+.team-picker > div { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.team-picker label { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 2px 8px; align-items: center; min-height: 58px; padding: 9px; border: 1px solid var(--border); border-radius: 11px; cursor: pointer; }
+.team-picker label.selected { border-color: #63a276; background: #eef8f0; }
+.team-picker input { width: 17px; height: 17px; grid-row: span 2; accent-color: var(--primary); }
+.team-picker b, .team-picker small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.team-picker small { color: var(--surface-muted); font-size: .7rem; text-transform: capitalize; }
+.schedule-sheet footer { align-items: center; padding-top: 4px; }
+
+@media (max-width: 700px) {
+  .schedule-overlay { padding: 12px; }
+  .schedule-sheet { grid-template-columns: 1fr; padding: 18px; }
+  .schedule-sheet > header, .schedule-sheet > footer { align-items: stretch; flex-direction: column; }
+  .schedule-sheet footer .btn-primary { width: 100%; }
+  .team-picker > div { grid-template-columns: 1fr; }
+}
 
 @media (max-width: 860px) {
   .top-nav {
@@ -2063,8 +2088,8 @@ button,
 
 @media (min-width: 861px) and (max-width: 1180px) {
   .top-nav .nav-brand { min-width: 122px; }
-  .nav-workspace-menu summary { padding-inline: 8px; font-size: .76rem; }
-  .nav-workspace-menu summary span { display: none; }
+  .nav-workspace-menu > button { padding-inline: 8px; font-size: .76rem; }
+  .nav-workspace-menu > button span { display: none; }
 }
 
 /* Global purple-grey polish */
