@@ -69,6 +69,8 @@ describe('jobs and visits', () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const first = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'First', startAt: '2026-08-24T08:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id] })
+    const duplicateAssignment = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'Double booked', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 60, recurrence: { frequency: 'once' }, assigneeIds: [employee.id] })
+    expect(duplicateAssignment.status).toBe(409); expect(duplicateAssignment.body.code).toBe('ASSIGNEE_OVERLAP')
     const second = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'Second', startAt: '2026-08-24T13:00:00.000Z', durationMinutes: 60, recurrence: { frequency: 'once' } })
     const firstVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: first.body.data.id } })
     const secondVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: second.body.data.id } })

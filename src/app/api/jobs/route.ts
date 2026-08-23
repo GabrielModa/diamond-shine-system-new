@@ -42,12 +42,20 @@ export async function POST(request: NextRequest) {
   if (!occurrences.length) return NextResponse.json({ ok: false, error: 'Recurrence did not generate any visits.' }, { status: 400 })
   if (assigneeIds.length) {
     const finish = new Date(Math.max(...occurrences.map((start) => start.getTime() + duration * 60_000)))
-    const availability = await prisma.availability.findMany({
-      where: { organizationId: auth.user.organizationId, userId: { in: assigneeIds }, cancelledAt: null, startsAt: { lt: finish }, endsAt: { gt: occurrences[0] } },
-      include: { user: { select: { name: true, email: true } } },
-    })
+    const [availability, assignedVisits] = await Promise.all([
+      prisma.availability.findMany({
+        where: { organizationId: auth.user.organizationId, userId: { in: assigneeIds }, cancelledAt: null, startsAt: { lt: finish }, endsAt: { gt: occurrences[0] } },
+        include: { user: { select: { name: true, email: true } } },
+      }),
+      prisma.visitAssignment.findMany({
+        where: { organizationId: auth.user.organizationId, userId: { in: assigneeIds }, status: { not: 'removed' }, visit: { status: { notIn: ['cancelled', 'completed', 'missed'] }, scheduledStart: { lt: finish }, scheduledEnd: { gt: occurrences[0] } } },
+        include: { user: { select: { name: true, email: true } }, visit: { select: { scheduledStart: true, scheduledEnd: true, site: { select: { name: true, client: { select: { displayName: true } } } } } } },
+      }),
+    ])
     const conflicts = availability.filter((entry) => occurrences.some((start) => start < entry.endsAt && new Date(start.getTime() + duration * 60_000) > entry.startsAt))
     if (conflicts.length) return NextResponse.json({ ok: false, error: 'An assigned worker is unavailable for one or more generated visits.', code: 'ASSIGNEE_UNAVAILABLE', data: conflicts.map((entry) => ({ user: entry.user.name ?? entry.user.email, startsAt: entry.startsAt, endsAt: entry.endsAt, reason: entry.reason })) }, { status: 409 })
+    const assignmentConflicts = assignedVisits.filter((assignment) => occurrences.some((start) => start < assignment.visit.scheduledEnd && new Date(start.getTime() + duration * 60_000) > assignment.visit.scheduledStart))
+    if (assignmentConflicts.length) return NextResponse.json({ ok: false, error: 'An assigned worker already has work during one or more generated visits.', code: 'ASSIGNEE_OVERLAP', data: assignmentConflicts.map((assignment) => ({ user: assignment.user.name ?? assignment.user.email, startsAt: assignment.visit.scheduledStart, endsAt: assignment.visit.scheduledEnd, site: `${assignment.visit.site.client.displayName} · ${assignment.visit.site.name}` })) }, { status: 409 })
   }
 
   const job = await prisma.$transaction(async (tx) => {
