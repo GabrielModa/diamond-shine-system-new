@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import ListControls from '../ui/ListControls'
 
 type Job = {
   id: string
@@ -30,6 +31,8 @@ export default function WorkOrdersWorkspace() {
   const [jobs, setJobs] = useState<Job[]>([])
   const [query, setQuery] = useState('')
   const [status, setStatus] = useState<'all' | 'active' | 'paused'>('all')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [message, setMessage] = useState<string | null>(null)
@@ -42,8 +45,8 @@ export default function WorkOrdersWorkspace() {
   useEffect(() => { void refresh() }, [refresh])
   const visible = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    return jobs.filter((job) => (status === 'all' || job.status === status) && (!needle || `${job.name} ${job.site.name} ${job.site.client.displayName}`.toLowerCase().includes(needle)))
-  }, [jobs, query, status])
+    return jobs.filter((job) => (status === 'all' || job.status === status) && (!needle || `${job.name} ${job.site.name} ${job.site.client.displayName}`.toLowerCase().includes(needle)) && (!from || job.startDate.slice(0, 10) >= from) && (!to || job.startDate.slice(0, 10) <= to))
+  }, [from, jobs, query, status, to])
   const selected = useMemo(() => visible.find((job) => job.id === selectedId) ?? visible[0] ?? null, [selectedId, visible])
   const active = jobs.filter((job) => job.status === 'active').length
   const visits = jobs.reduce((total, job) => total + job._count.visits, 0)
@@ -62,9 +65,9 @@ export default function WorkOrdersWorkspace() {
     {message ? <div className="toast error" role="alert">{message}<button className="notice-close" onClick={() => setMessage(null)}>×</button></div> : null}
     <section className="manager-workspace">
       <div className="manager-list card">
-        <div className="manager-list-toolbar work-orders-toolbar"><div><h2>Work order register</h2><span className="muted">{loading ? 'Loading…' : `${visible.length} result${visible.length === 1 ? '' : 's'}`}</span></div><label className="manager-search"><span className="sr-only">Search work orders</span><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search client, site or work order" /></label></div>
+        <div className="manager-list-toolbar work-orders-toolbar"><div><h2>Work order register</h2><span className="muted">{loading ? 'Loading…' : `${visible.length} result${visible.length === 1 ? '' : 's'}`}</span></div><ListControls query={query} onQueryChange={setQuery} from={from} to={to} onFromChange={setFrom} onToChange={setTo} placeholder="Search client, site or work order…" /></div>
         <div className="filter-chips" aria-label="Filter work orders"><button className={status === 'all' ? 'selected' : ''} onClick={() => setStatus('all')}>All</button><button className={status === 'active' ? 'selected' : ''} onClick={() => setStatus('active')}>Active</button><button className={status === 'paused' ? 'selected' : ''} onClick={() => setStatus('paused')}>Paused</button></div>
-        <div className="manager-table work-orders-table" role="table" aria-label="Work orders">
+        <div className="manager-table work-orders-table scroll-list" role="table" aria-label="Work orders">
           <div className="manager-table-head" role="row"><span>Work order</span><span>Visits</span><span>Service window</span><span>Status</span></div>
           {visible.map((job) => <button className={selected?.id === job.id ? 'manager-row selected' : 'manager-row'} key={job.id} onClick={() => setSelectedId(job.id)}><span><b>{job.name}</b><small>{job.site.client.displayName} · {job.site.name}</small></span><span>{job._count.visits}</span><span>{formatDate(job.startDate)}</span><span className={`status-badge ${job.status === 'active' ? 'Completed' : 'Pending'}`}>{job.status}</span></button>)}
           {!loading && !visible.length ? <div className="empty-state">No work orders match this view.</div> : null}

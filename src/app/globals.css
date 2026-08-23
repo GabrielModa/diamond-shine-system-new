@@ -2444,6 +2444,52 @@ textarea {
 .quality-inspection-form select,
 .quality-inspection-form textarea { max-width: 100%; min-width: 0; }
 
+/* Shared data-density system: every operational list gets predictable search,
+   optional date range and its own safe vertical scroll instead of expanding a page forever. */
+.page-shell, .page-shell *, .card, .card * { min-width: 0; }
+.list-controls { display:flex; align-items:center; justify-content:flex-end; flex-wrap:wrap; gap:8px; width:100%; }
+.list-search-field { display:flex; align-items:center; gap:8px; min-width:min(100%, 270px); padding:0 12px; border:1px solid var(--border); border-radius:12px; background:#fff; color:#657385; }
+.list-search-field span[aria-hidden] { font-size:1.25rem; line-height:1; color:#4e74b8; }
+.list-search-field input { width:100%; min-width:0; padding:10px 0; border:0; outline:0; background:transparent; box-shadow:none; }
+.list-search-field:focus-within { border-color:#7b87ec; box-shadow:0 0 0 3px rgb(123 135 236 / 15%); }
+.list-date-range { display:flex; gap:7px; }
+.list-date-range label { display:grid; grid-template-columns:auto minmax(112px, 1fr); align-items:center; gap:6px; padding:0 9px; border:1px solid var(--border); border-radius:12px; background:#fff; color:var(--surface-muted); font-size:.76rem; font-weight:800; }
+.list-date-range input { min-width:0; padding:8px 0; border:0; background:transparent; box-shadow:none; color:var(--text); font:inherit; }
+.scroll-list { max-height:min(58vh, 660px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.scroll-list::-webkit-scrollbar { width:10px; height:10px; }
+.scroll-list::-webkit-scrollbar-thumb { border:3px solid transparent; border-radius:99px; background:#b7c2d0; background-clip:padding-box; }
+.section-icon { display:grid; place-items:center; width:34px; height:34px; border-radius:11px; color:#a05700; background:#fff4d9; font-size:1rem; }
+.section-icon.violet { color:#5b4fbc; background:#eceaff; }
+.timesheet-filter-row { padding:12px 20px; border-bottom:1px solid var(--border); background:#fbfcfe; }
+.manager-list-toolbar .list-controls { width:auto; flex:1 1 360px; }
+.manager-list-toolbar .list-search-field { min-width:min(100%, 250px); }
+.manager-detail { max-height:calc(100vh - 40px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.operations-list, .admin-list, .field-visit-list, .review-list, .incident-list { min-width:0; }
+.operations-list { max-height:min(58vh, 680px); overflow:auto; overscroll-behavior:contain; scrollbar-gutter:stable; }
+.request-row { border-left:4px solid #c6d2df; }
+.request-row:has(.priority-dot.urgent) { border-left-color:#dc4e40; background:#fffafb; }
+.request-row:has(.priority-dot.normal) { border-left-color:#d68a2b; }
+.request-row:has(.priority-dot.low) { border-left-color:#43a470; }
+.materials-summary .metric-card:nth-child(1) { border-top:4px solid #d74e42; }
+.materials-summary .metric-card:nth-child(2) { border-top:4px solid #d79b2c; }
+.materials-summary .metric-card:nth-child(3) { border-top:4px solid #6975dd; }
+.materials-summary .metric-card:nth-child(4) { border-top:4px solid #4caa79; }
+
+@media (max-width: 900px) {
+  .manager-list-toolbar .list-controls { width:100%; flex-basis:100%; }
+  .scroll-list { max-height:none; overflow:visible; }
+  .operations-list { max-height:none; overflow:visible; }
+  .manager-detail { max-height:none; overflow:visible; }
+}
+
+@media (max-width: 620px) {
+  .list-controls, .list-date-range { width:100%; }
+  .list-search-field { min-width:100%; }
+  .list-date-range label { flex:1; grid-template-columns:1fr; gap:1px; padding:7px 9px; }
+  .list-date-range input { width:100%; }
+  .timesheet-filter-row { padding:12px 14px; }
+}
+
 /* The recurring scheduler supersedes the first-generation create-job sheet. */
 .schedule-overlay:has([aria-labelledby="schedule-job-title"]) { display: none; }
 

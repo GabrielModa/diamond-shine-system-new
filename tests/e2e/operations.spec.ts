@@ -1,4 +1,24 @@
 import { expect, test } from '@playwright/test'
+import { prisma } from '../../src/lib/prisma'
+
+test.afterEach(async () => {
+  const clientIds = (await prisma.client.findMany({
+    where: { displayName: { startsWith: 'E2E Facilities' } },
+    select: { id: true },
+  })).map((client) => client.id)
+  const siteIds = (await prisma.site.findMany({ where: { clientId: { in: clientIds } }, select: { id: true } })).map((site) => site.id)
+
+  await prisma.$transaction([
+    prisma.qualityInspection.deleteMany({ where: { siteId: { in: siteIds } } }),
+    prisma.contract.deleteMany({ where: { clientId: { in: clientIds } } }),
+    prisma.site.deleteMany({ where: { id: { in: siteIds } } }),
+    prisma.client.deleteMany({ where: { id: { in: clientIds } } }),
+  ])
+})
+
+test.afterAll(async () => {
+  await prisma.$disconnect()
+})
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/login')

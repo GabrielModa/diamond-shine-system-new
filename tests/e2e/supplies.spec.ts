@@ -1,4 +1,13 @@
 import { test, expect } from '@playwright/test'
+import { prisma } from '../../src/lib/prisma'
+
+test.afterEach(async () => {
+  await prisma.supplyRequest.deleteMany({ where: { notes: { startsWith: 'E2E supply test:' } } })
+})
+
+test.afterAll(async () => {
+  await prisma.$disconnect()
+})
 
 test.beforeEach(async ({ page }) => {
   await page.goto('/login')
@@ -9,14 +18,15 @@ test.beforeEach(async ({ page }) => {
 })
 
 test('full happy path: employee submits a supply request', async ({ page }) => {
+  const note = `E2E supply test: ${Date.now()}`
   await page.goto('/supplies')
   await expect(page.getByRole('heading', { name: 'Materials control' })).toBeVisible()
   await page.getByRole('button', { name: 'Request', exact: true }).click()
   await expect(page.getByLabel('Client site')).toHaveValue(/.+/)
   await page.getByRole('button', { name: 'normal', exact: true }).click()
   await page.getByLabel('All-purpose cleaner requested quantity').first().fill('3')
-  await page.getByLabel('Reason / delivery note').fill('Unexpected usage after a client event.')
+  await page.getByLabel('Reason / delivery note').fill(note)
   await page.getByRole('button', { name: 'Request 1 material', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Material request created and routed to operations.')
-  await expect(page.getByText('Unexpected usage after a client event.')).toHaveCount(0)
+  await expect(page.getByText(note)).toHaveCount(0)
 })

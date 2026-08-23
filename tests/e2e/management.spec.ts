@@ -18,7 +18,7 @@ test('manager can move through the operational control centre', async ({ page })
   await page.goto('/work-orders', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Work orders', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Work order register', exact: true, level: 2 })).toBeVisible()
-  await expect(page.getByRole('button', { name: 'Active' })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Active', exact: true })).toBeVisible()
 
   await page.goto('/schedule', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Schedule', exact: true, level: 1 })).toBeVisible()

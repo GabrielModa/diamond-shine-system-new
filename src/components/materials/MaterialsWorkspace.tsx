@@ -1,6 +1,7 @@
 'use client'
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import ListControls from '../ui/ListControls'
 
 type Tab = 'overview' | 'count' | 'request' | 'history'
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -57,6 +58,9 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
   const [busy, setBusy] = useState(true)
   const [saving, setSaving] = useState(false)
   const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [requestQuery, setRequestQuery] = useState('')
+  const [requestFrom, setRequestFrom] = useState('')
+  const [requestTo, setRequestTo] = useState('')
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -94,6 +98,22 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
     return groups
   }, {})), [stock])
   const selectedRequestItems = Object.entries(requestQuantities).filter(([, quantity]) => quantity > 0)
+  const visibleRequests = useMemo(() => {
+    const needle = requestQuery.trim().toLowerCase()
+    return requests.filter((request) => {
+      const date = request.createdAt.slice(0, 10)
+      return (!needle || `${request.clientLocation} ${request.status} ${request.priority} ${request.items.map((item) => item.product).join(' ')}`.toLowerCase().includes(needle))
+        && (!requestFrom || date >= requestFrom) && (!requestTo || date <= requestTo)
+    })
+  }, [requests, requestFrom, requestQuery, requestTo])
+  const visibleControlRequests = useMemo(() => {
+    const needle = requestQuery.trim().toLowerCase()
+    return (control?.requests ?? []).filter((request) => {
+      const date = request.createdAt.slice(0, 10)
+      return (!needle || `${request.clientLocation} ${request.status} ${request.priority} ${request.items.map((item) => item.product).join(' ')}`.toLowerCase().includes(needle))
+        && (!requestFrom || date >= requestFrom) && (!requestTo || date <= requestTo)
+    })
+  }, [control, requestFrom, requestQuery, requestTo])
 
   async function submitCount(event: FormEvent) {
     event.preventDefault()
@@ -193,8 +213,8 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
           </section>
           <section className="materials-grid">
             <article className="card">
-              <div className="section-heading"><div><h2>Risk by location</h2><p className="muted">Only items needing attention.</p></div></div>
-              <div className="materials-list">
+              <div className="section-heading"><div><h2>Risk by location</h2><p className="muted">Only items needing attention.</p></div><span className="section-icon" aria-hidden="true">⚠</span></div>
+              <div className="materials-list scroll-list">
                 {control.levels.filter((level) => level.state !== 'healthy').map((level) => (
                   <div className="material-row" key={level.id}>
                     <span className={`material-state ${level.state}`}>{level.state}</span>
@@ -206,8 +226,9 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
               </div>
             </article>
             <article className="card">
-              <div className="section-heading"><div><h2>Replenishment queue</h2><p className="muted">From detection to delivery.</p></div></div>
-              <RequestList requests={control.requests} />
+              <div className="section-heading"><div><h2>Replenishment queue</h2><p className="muted">From detection to delivery.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div>
+              <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" />
+              <RequestList requests={visibleControlRequests} />
             </article>
           </section>
         </>
@@ -256,8 +277,9 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
 
       {!busy && tab === 'history' ? (
         <section className="card">
-          <div className="section-heading"><div><h2>{canManage ? 'Replenishment requests' : 'My requests'}</h2><p className="muted">Visible ownership and progress replace chat follow-ups.</p></div></div>
-          <RequestList requests={requests} />
+          <div className="section-heading"><div><h2>{canManage ? 'Replenishment requests' : 'My requests'}</h2><p className="muted">Visible ownership and progress replace chat follow-ups.</p></div><span className="section-icon" aria-hidden="true">▤</span></div>
+          <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site, status or material…" />
+          <RequestList requests={visibleRequests} />
         </section>
       ) : null}
     </main>
@@ -270,7 +292,7 @@ function SiteSelect({ sites, siteId, setSiteId }: { sites: Site[]; siteId: strin
 
 function RequestList({ requests }: { requests: Supply[] }) {
   if (!requests.length) return <p className="muted empty-copy">No requests in this view.</p>
-  return <div className="materials-list">{requests.map((request) => {
+  return <div className="materials-list scroll-list">{requests.map((request) => {
     const overdue = Boolean(request.dueAt && new Date(request.dueAt) < new Date() && !['Delivered', 'Rejected', 'Cancelled'].includes(request.status))
     return <article className="request-row" key={request.id}>
       <div className="request-row-top"><span className={`priority-dot ${request.priority}`} /> <strong>{request.clientLocation}</strong><span className="status-chip">{request.status}</span></div>
