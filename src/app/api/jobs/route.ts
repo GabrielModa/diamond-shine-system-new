@@ -25,7 +25,7 @@ export async function POST(request: NextRequest) {
 
   const plan = await prisma.servicePlan.findFirst({
     where: { id: parsed.data.servicePlanId, organizationId: auth.user.organizationId, archivedAt: null },
-    include: { site: true, versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
+    include: { site: { include: { preferredAssignees: { orderBy: { priority: 'asc' } } } }, versions: { orderBy: { versionNumber: 'desc' }, take: 1 } },
   })
   if (!plan) return NextResponse.json({ ok: false, error: 'Service plan not found' }, { status: 400 })
   const planVersion = plan.versions[0]

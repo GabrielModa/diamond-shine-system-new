@@ -17,6 +17,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       areas: { orderBy: [{ sortOrder: 'asc' }, { name: 'asc' }] },
       contracts: { include: { contract: true } },
       servicePlans: { where: { archivedAt: null }, orderBy: { updatedAt: 'desc' } },
+      preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } },
     },
   })
   if (!site) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
@@ -40,6 +41,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const contractIds = parsed.data.contractIds ? [...new Set(parsed.data.contractIds)] : null
+  const preferredAssigneeIds = parsed.data.preferredAssigneeIds ? [...new Set(parsed.data.preferredAssigneeIds)] : null
   if (contractIds) {
     const count = await prisma.contract.count({
       where: {
@@ -52,6 +54,10 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     if (count !== contractIds.length) {
       return NextResponse.json({ ok: false, error: 'Every contract must belong to this site client.' }, { status: 400 })
     }
+  }
+  if (preferredAssigneeIds) {
+    const count = await prisma.membership.count({ where: { organizationId: auth.user.organizationId, userId: { in: preferredAssigneeIds }, status: 'active' } })
+    if (count !== preferredAssigneeIds.length) return NextResponse.json({ ok: false, error: 'Every preferred team member must be active in this organization.' }, { status: 400 })
   }
 
   const site = await prisma.$transaction(async (tx) => {
@@ -111,7 +117,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       await tx.contractSite.deleteMany({ where: { siteId: id } })
       await tx.contractSite.createMany({ data: contractIds.map((contractId) => ({ contractId, siteId: id })) })
     }
-    return tx.site.findUniqueOrThrow({ where: { id }, include: { access: true, areas: true } })
+    if (preferredAssigneeIds) {
+      await tx.sitePreferredAssignee.deleteMany({ where: { siteId: id } })
+      if (preferredAssigneeIds.length) await tx.sitePreferredAssignee.createMany({ data: preferredAssigneeIds.map((userId, priority) => ({ organizationId: auth.user.organizationId, siteId: id, userId, priority })) })
+    }
+    return tx.site.findUniqueOrThrow({ where: { id }, include: { access: true, areas: true, preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } } })
   })
   await logAudit(auth.user.email, 'update_site', 'site', id, { version: site.version }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: site })

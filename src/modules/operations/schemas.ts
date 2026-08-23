@@ -49,6 +49,7 @@ export const areaSchema = z.object({
 const siteBaseSchema = z.object({
   clientId: z.string().min(1),
   contractIds: z.array(z.string().min(1)).max(50).default([]),
+  preferredAssigneeIds: z.array(z.string().min(1)).max(50).default([]),
   name: z.string().trim().min(1).max(200),
   addressLine1: z.string().trim().min(1).max(240),
   addressLine2: z.string().trim().max(240).optional().nullable(),

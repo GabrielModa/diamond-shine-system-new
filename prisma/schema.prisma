@@ -30,6 +30,7 @@ model User {
   noticesCreated      OperationalNotice[]          @relation("NoticeCreator")
   noticeRecipients    OperationalNoticeRecipient[]
   availability        Availability[]
+  preferredSites      SitePreferredAssignee[]
 
   @@map("users")
 }
@@ -83,6 +84,7 @@ model Organization {
   operationalNotices   OperationalNotice[]
   noticeRecipients     OperationalNoticeRecipient[]
   availability         Availability[]
+  sitePreferredAssignees SitePreferredAssignee[]
 
   @@map("organizations")
 }
@@ -225,10 +227,27 @@ model Site {
   qualityInspections  QualityInspection[]
   correctiveActions   CorrectiveAction[]
   operationalNotices  OperationalNotice[]
+  preferredAssignees  SitePreferredAssignee[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
   @@map("sites")
+}
+
+model SitePreferredAssignee {
+  id             String       @id @default(cuid())
+  organizationId String
+  siteId         String
+  userId         String
+  priority       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site           Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, userId])
+  @@index([organizationId, siteId, priority])
+  @@map("site_preferred_assignees")
 }
 
 model ContractSite {

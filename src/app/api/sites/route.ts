@@ -33,6 +33,7 @@ export async function GET(request: NextRequest) {
     include: {
       client: { select: { id: true, displayName: true } },
       access: true,
+      preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } },
       _count: { select: { areas: true, servicePlans: true } },
     },
   })
@@ -57,6 +58,11 @@ export async function POST(request: NextRequest) {
   if (!client) return NextResponse.json({ ok: false, error: 'Client not found' }, { status: 400 })
 
   const contractIds = [...new Set(parsed.data.contractIds)]
+  const preferredAssigneeIds = [...new Set(parsed.data.preferredAssigneeIds)]
+  if (preferredAssigneeIds.length) {
+    const count = await prisma.membership.count({ where: { organizationId: auth.user.organizationId, userId: { in: preferredAssigneeIds }, status: 'active' } })
+    if (count !== preferredAssigneeIds.length) return NextResponse.json({ ok: false, error: 'Every preferred team member must be active in this organization.' }, { status: 400 })
+  }
   if (contractIds.length) {
     const count = await prisma.contract.count({
       where: {
@@ -115,8 +121,9 @@ export async function POST(request: NextRequest) {
         })),
       },
       contracts: { create: contractIds.map((contractId) => ({ contractId })) },
+      preferredAssignees: { create: preferredAssigneeIds.map((userId, priority) => ({ organizationId: auth.user.organizationId, userId, priority })) },
     },
-    include: { access: true, areas: { orderBy: { sortOrder: 'asc' } }, client: true },
+    include: { access: true, areas: { orderBy: { sortOrder: 'asc' } }, client: true, preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } },
   })
   await logAudit(auth.user.email, 'create_site', 'site', created.id, {
     clientId: client.id,

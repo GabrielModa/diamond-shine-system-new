@@ -266,11 +266,23 @@ async function seedOperations() {
   const locations = [
     {
       externalId: 'demo-techcorp', client: 'TechCorp Ireland', site: 'Grand Canal Office', addressLine1: '1 Grand Canal Square', city: 'Dublin', postalCode: 'D02 P820',
-      latitude: 53.3441, longitude: -6.2383, startOffsetDays: 0, startMinutes: 9 * 60, workers: [employeeId, mariaId],
+      latitude: 53.3441, longitude: -6.2383, startOffsetDays: 0, startMinutes: 9 * 60, workers: [employeeId, mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
     },
     {
       externalId: 'demo-greenbank', client: 'Green Bank', site: 'Temple Bar Branch', addressLine1: '12 Essex Street East', city: 'Dublin', postalCode: 'D02 TD34',
-      latitude: 53.3452, longitude: -6.2677, startOffsetDays: 1, startMinutes: 18 * 60, workers: [employeeId],
+      latitude: 53.3452, longitude: -6.2677, startOffsetDays: 1, startMinutes: 18 * 60, workers: [employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 1,
+    },
+    {
+      externalId: 'demo-harbourview', client: 'Harbourview Legal', site: 'Docklands Suite', addressLine1: '2 Sir John Rogerson’s Quay', city: 'Dublin', postalCode: 'D02 R296',
+      latitude: 53.3432, longitude: -6.2446, startOffsetDays: 2, startMinutes: 7 * 60 + 30, workers: [mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-liffey', client: 'Liffey Media', site: 'Smithfield Studio', addressLine1: '7 Bow Street', city: 'Dublin', postalCode: 'D07 N9Y0',
+      latitude: 53.3486, longitude: -6.2789, startOffsetDays: 3, startMinutes: 16 * 60, workers: [], preferredWorkers: [employeeId], requiredWorkers: 1,
+    },
+    {
+      externalId: 'demo-rathmines', client: 'Rathmines Health', site: 'Wellness Centre', addressLine1: '18 Lower Rathmines Road', city: 'Dublin', postalCode: 'D06 X7W8',
+      latitude: 53.3257, longitude: -6.2657, startOffsetDays: 4, startMinutes: 13 * 60 + 30, workers: [mariaId, employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 2,
     },
   ]
 
@@ -289,6 +301,9 @@ async function seedOperations() {
     site = site
       ? await prisma.site.update({ where: { id: site.id }, data: siteData })
       : await prisma.site.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site, ...siteData } })
+
+    await prisma.sitePreferredAssignee.deleteMany({ where: { siteId: site.id } })
+    await prisma.sitePreferredAssignee.createMany({ data: location.preferredWorkers.map((userId, priority) => ({ organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, userId, priority })) })
 
     await prisma.siteAccess.upsert({
       where: { siteId: site.id },
@@ -322,8 +337,8 @@ async function seedOperations() {
 
     let plan = await prisma.servicePlan.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
     plan = plan
-      ? await prisma.servicePlan.update({ where: { id: plan.id }, data: { status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.workers.length } })
-      : await prisma.servicePlan.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning', description: 'Area-based routine with evidence on critical outcomes.', status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.workers.length } })
+      ? await prisma.servicePlan.update({ where: { id: plan.id }, data: { status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
+      : await prisma.servicePlan.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning', description: 'Area-based routine with evidence on critical outcomes.', status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
 
     const taskSeed = [
       { area: areas[0], title: 'Clean entrance glass and reception touchpoints', critical: false, evidenceRequired: false },
@@ -342,11 +357,12 @@ async function seedOperations() {
       tasks.push(savedTask)
     }
 
-    const contentHash = `demo-cleaning-v1-${location.externalId}`
+    const contentHash = `demo-cleaning-v2-${location.externalId}-${location.requiredWorkers}`
     let version = await prisma.servicePlanVersion.findFirst({ where: { servicePlanId: plan.id, contentHash } })
     if (!version) {
+      const latestVersion = await prisma.servicePlanVersion.aggregate({ where: { servicePlanId: plan.id }, _max: { versionNumber: true } })
       version = await prisma.servicePlanVersion.create({
-        data: { organizationId: LEGACY_ORGANIZATION_ID, servicePlanId: plan.id, versionNumber: 1, expectedDurationMinutes: 120, requiredWorkers: location.workers.length, snapshot: { name: plan.name, tasks: taskSeed.map((task) => task.title) }, contentHash, publishedBy: adminId },
+        data: { organizationId: LEGACY_ORGANIZATION_ID, servicePlanId: plan.id, versionNumber: (latestVersion._max.versionNumber ?? 0) + 1, expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers, snapshot: { name: plan.name, tasks: taskSeed.map((task) => task.title) }, contentHash, publishedBy: adminId },
       })
     }
     const versionTasks = []
@@ -361,13 +377,13 @@ async function seedOperations() {
     let job = await prisma.job.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
     const scheduledStart = new Date(today.getTime() + location.startOffsetDays * 86_400_000 + location.startMinutes * 60_000)
     job = job
-      ? await prisma.job.update({ where: { id: job.id }, data: { servicePlanId: plan.id, servicePlanVersionId: version.id, status: 'active', startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.workers.length } })
-      : await prisma.job.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, servicePlanId: plan.id, servicePlanVersionId: version.id, name: 'Regular office cleaning', status: 'active', recurrence: { frequency: 'weekly', interval: 1 }, startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.workers.length, instructions: 'Review access notes, complete tasks by area and report shortages before leaving.' } })
+      ? await prisma.job.update({ where: { id: job.id }, data: { servicePlanId: plan.id, servicePlanVersionId: version.id, status: 'active', startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers } })
+      : await prisma.job.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, servicePlanId: plan.id, servicePlanVersionId: version.id, name: 'Regular office cleaning', status: 'active', recurrence: { frequency: 'weekly', interval: 1 }, startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers, instructions: 'Review access notes, complete tasks by area and report shortages before leaving.' } })
     const generationKey = `demo-${scheduledStart.toISOString().slice(0, 10)}`
     const visit = await prisma.visit.upsert({
       where: { jobId_generationKey: { jobId: job.id, generationKey } },
-      update: { scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', requiredWorkers: location.workers.length, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
-      create: { organizationId: LEGACY_ORGANIZATION_ID, jobId: job.id, siteId: site.id, servicePlanVersionId: version.id, scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', sequenceNumber: 1, generationKey, requiredWorkers: location.workers.length, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
+      update: { scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', requiredWorkers: location.requiredWorkers, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, jobId: job.id, siteId: site.id, servicePlanVersionId: version.id, scheduledStart, scheduledEnd: new Date(scheduledStart.getTime() + 120 * 60_000), status: 'dispatched', sequenceNumber: 1, generationKey, requiredWorkers: location.requiredWorkers, dispatchNotes: 'Check location guidance and acknowledge schedule changes before travel.' },
     })
     for (const workerId of location.workers) {
       await prisma.visitAssignment.upsert({

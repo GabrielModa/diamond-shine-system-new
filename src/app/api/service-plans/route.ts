@@ -54,7 +54,7 @@ export async function GET(request: NextRequest) {
     where: { organizationId: auth.user.organizationId, archivedAt: null },
     orderBy: { updatedAt: 'desc' },
     include: {
-      site: { include: { client: { select: { id: true, displayName: true } } } },
+      site: { include: { client: { select: { id: true, displayName: true } }, preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } } },
       contract: { select: { id: true, name: true, reference: true } },
       evidencePolicy: true,
       _count: { select: { tasks: true, versions: true } },
