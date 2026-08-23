@@ -118,7 +118,12 @@ async function seedUsers(hash: string) {
 }
 
 async function seedSupplies() {
-  await prisma.supplyRequest.deleteMany()
+  await prisma.supplyRequest.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  const [sites, visits, catalog] = await Promise.all([
+    prisma.site.findMany({ where: { organizationId: LEGACY_ORGANIZATION_ID }, orderBy: { name: 'asc' } }),
+    prisma.visit.findMany({ where: { organizationId: LEGACY_ORGANIZATION_ID }, orderBy: { scheduledStart: 'asc' } }),
+    prisma.materialCatalogItem.findMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } }),
+  ])
   const lifecycle = ['Requested', 'Triaged', 'Approved', 'Ordered', 'InTransit', 'Delivered'] as const
   const lifecycleNotes = ['Request submitted', 'Request triaged', 'Request approved', 'Order placed', 'Order dispatched', 'Delivery confirmed']
 
@@ -145,6 +150,8 @@ async function seedSupplies() {
     const notes = Math.random() < 0.45 ? NOTES[index % NOTES.length] : null
     const products = sampleProducts()
     const submittedBy = USERS[index % USERS.length].email
+    const site = sites[index % sites.length]
+    const visit = index % 3 === 0 ? visits[index % visits.length] : null
     const statusEvents = lifecycle.slice(0, statusIndex + 1).map((toStatus, step) => ({
       fromStatus: step ? lifecycle[step - 1] : null,
       toStatus,
@@ -155,11 +162,15 @@ async function seedSupplies() {
 
     await prisma.supplyRequest.create({
       data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
         employeeName: EMPLOYEES[index % EMPLOYEES.length],
-        clientLocation: LOCATIONS[index % LOCATIONS.length],
+        clientLocation: site?.name ?? LOCATIONS[index % LOCATIONS.length],
+        siteId: site?.id,
+        visitId: visit?.id,
+        source: visit ? 'visit_check' : index % 4 === 0 ? 'stock_count' : 'manual',
         priority,
         products: JSON.stringify(products),
-        items: { create: products.map((product) => ({ product, quantity: randomInt(1, 5) })) },
+        items: { create: products.map((product) => ({ product, quantity: randomInt(1, 5), catalogItemId: catalog.find((item) => item.name.toLowerCase() === product.toLowerCase())?.id })) },
         statusEvents: { create: statusEvents },
         notes,
         status,
@@ -302,6 +313,23 @@ async function seedOperations() {
       ? await prisma.site.update({ where: { id: site.id }, data: siteData })
       : await prisma.site.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site, ...siteData } })
 
+    await prisma.contact.upsert({
+      where: { id: `demo-contact-${location.externalId}` },
+      update: { clientId: client.id, name: `${location.client} Facilities`, role: 'Facilities manager', email: `facilities@${location.externalId.replace('demo-', '')}.example`, phone: '+353 1 555 01 00', isPrimary: true },
+      create: { id: `demo-contact-${location.externalId}`, clientId: client.id, name: `${location.client} Facilities`, role: 'Facilities manager', email: `facilities@${location.externalId.replace('demo-', '')}.example`, phone: '+353 1 555 01 00', isPrimary: true },
+    })
+    const contractReference = `DS-${String(siteIndex + 1).padStart(3, '0')}-2026`
+    const contract = await prisma.contract.upsert({
+      where: { organizationId_reference: { organizationId: LEGACY_ORGANIZATION_ID, reference: contractReference } },
+      update: { clientId: client.id, name: `${location.client} cleaning agreement`, status: 'active', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'), currency: 'EUR', completionPolicy: { requiresEvidence: true, requiresReviewOnGpsException: true } },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: `${location.client} cleaning agreement`, reference: contractReference, status: 'active', startDate: new Date('2026-01-01'), endDate: new Date('2026-12-31'), currency: 'EUR', completionPolicy: { requiresEvidence: true, requiresReviewOnGpsException: true } },
+    })
+    await prisma.contractSite.upsert({
+      where: { contractId_siteId: { contractId: contract.id, siteId: site.id } },
+      update: {},
+      create: { contractId: contract.id, siteId: site.id },
+    })
+
     await prisma.sitePreferredAssignee.deleteMany({ where: { siteId: site.id } })
     await prisma.sitePreferredAssignee.createMany({ data: location.preferredWorkers.map((userId, priority) => ({ organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, userId, priority })) })
 
@@ -337,8 +365,8 @@ async function seedOperations() {
 
     let plan = await prisma.servicePlan.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
     plan = plan
-      ? await prisma.servicePlan.update({ where: { id: plan.id }, data: { status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
-      : await prisma.servicePlan.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning', description: 'Area-based routine with evidence on critical outcomes.', status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
+      ? await prisma.servicePlan.update({ where: { id: plan.id }, data: { contractId: contract.id, status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
+      : await prisma.servicePlan.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, contractId: contract.id, siteId: site.id, name: 'Regular office cleaning', description: 'Area-based routine with evidence on critical outcomes.', status: 'published', expectedDurationMinutes: 120, requiredWorkers: location.requiredWorkers } })
 
     const taskSeed = [
       { area: areas[0], title: 'Clean entrance glass and reception touchpoints', critical: false, evidenceRequired: false },
@@ -377,8 +405,8 @@ async function seedOperations() {
     let job = await prisma.job.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, name: 'Regular office cleaning' } })
     const scheduledStart = new Date(today.getTime() + location.startOffsetDays * 86_400_000 + location.startMinutes * 60_000)
     job = job
-      ? await prisma.job.update({ where: { id: job.id }, data: { servicePlanId: plan.id, servicePlanVersionId: version.id, status: 'active', startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers } })
-      : await prisma.job.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: site.id, servicePlanId: plan.id, servicePlanVersionId: version.id, name: 'Regular office cleaning', status: 'active', recurrence: { frequency: 'weekly', interval: 1 }, startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers, instructions: 'Review access notes, complete tasks by area and report shortages before leaving.' } })
+      ? await prisma.job.update({ where: { id: job.id }, data: { contractId: contract.id, servicePlanId: plan.id, servicePlanVersionId: version.id, status: 'active', startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers } })
+      : await prisma.job.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, contractId: contract.id, siteId: site.id, servicePlanId: plan.id, servicePlanVersionId: version.id, name: 'Regular office cleaning', status: 'active', recurrence: { frequency: 'weekly', interval: 1 }, startDate: scheduledStart, defaultStartMinutes: location.startMinutes, defaultDurationMin: 120, requiredWorkers: location.requiredWorkers, instructions: 'Review access notes, complete tasks by area and report shortages before leaving.' } })
     const generationKey = `demo-${scheduledStart.toISOString().slice(0, 10)}`
     const visit = await prisma.visit.upsert({
       where: { jobId_generationKey: { jobId: job.id, generationKey } },
@@ -402,6 +430,109 @@ async function seedOperations() {
   }
 }
 
+async function seedOperationalScenarios() {
+  const users = await prisma.user.findMany({ where: { email: { in: USERS.map((user) => user.email) } }, select: { id: true, email: true, name: true } })
+  const byEmail = new Map(users.map((user) => [user.email, user]))
+  const admin = byEmail.get('admin@ds.ie')!
+  const supervisor = byEmail.get('super@ds.ie')!
+  const striker = byEmail.get('employee@ds.ie')!
+  const maria = byEmail.get('maria@ds.ie')!
+  const emma = byEmail.get('emma@ds.ie')!
+  const visits = await prisma.visit.findMany({ where: { organizationId: LEGACY_ORGANIZATION_ID }, include: { site: true, taskResults: true }, orderBy: { scheduledStart: 'asc' } })
+  if (!visits.length) return
+
+  await prisma.correctiveAction.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.qualityInspectionItem.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.qualityInspection.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.visitReview.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.evidenceAsset.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.locationEvent.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.timeEntryDispute.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.timeEntry.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.incident.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.operationalNoticeRecipient.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.operationalNotice.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.availability.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.offlineMutation.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.mobileSession.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.devicePushToken.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.notificationJob.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+  await prisma.auditLog.deleteMany({ where: { organizationId: LEGACY_ORGANIZATION_ID } })
+
+  const now = new Date()
+  const evidenceTargets = visits.slice(0, 3)
+  for (const [index, visit] of visits.entries()) {
+    const worker = [striker, maria, emma][index % 3]
+    const startedAt = new Date(now.getTime() - (index + 2) * 86_400_000 - 2 * 3_600_000)
+    const endedAt = new Date(startedAt.getTime() + (90 + index * 10) * 60_000)
+    const status = index === 1 ? 'needs_review' : index === 3 ? 'approved' : 'completed'
+    const distance = index === 1 ? 920 : index === 2 ? 310 : 42
+    const locationClass = index === 1 ? 'suspicious' : index === 2 ? 'near' : 'verified'
+    const entry = await prisma.timeEntry.create({ data: {
+      organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, userId: worker.id, kind: 'visit', status,
+      startedAt, endedAt, durationSeconds: Math.round((endedAt.getTime() - startedAt.getTime()) / 1000),
+      startLatitude: Number(visit.site.latitude ?? 53.344), startLongitude: Number(visit.site.longitude ?? -6.25), startAccuracyM: 12, startDistanceM: distance, startLocationClass: locationClass,
+      endLatitude: Number(visit.site.latitude ?? 53.344), endLongitude: Number(visit.site.longitude ?? -6.25), endAccuracyM: 10, endDistanceM: Math.max(18, distance - 12), endLocationClass: locationClass,
+      source: index === 2 ? 'offline_sync' : 'mobile', reviewReason: index === 1 ? 'Clock-in recorded outside the site verification band.' : null,
+      approvedBy: status === 'approved' ? supervisor.id : null, approvedAt: status === 'approved' ? now : null,
+    } })
+    await prisma.locationEvent.createMany({ data: [
+      { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, timeEntryId: entry.id, kind: 'clock_in', latitude: Number(visit.site.latitude ?? 53.344), longitude: Number(visit.site.longitude ?? -6.25), accuracyM: 12, distanceM: distance, classification: locationClass, capturedAt: startedAt },
+      { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, timeEntryId: entry.id, kind: 'clock_out', latitude: Number(visit.site.latitude ?? 53.344), longitude: Number(visit.site.longitude ?? -6.25), accuracyM: 10, distanceM: Math.max(18, distance - 12), classification: locationClass, capturedAt: endedAt },
+    ] })
+    if (index === 1) await prisma.timeEntryDispute.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, timeEntryId: entry.id, userId: worker.id, reason: 'I was at the loading bay and GPS drifted outside the building.', status: 'open' } })
+    if (index === 2) await prisma.incident.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, reportedBy: worker.id, category: 'materials', severity: 'high', title: 'Hand soap stock exhausted', description: 'Washroom dispensers were empty before service started. Supply replenishment is required.', status: 'in_progress' } })
+    if (evidenceTargets.includes(visit)) {
+      const task = visit.taskResults[0]
+      if (task) await prisma.evidenceAsset.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, taskResultId: task.id, uploadedBy: worker.id, kind: 'photo', storageKey: `demo/${visit.id}/completion-${index + 1}.jpg`, fileName: `completion-${visit.site.name.toLowerCase().replaceAll(' ', '-')}.jpg`, mimeType: 'image/jpeg', sizeBytes: 242000 + index * 18000, visibility: index === 2 ? 'internal' : 'client_safe', latitude: Number(visit.site.latitude ?? 53.344), longitude: Number(visit.site.longitude ?? -6.25), capturedAt: endedAt, metadata: { demo: true, caption: 'Completion evidence' } } })
+    }
+    if (index === 0 || index === 3) await prisma.visitReview.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, visitId: visit.id, decision: index === 0 ? 'approved' : 'returned', note: index === 0 ? 'All completion evidence and checklist items verified.' : 'Please revisit the kitchen finish before closing.', reviewedBy: supervisor.id } })
+  }
+
+  const inspectionRows = [
+    { visit: visits[0], score: 96, grade: 'A', passed: true, type: 'routine' as const, summary: 'Excellent handover and evidence quality.', result: 'pass' as const, critical: false },
+    { visit: visits[Math.min(2, visits.length - 1)], score: 62, grade: 'D', passed: false, type: 'spot_check' as const, summary: 'Washroom and consumable standards need immediate correction.', result: 'fail' as const, critical: true },
+    { visit: visits[Math.min(3, visits.length - 1)], score: 84, grade: 'B', passed: true, type: 'client_complaint' as const, summary: 'Follow-up completed; minor finish details remain.', result: 'fail' as const, critical: false },
+  ]
+  for (const [index, row] of inspectionRows.entries()) {
+    const inspection = await prisma.qualityInspection.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: row.visit.siteId, visitId: row.visit.id, inspectorId: supervisor.id, type: row.type, status: index === 0 ? 'closed' : 'submitted', score: row.score, grade: row.grade, passed: row.passed, summary: row.summary, clientVisible: index !== 1, inspectedAt: new Date(now.getTime() - (index + 1) * 86_400_000), submittedAt: new Date(now.getTime() - index * 86_400_000), closedAt: index === 0 ? now : null } })
+    const item = await prisma.qualityInspectionItem.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, inspectionId: inspection.id, category: index === 1 ? 'Washrooms' : 'Service finish', title: index === 1 ? 'Washroom hygiene and soap availability' : 'Final quality presentation', weight: 3, result: row.result, score: row.score, critical: row.critical, finding: row.result === 'fail' ? 'Evidence shows a missed standard during inspection.' : 'Standard consistently met.', requiredAction: row.result === 'fail' ? 'Return to site and verify correction.' : null, sortOrder: 0 } })
+    if (row.result === 'fail') await prisma.correctiveAction.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, inspectionId: inspection.id, inspectionItemId: item.id, siteId: row.visit.siteId, visitId: row.visit.id, title: `Correct ${item.title}`, description: 'Resolve the inspection finding and attach evidence before closing.', severity: row.critical ? 'critical' : 'major', status: index === 1 ? 'in_progress' : 'open', assignedToId: maria.id, createdById: supervisor.id, dueAt: new Date(now.getTime() + (index + 1) * 86_400_000), acceptedAt: index === 1 ? now : null } })
+  }
+
+  const notice = await prisma.operationalNotice.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, siteId: visits[0].siteId, visitId: visits[0].id, type: 'site_instruction', priority: 'high', title: 'Reception access changed for evening teams', body: 'Use the loading-bay intercom after 18:00. Do not leave keys with reception.', requiresAcknowledgement: true, createdById: supervisor.id, expiresAt: new Date(now.getTime() + 14 * 86_400_000) } })
+  await prisma.operationalNoticeRecipient.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, noticeId: notice.id, userId: striker.id, seenAt: now, acknowledgedAt: now, acknowledgement: 'Acknowledged — will use the loading-bay route.' },
+    { organizationId: LEGACY_ORGANIZATION_ID, noticeId: notice.id, userId: maria.id },
+    { organizationId: LEGACY_ORGANIZATION_ID, noticeId: notice.id, userId: emma.id, seenAt: now },
+  ] })
+  await prisma.availability.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: striker.id, startsAt: new Date(now.getTime() + 2 * 86_400_000), endsAt: new Date(now.getTime() + 2 * 86_400_000 + 3 * 3_600_000), reason: 'Medical appointment' },
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: maria.id, startsAt: new Date(now.getTime() + 4 * 86_400_000), endsAt: new Date(now.getTime() + 5 * 86_400_000), reason: 'Annual leave' },
+  ] })
+  await prisma.mobileSession.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: striker.id, deviceName: 'Strikerlift — Android', expiresAt: new Date(now.getTime() + 25 * 86_400_000) },
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: maria.id, deviceName: 'Maria — iPhone', expiresAt: new Date(now.getTime() + 20 * 86_400_000) },
+  ] })
+  await prisma.devicePushToken.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: striker.id, token: 'demo-push-strikerlift', platform: 'android', deviceId: 'demo-android-01' },
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: maria.id, token: 'demo-push-maria', platform: 'ios', deviceId: 'demo-ios-01' },
+  ] })
+  await prisma.offlineMutation.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: striker.id, clientMutationId: 'demo-offline-processed', deviceId: 'demo-android-01', mutationType: 'complete_task', entityId: visits[0].id, payload: { task: 'washrooms', result: 'done' }, status: 'processed', result: { synced: true }, clientCreatedAt: new Date(now.getTime() - 3 * 86_400_000), processedAt: new Date(now.getTime() - 3 * 86_400_000 + 2 * 60_000) },
+    { organizationId: LEGACY_ORGANIZATION_ID, userId: maria.id, clientMutationId: 'demo-offline-failed', deviceId: 'demo-ios-01', mutationType: 'upload_evidence', entityId: visits[2].id, payload: { fileName: 'washroom-after.jpg' }, status: 'failed', error: 'Connection ended before upload; retry queued.', clientCreatedAt: new Date(now.getTime() - 86_400_000), processedAt: new Date(now.getTime() - 86_400_000 + 7 * 60_000) },
+  ] })
+  await prisma.notificationJob.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, kind: 'schedule_change', status: 'sent', payload: { message: 'Evening reception access changed', recipients: 3 }, entityType: 'operational_notice', entityId: notice.id, createdBy: supervisor.email, attempts: 1, sentAt: now },
+    { organizationId: LEGACY_ORGANIZATION_ID, kind: 'supply_escalation', status: 'queued', payload: { site: visits[2]?.site.name, item: 'Hand soap', urgency: 'high' }, entityType: 'incident', entityId: visits[2]?.id, createdBy: maria.email, attempts: 0, nextAttemptAt: new Date(now.getTime() + 15 * 60_000) },
+  ] })
+  await prisma.auditLog.createMany({ data: [
+    { organizationId: LEGACY_ORGANIZATION_ID, actorEmail: admin.email, action: 'demo_schedule_review', targetType: 'visit', targetId: visits[0].id, metadata: JSON.stringify({ decision: 'coverage confirmed' }) },
+    { organizationId: LEGACY_ORGANIZATION_ID, actorEmail: supervisor.email, action: 'demo_quality_follow_up', targetType: 'quality_inspection', targetId: 'demo-quality', metadata: JSON.stringify({ action: 'corrective action created' }) },
+    { organizationId: LEGACY_ORGANIZATION_ID, actorEmail: maria.email, action: 'demo_material_shortage', targetType: 'site', targetId: visits[2]?.siteId ?? visits[0].siteId, metadata: JSON.stringify({ category: 'hand soap' }) },
+  ] })
+}
+
 async function main() {
   const hash = await bcrypt.hash(TEST_PASSWORD, 12)
   await prisma.organization.upsert({
@@ -418,6 +549,7 @@ async function main() {
   await seedOperations()
   await seedSupplies()
   await seedFeedback()
+  await seedOperationalScenarios()
 
   await prisma.notificationSetting.upsert({
     where: {
