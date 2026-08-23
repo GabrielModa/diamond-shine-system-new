@@ -2063,7 +2063,16 @@ button,
 .team-picker input { width: 17px; height: 17px; grid-row: span 2; accent-color: var(--primary); }
 .team-picker b, .team-picker small { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .team-picker small { color: var(--surface-muted); font-size: .7rem; text-transform: capitalize; }
+.weekday-picker { grid-column: 1 / -1; display: flex; flex-wrap: wrap; gap: 8px; margin: 0; padding: 0; border: 0; }
+.weekday-picker legend { width: 100%; margin-bottom: 2px; font-size: .86rem; font-weight: 900; }
+.weekday-picker label { display: inline-flex; align-items: center; gap: 6px; padding: 8px 10px; border: 1px solid var(--border); border-radius: 999px; color: var(--text); font-size: .78rem; font-weight: 800; cursor: pointer; }
+.weekday-picker input { accent-color: var(--primary); }
 .schedule-sheet footer { align-items: center; padding-top: 4px; }
+.visit-card.coverage-gap { border-left-color: #d99b26; }
+.visit-coverage { display: block; margin-top: 3px; color: #6c6551 !important; font-size: .68rem !important; font-weight: 850; }
+.visit-team { align-items: center; gap: 5px; }.visit-team .visit-coverage { margin: 0 0 0 5px; white-space: nowrap; }
+.day-schedule-actions { display: flex; align-items: center; gap: 10px; color: var(--surface-muted); font-size: .82rem; }.day-schedule-actions .btn-secondary { min-height: 36px; padding: 6px 10px; }
+.day-schedule .empty-state { display: grid; justify-items: center; gap: 12px; }
 
 @media (max-width: 700px) {
   .schedule-overlay { padding: 12px; }
@@ -2071,6 +2080,7 @@ button,
   .schedule-sheet > header, .schedule-sheet > footer { align-items: stretch; flex-direction: column; }
   .schedule-sheet footer .btn-primary { width: 100%; }
   .team-picker > div { grid-template-columns: 1fr; }
+  .day-schedule-actions { align-items: stretch; flex-direction: column; }
 }
 
 @media (max-width: 860px) {
