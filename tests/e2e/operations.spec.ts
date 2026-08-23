@@ -57,6 +57,7 @@ test('admin builds the operational chain from client to contract and area', asyn
   await page.getByRole('button', { name: 'Add area' }).click()
   await expect(page.getByRole('status')).toContainText('Operational area added')
   await expect(page.getByText(areaName)).toBeVisible()
+  await page.getByRole('dialog').getByRole('button', { name: new RegExp(`Close ${siteName}`) }).click()
 
   await page.getByRole('button', { name: 'Contracts' }).click()
   await page.getByLabel('Client').selectOption({ label: clientName })

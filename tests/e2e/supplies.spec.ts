@@ -23,7 +23,7 @@ test('full happy path: employee submits a supply request', async ({ page }) => {
   await expect(page.getByRole('heading', { name: 'Materials control' })).toBeVisible()
   await page.getByRole('button', { name: 'Request', exact: true }).click()
   await expect(page.getByLabel('Client site')).toHaveValue(/.+/)
-  await page.getByRole('button', { name: 'normal', exact: true }).click()
+  await page.getByRole('button', { name: 'Normal', exact: true }).click()
   await page.getByLabel('All-purpose cleaner requested quantity').first().fill('3')
   await page.getByLabel('Reason / delivery note').fill(note)
   await page.getByRole('button', { name: 'Request 1 material', exact: true }).click()

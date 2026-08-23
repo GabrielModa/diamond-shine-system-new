@@ -260,7 +260,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
           <div className="section-heading"><div><h2>Manual material request</h2><p className="muted">For unexpected needs outside the regular stock count.</p></div></div>
           <SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} />
           <div className="priority-segment" role="group" aria-label="Request priority">
-            {(['urgent', 'normal', 'low'] as const).map((item) => <button type="button" key={item} className={priority === item ? 'active' : ''} onClick={() => setPriority(item)}>{item}</button>)}
+            {(['urgent', 'normal', 'low'] as const).map((item) => <button type="button" key={item} className={`priority-choice ${item} ${priority === item ? 'active' : ''}`} aria-pressed={priority === item} onClick={() => setPriority(item)}><span aria-hidden="true">{item === 'urgent' ? '!' : item === 'normal' ? '•' : '↓'}</span>{item === 'urgent' ? 'Urgent' : item === 'normal' ? 'Normal' : 'Low'}</button>)}
           </div>
           <div className="request-material-grid">
             {catalog.map((item) => (

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import DetailDialog from '../ui/DetailDialog'
 import ListControls from '../ui/ListControls'
 
 type Job = {
@@ -47,7 +48,7 @@ export default function WorkOrdersWorkspace() {
     const needle = query.trim().toLowerCase()
     return jobs.filter((job) => (status === 'all' || job.status === status) && (!needle || `${job.name} ${job.site.name} ${job.site.client.displayName}`.toLowerCase().includes(needle)) && (!from || job.startDate.slice(0, 10) >= from) && (!to || job.startDate.slice(0, 10) <= to))
   }, [from, jobs, query, status, to])
-  const selected = useMemo(() => visible.find((job) => job.id === selectedId) ?? visible[0] ?? null, [selectedId, visible])
+  const selected = useMemo(() => jobs.find((job) => job.id === selectedId) ?? null, [jobs, selectedId])
   const active = jobs.filter((job) => job.status === 'active').length
   const visits = jobs.reduce((total, job) => total + job._count.visits, 0)
 
@@ -63,7 +64,7 @@ export default function WorkOrdersWorkspace() {
       <article className="manager-kpi-action"><strong>Dispatch from the schedule</strong><small>Use the calendar to assign people, time and recurrence.</small></article>
     </section>
     {message ? <div className="toast error" role="alert">{message}<button className="notice-close" onClick={() => setMessage(null)}>×</button></div> : null}
-    <section className="manager-workspace">
+    <section className="manager-workspace manager-workspace-single">
       <div className="manager-list card">
         <div className="manager-list-toolbar work-orders-toolbar"><div><h2>Work order register</h2><span className="muted">{loading ? 'Loading…' : `${visible.length} result${visible.length === 1 ? '' : 's'}`}</span></div><ListControls query={query} onQueryChange={setQuery} from={from} to={to} onFromChange={setFrom} onToChange={setTo} placeholder="Search client, site or work order…" /></div>
         <div className="filter-chips" aria-label="Filter work orders"><button className={status === 'all' ? 'selected' : ''} onClick={() => setStatus('all')}>All</button><button className={status === 'active' ? 'selected' : ''} onClick={() => setStatus('active')}>Active</button><button className={status === 'paused' ? 'selected' : ''} onClick={() => setStatus('paused')}>Paused</button></div>
@@ -73,9 +74,9 @@ export default function WorkOrdersWorkspace() {
           {!loading && !visible.length ? <div className="empty-state">No work orders match this view.</div> : null}
         </div>
       </div>
-      <aside className="manager-detail card" aria-live="polite">
-        {selected ? <><span className="eyebrow">Work order</span><h2>{selected.name}</h2><span className={`status-badge ${selected.status === 'active' ? 'Completed' : 'Pending'}`}>{selected.status}</span><dl><div><dt>Client</dt><dd>{selected.site.client.displayName}</dd></div><div><dt>Site</dt><dd>{selected.site.name}, {selected.site.city}</dd></div><div><dt>Visits</dt><dd>{selected._count.visits}</dd></div><div><dt>Plan version</dt><dd>v{selected.servicePlanVersion?.versionNumber ?? '—'}</dd></div><div><dt>Default visit</dt><dd>{selected.defaultDurationMin} min · {selected.requiredWorkers} worker{selected.requiredWorkers === 1 ? '' : 's'}</dd></div><div><dt>Service through</dt><dd>{formatDate(selected.endDate)}</dd></div></dl><a className="btn-primary full-width" href="/schedule">Open dispatch calendar →</a><a className="btn-secondary full-width" href="/operations">Review service setup →</a></> : <div className="empty-state">Select a work order to inspect its delivery setup.</div>}
-      </aside>
     </section>
+    <DetailDialog open={Boolean(selected)} title={selected?.name ?? 'Work order'} eyebrow="Work order" onClose={() => setSelectedId(null)}>
+      {selected ? <div className="manager-detail"><span className={`status-badge ${selected.status === 'active' ? 'Completed' : 'Pending'}`}>{selected.status}</span><dl><div><dt>Client</dt><dd>{selected.site.client.displayName}</dd></div><div><dt>Site</dt><dd>{selected.site.name}, {selected.site.city}</dd></div><div><dt>Visits</dt><dd>{selected._count.visits}</dd></div><div><dt>Plan version</dt><dd>v{selected.servicePlanVersion?.versionNumber ?? '—'}</dd></div><div><dt>Default visit</dt><dd>{selected.defaultDurationMin} min · {selected.requiredWorkers} worker{selected.requiredWorkers === 1 ? '' : 's'}</dd></div><div><dt>Service through</dt><dd>{formatDate(selected.endDate)}</dd></div></dl><a className="btn-primary full-width" href="/schedule">Open dispatch calendar →</a><a className="btn-secondary full-width" href="/operations">Review service setup →</a></div> : null}
+    </DetailDialog>
   </main>
 }

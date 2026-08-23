@@ -10,3 +10,6 @@ tsconfig.tsbuildinfo
 prisma/dev.db
 prisma/test.db
 .data/
+
+.next-integration/
+debug.log

@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import DetailDialog from '../ui/DetailDialog'
 import ListControls from '../ui/ListControls'
 
 type Contact = { id: string; name: string; email?: string | null; phone?: string | null; isPrimary: boolean }
@@ -26,7 +27,7 @@ export default function ClientsWorkspace() {
   }, [search])
 
   useEffect(() => { const timer = window.setTimeout(() => { void refresh() }, 180); return () => window.clearTimeout(timer) }, [refresh])
-  const selected = useMemo(() => clients.find((client) => client.id === selectedId) ?? clients[0] ?? null, [clients, selectedId])
+  const selected = useMemo(() => clients.find((client) => client.id === selectedId) ?? null, [clients, selectedId])
   const active = clients.filter((client) => client.status === 'active').length
   const sites = clients.reduce((total, client) => total + client._count.sites, 0)
 
@@ -42,7 +43,7 @@ export default function ClientsWorkspace() {
       <article className="manager-kpi-action"><strong>Keep records clean</strong><small>Search before creating a client to prevent duplicates.</small></article>
     </section>
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage(null)}>×</button></div> : null}
-    <section className="manager-workspace">
+    <section className="manager-workspace manager-workspace-single">
       <div className="manager-list card">
         <div className="manager-list-toolbar"><div><h2>All clients</h2><span className="muted">{loading ? 'Loading…' : `${clients.length} result${clients.length === 1 ? '' : 's'}`}</span></div><ListControls query={search} onQueryChange={setSearch} placeholder="Search client, company or site…" /></div>
         <div className="manager-table scroll-list" role="table" aria-label="Clients">
@@ -51,9 +52,9 @@ export default function ClientsWorkspace() {
           {!loading && !clients.length ? <div className="empty-state">No clients match this search.</div> : null}
         </div>
       </div>
-      <aside className="manager-detail card" aria-live="polite">
-        {selected ? <><span className="eyebrow">Client record</span><h2>{selected.displayName}</h2><span className={`status-badge ${selected.status === 'active' ? 'Completed' : 'Pending'}`}>{selected.status}</span><dl><div><dt>Sites</dt><dd>{selected._count.sites}</dd></div><div><dt>Service records</dt><dd>{selected._count.contracts}</dd></div><div><dt>Billing</dt><dd>{selected.billingEmail || 'Not set'}</dd></div><div><dt>Phone</dt><dd>{selected.phone || 'Not set'}</dd></div></dl><section><h3>Primary contact</h3>{selected.contacts.filter((contact) => contact.isPrimary).map((contact) => <p key={contact.id}><b>{contact.name}</b><br /><span className="muted">{contact.email || contact.phone || 'Contact details not set'}</span></p>)}{!selected.contacts.some((contact) => contact.isPrimary) ? <p className="muted">No primary contact recorded.</p> : null}</section><a className="btn-secondary full-width" href="/operations">Open service setup →</a></> : <div className="empty-state">Select a client to see its operational record.</div>}
-      </aside>
     </section>
+    <DetailDialog open={Boolean(selected)} title={selected?.displayName ?? 'Client record'} eyebrow="Client record" onClose={() => setSelectedId(null)}>
+      {selected ? <div className="manager-detail"><span className={`status-badge ${selected.status === 'active' ? 'Completed' : 'Pending'}`}>{selected.status}</span><dl><div><dt>Sites</dt><dd>{selected._count.sites}</dd></div><div><dt>Service records</dt><dd>{selected._count.contracts}</dd></div><div><dt>Billing</dt><dd>{selected.billingEmail || 'Not set'}</dd></div><div><dt>Phone</dt><dd>{selected.phone || 'Not set'}</dd></div></dl><section><h3>Primary contact</h3>{selected.contacts.filter((contact) => contact.isPrimary).map((contact) => <p key={contact.id}><b>{contact.name}</b><br /><span className="muted">{contact.email || contact.phone || 'Contact details not set'}</span></p>)}{!selected.contacts.some((contact) => contact.isPrimary) ? <p className="muted">No primary contact recorded.</p> : null}</section><a className="btn-secondary full-width" href="/operations">Open service setup →</a></div> : null}
+    </DetailDialog>
   </main>
 }
