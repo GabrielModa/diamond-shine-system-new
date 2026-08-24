@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import type { SupplyRequest } from '../../types'
+import { useDialogFocus } from './useDialogFocus'
 
 const PRIORITY_STYLES: Record<
   SupplyRequest['priority'],
@@ -12,11 +13,26 @@ const PRIORITY_STYLES: Record<
   low: { emoji: '🟢', color: '#28a745', bg: '#f0fff4', label: 'LOW' },
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  }[character] ?? character))
+}
+
 function buildEmailBody(request: SupplyRequest): string {
   const priority = PRIORITY_STYLES[request.priority]
-  const notesRow = request.notes ? `<tr><td>Notes</td><td>${request.notes}</td></tr>` : ''
+  const notesRow = request.notes ? `<tr><td>Notes</td><td>${escapeHtml(request.notes)}</td></tr>` : ''
   const date = new Date(request.createdAt).toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })
-  const productsHtml = request.products.map((p) => `<div class="product-item">• ${p}</div>`).join('')
+  const items = request.items?.length ? request.items : request.products.map((product) => ({ product, quantity: 1 }))
+  const productsHtml = items.map((item) => `<div class="product-item">• ${escapeHtml(item.product)} × ${item.quantity}</div>`).join('')
+  const employeeName = escapeHtml(request.employeeName)
+  const clientLocation = escapeHtml(request.clientLocation)
+  const submittedBy = escapeHtml(request.submittedBy)
+  const requestId = escapeHtml(request.id)
 
   return `<!DOCTYPE html>
 <html lang="en-IE">
@@ -47,19 +63,19 @@ function buildEmailBody(request: SupplyRequest): string {
       <p>Supplies Management System</p>
     </div>
     <div class="priority-banner">
-      <h2>${priority.emoji} ${priority.label} PRIORITY <span class="pill">${request.id}</span></h2>
+      <h2>${priority.emoji} ${priority.label} PRIORITY <span class="pill">${requestId}</span></h2>
     </div>
     <div class="info-card">
       <table class="info-table">
-        <tr><td>Employee</td><td><strong>${request.employeeName}</strong></td></tr>
-        <tr><td>Location</td><td>${request.clientLocation}</td></tr>
+        <tr><td>Employee</td><td><strong>${employeeName}</strong></td></tr>
+        <tr><td>Location</td><td>${clientLocation}</td></tr>
         <tr><td>Products</td><td><div class="products-list">${productsHtml}</div></td></tr>
         ${notesRow}
-        <tr><td>Submitted by</td><td>${request.submittedBy}</td></tr>
+        <tr><td>Submitted by</td><td>${submittedBy}</td></tr>
         <tr><td>Date/Time</td><td>${date}</td></tr>
       </table>
     </div>
-    <div class="footer">Request ID: <b>${request.id}</b> | Diamond Shine Automated System</div>
+    <div class="footer">Request ID: <b>${requestId}</b> | Diamond Shine Automated System</div>
   </div>
 </body>
 </html>`
@@ -67,17 +83,24 @@ function buildEmailBody(request: SupplyRequest): string {
 
 type EmailModalProps = {
   open: boolean
+  active: boolean
   request: SupplyRequest | null
   onClose: () => void
   onSend: (payload: { clientEmail: string; subject: string; htmlBody: string }) => Promise<void>
 }
 
-export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) {
+export function EmailModal({ open, active, request, onClose, onSend }: EmailModalProps) {
+  const dialogRef = useDialogFocus(active)
   const [clientEmail, setClientEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')
   const [mode, setMode] = useState<'edit' | 'preview'>('edit')
   const priority = request ? PRIORITY_STYLES[request.priority] : null
+  const displayItems = request
+    ? request.items?.length
+      ? request.items
+      : request.products.map((product) => ({ product, quantity: 1 }))
+    : []
 
   const defaults = useMemo(() => {
     if (!request) return { subject: '', body: '' }
@@ -106,10 +129,11 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!active}
     >
-      <div className="modal-card modal-wide zoom-in">
+      <div ref={dialogRef} tabIndex={-1} className="modal-card modal-wide zoom-in" role="dialog" aria-modal="true" aria-labelledby="email-modal-title">
         <div className="modal-header">
-          <h3>📧 Send Email to Client</h3>
+          <h3 id="email-modal-title">📧 Send Email to Client</h3>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>
@@ -128,7 +152,7 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
               </div>
               <div>
                 <div className="muted">Products</div>
-                <div>{request.products.join(', ')}</div>
+                <div>{displayItems.map((item) => `${item.product} × ${item.quantity}`).join(', ')}</div>
               </div>
               <div>
                 <div className="muted">Priority</div>
@@ -166,6 +190,7 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
             type="button"
             className={`email-tab${mode === 'edit' ? ' active' : ''}`}
             onClick={() => setMode('edit')}
+            aria-pressed={mode === 'edit'}
           >
             Edit HTML
           </button>
@@ -173,6 +198,7 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
             type="button"
             className={`email-tab${mode === 'preview' ? ' active' : ''}`}
             onClick={() => setMode('preview')}
+            aria-pressed={mode === 'preview'}
           >
             Preview
           </button>
@@ -190,7 +216,7 @@ export function EmailModal({ open, request, onClose, onSend }: EmailModalProps) 
 
         {mode === 'preview' ? (
           <div className="email-preview">
-            <iframe title="Email preview" className="email-preview-frame" srcDoc={displayedBody} />
+            <iframe title="Email preview" className="email-preview-frame" sandbox="" srcDoc={displayedBody} />
           </div>
         ) : null}
 

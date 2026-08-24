@@ -4,10 +4,15 @@ import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 
+const safeHtml = z.string().min(1).refine(
+  (value) => !/<script\b|javascript:|\son[a-z]+\s*=/i.test(value),
+  'Unsafe HTML is not allowed'
+)
+
 const bodySchema = z.object({
   key: z.string().min(1),
   subject: z.string().min(1),
-  body: z.string().min(1),
+  body: safeHtml,
 })
 
 const DEFAULT_TEMPLATES = [
@@ -19,7 +24,12 @@ const DEFAULT_TEMPLATES = [
   {
     key: 'user_invite',
     subject: 'You are invited to Diamond Shine',
-    body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine. Use the temporary password below to log in:</p><p><b>Password:</b> {{tempPassword}}</p><p>Login here: <a href="{{inviteUrl}}">{{inviteUrl}}</a></p>',
+    body: '<p>Hello {{name}},</p><p>You have been invited to Diamond Shine.</p><p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>',
+  },
+  {
+    key: 'password_reset',
+    subject: 'Reset your Diamond Shine password',
+    body: '<p>Hello {{name}},</p><p><a href="{{resetUrl}}">Reset your password</a>. This secure link expires in 24 hours and can only be used once.</p><p>If you did not request this, you can ignore this email.</p>',
   },
 ]
 
@@ -28,19 +38,17 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
 
-  const existing = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
-  if (existing.length === 0) {
-    await prisma.emailTemplate.createMany({ data: DEFAULT_TEMPLATES })
-  } else {
-    for (const template of DEFAULT_TEMPLATES) {
-      await prisma.emailTemplate.upsert({
-        where: { key: template.key },
-        update: {},
-        create: template,
-      })
-    }
-  }
-  const templates = await prisma.emailTemplate.findMany({ orderBy: { createdAt: 'desc' } })
+  await prisma.emailTemplate.createMany({
+    data: DEFAULT_TEMPLATES.map((template) => ({
+      ...template,
+      organizationId: auth.user.organizationId,
+    })),
+    skipDuplicates: true,
+  })
+  const templates = await prisma.emailTemplate.findMany({
+    where: { organizationId: auth.user.organizationId },
+    orderBy: { createdAt: 'desc' },
+  })
   return NextResponse.json({ ok: true, data: templates })
 }
 
@@ -55,12 +63,29 @@ export async function PUT(request: NextRequest) {
   }
 
   const updated = await prisma.emailTemplate.upsert({
-    where: { key: parsed.data.key },
+    where: {
+      organizationId_key: {
+        organizationId: auth.user.organizationId,
+        key: parsed.data.key,
+      },
+    },
     update: { subject: parsed.data.subject, body: parsed.data.body },
-    create: { key: parsed.data.key, subject: parsed.data.subject, body: parsed.data.body },
+    create: {
+      organizationId: auth.user.organizationId,
+      key: parsed.data.key,
+      subject: parsed.data.subject,
+      body: parsed.data.body,
+    },
   })
 
-  await logAudit(auth.user.email, 'update_template', 'template', updated.id, { key: updated.key })
+  await logAudit(
+    auth.user.email,
+    'update_template',
+    'template',
+    updated.id,
+    { key: updated.key },
+    auth.user.organizationId
+  )
 
   return NextResponse.json({ ok: true, data: updated })
 }

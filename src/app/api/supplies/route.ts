@@ -1,28 +1,39 @@
 import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
-import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
-import { sendSuppliesNotification } from '../../../lib/email'
+import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
 import { logAudit } from '../../../lib/audit'
+import { calculateSupplyDueAt } from '../../../lib/business-logic'
+import { assignedVisitFilter } from '../../../modules/execution/access'
+
+const itemSchema = z.object({
+  catalogItemId: z.string().min(1).optional(),
+  product: z.string().min(1).optional(),
+  quantity: z.number().int().min(1).max(999),
+}).refine((value) => Boolean(value.catalogItemId || value.product), 'Material is required')
 
 const createSchema = z.object({
-  employeeName: z.string().min(1),
-  clientLocation: z.enum(CLIENT_LOCATIONS),
+  employeeName: z.string().min(1).optional(),
+  clientLocation: z.string().min(1).max(200).optional(),
+  siteId: z.string().optional(),
+  visitId: z.string().optional(),
   priority: z.enum(['urgent', 'normal', 'low']),
-  products: z.array(z.string()).min(1),
+  items: z.array(itemSchema).min(1).optional(),
+  products: z.array(z.string()).min(1).optional(),
   notes: z.string().max(500).optional(),
-})
+}).refine((value) => Boolean(value.items?.length || value.products?.length), { message: 'At least one item is required' })
 
 const querySchema = z.object({
-  status: z.enum(['pending', 'email-sent', 'completed']).optional(),
+  status: z.enum(['requested', 'triaged', 'approved', 'ordered', 'in-transit', 'delivered', 'rejected', 'cancelled']).optional(),
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
+  mine: z.enum(['true', 'false']).optional(),
   page: z.coerce.number().int().min(1).default(1),
-  limit: z.coerce.number().int().min(1).max(100).default(20),
+  limit: z.coerce.number().int().min(1).max(200).default(20),
 })
 
 export async function POST(request: NextRequest) {
@@ -35,40 +46,92 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
+  const requestedItems: Array<{ catalogItemId?: string; product?: string; quantity: number }> =
+    parsed.data.items ?? parsed.data.products!.map((product) => ({ product, quantity: 1 }))
+  const catalogIds = requestedItems.map((item) => item.catalogItemId).filter((id): id is string => Boolean(id))
+  const catalog = catalogIds.length ? await prisma.materialCatalogItem.findMany({
+    where: { organizationId: auth.user.organizationId, active: true, id: { in: catalogIds } },
+  }) : []
+  if (catalog.length !== new Set(catalogIds).size) {
+    return NextResponse.json({ ok: false, error: 'One or more materials are unavailable' }, { status: 400 })
+  }
+  const catalogById = new Map(catalog.map((item) => [item.id, item]))
+  const items = requestedItems.map((item) => ({
+    catalogItemId: item.catalogItemId,
+    product: item.catalogItemId ? catalogById.get(item.catalogItemId)!.name : item.product!,
+    quantity: item.quantity,
+  }))
+  if (new Set(items.map((item) => item.catalogItemId ?? item.product)).size !== items.length) {
+    return NextResponse.json({ ok: false, error: 'Duplicate products are not allowed' }, { status: 400 })
+  }
+  let site = parsed.data.siteId ? await prisma.site.findFirst({
+    where: { id: parsed.data.siteId, organizationId: auth.user.organizationId, archivedAt: null },
+  }) : null
+  if (parsed.data.siteId && !site) return NextResponse.json({ ok: false, error: 'Site not found' }, { status: 404 })
+  if (parsed.data.visitId) {
+    const visit = await prisma.visit.findFirst({
+      where: { id: parsed.data.visitId, organizationId: auth.user.organizationId, ...assignedVisitFilter(auth.user) },
+      include: { site: true },
+    })
+    if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found' }, { status: 404 })
+    if (site && site.id !== visit.siteId) return NextResponse.json({ ok: false, error: 'Visit does not belong to this site' }, { status: 400 })
+    site = visit.site
+  }
+  const clientLocation = site?.name ?? parsed.data.clientLocation
+  if (!clientLocation) return NextResponse.json({ ok: false, error: 'A site or client location is required' }, { status: 400 })
+
   const created = await prisma.supplyRequest.create({
     data: {
-      employeeName: parsed.data.employeeName,
-      clientLocation: parsed.data.clientLocation,
+      organizationId: auth.user.organizationId,
+      employeeName: parsed.data.employeeName ?? auth.user.name ?? auth.user.email,
+      clientLocation,
       priority: parsed.data.priority,
-      products: JSON.stringify(parsed.data.products),
+      products: JSON.stringify(items.map((item) => item.product)),
+      items: { create: items },
+      statusEvents: {
+        create: { toStatus: 'Requested', actorEmail: auth.user.email, note: 'Request submitted' },
+      },
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
-      status: 'Pending',
+      status: 'Requested',
+      dueAt: calculateSupplyDueAt(parsed.data.priority),
+      siteId: site?.id,
+      visitId: parsed.data.visitId,
+      source: parsed.data.visitId ? 'visit' : 'manual',
     },
   })
 
-  void sendSuppliesNotification({
+  const notification = await enqueueNotification({
+    organizationId: auth.user.organizationId,
+    kind: 'supply_alert',
+    createdBy: auth.user.email,
+    entityType: 'supply',
+    entityId: created.id,
+    payload: {
     id: created.id,
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
     priority: created.priority,
-    products: parsed.data.products,
+    products: items.map((item) => item.product),
+    items,
     notes: created.notes ?? undefined,
     submittedBy: created.submittedBy,
-    createdAt: created.createdAt,
+    createdAt: created.createdAt.toISOString(),
+    },
   })
 
   await logAudit(auth.user.email, 'create_supply', 'supply', created.id, {
     employeeName: created.employeeName,
     priority: created.priority,
-  })
+    notificationJobId: notification.id,
+  }, auth.user.organizationId)
 
-  return NextResponse.json({ ok: true, data: { id: created.id } }, { status: 201 })
+  return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
 
 export async function GET(request: NextRequest) {
   console.log('[API /api/supplies GET]')
-  const auth = await requireAuth(request, ['admin', 'supervisor'])
+  const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
   if ('response' in auth) return auth.response
 
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
@@ -76,15 +139,18 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
   }
 
-  const where: Prisma.SupplyRequestWhereInput = {}
+  const where: Prisma.SupplyRequestWhereInput = {
+    organizationId: auth.user.organizationId,
+  }
+
+  if (auth.user.role === 'employee' || parsed.data.mine === 'true') {
+    where.submittedBy = auth.user.email
+  }
 
   if (parsed.data.status) {
-    where.status =
-      parsed.data.status === 'pending'
-        ? 'Pending'
-        : parsed.data.status === 'email-sent'
-          ? 'EmailSent'
-          : 'Completed'
+    where.status = parsed.data.status === 'in-transit'
+      ? 'InTransit'
+      : parsed.data.status.charAt(0).toUpperCase() + parsed.data.status.slice(1)
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
   if (parsed.data.search) {
@@ -97,14 +163,31 @@ export async function GET(request: NextRequest) {
   const skip = (parsed.data.page - 1) * parsed.data.limit
   const [total, items] = await Promise.all([
     prisma.supplyRequest.count({ where }),
-    prisma.supplyRequest.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
+    prisma.supplyRequest.findMany({
+      where,
+      include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
+      orderBy: { createdAt: 'desc' },
+      skip,
+      take: parsed.data.limit,
+    }),
   ])
 
-  const mappedItems = items.map((item) => ({
-    ...item,
-    status: dbStatusToLabel(item.status as 'Pending' | 'EmailSent' | 'Completed'),
-    products: parseStringArray(item.products),
-  }))
+  const mappedItems = items.map((item) => {
+    const products = parseStringArray(item.products)
+    return {
+      ...item,
+      status: dbStatusToLabel(item.status as import('../../../lib/mappers').DbSupplyStatus),
+      products,
+      items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+      history: item.statusEvents.map((event) => ({
+        ...event,
+        toStatus: dbStatusToLabel(event.toStatus as import('../../../lib/mappers').DbSupplyStatus),
+        fromStatus: event.fromStatus
+          ? dbStatusToLabel(event.fromStatus as import('../../../lib/mappers').DbSupplyStatus)
+          : null,
+      })),
+    }
+  })
 
   return NextResponse.json({
     ok: true,

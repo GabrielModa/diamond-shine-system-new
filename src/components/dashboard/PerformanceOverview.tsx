@@ -3,7 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeedbackEntry } from '../../types'
-import { consecutiveExcellent } from '../../lib/business-logic'
+import { calculateFeedbackTrend, consecutiveExcellent } from '../../lib/business-logic'
+import { useDialogFocus } from './useDialogFocus'
 
 type PerformanceOverviewProps = {
   feedback: FeedbackEntry[]
@@ -21,6 +22,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
   const [profileOpen, setProfileOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null)
   const [mounted, setMounted] = useState(false)
+  const profileRef = useDialogFocus(profileOpen)
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300)
@@ -52,6 +54,16 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
     const excellentCount = feedback.filter((item) => item.overall >= 4.6).length
     return { totalEmployees, totalEvaluations, averageRating, excellentCount }
   }, [employees.length, feedback])
+
+  const trend = useMemo(() => calculateFeedbackTrend(feedback), [feedback])
+  const needsAttention = useMemo(() => employees
+    .map((employee) => ({
+      ...employee,
+      average: employee.evaluations.reduce((sum, entry) => sum + entry.overall, 0) / employee.evaluations.length,
+    }))
+    .filter((employee) => employee.average < 4)
+    .sort((a, b) => a.average - b.average)
+    .slice(0, 3), [employees])
 
   const matches = useMemo(() => {
     if (debounced.length < 2) return [] as EmployeeSummary[]
@@ -133,6 +145,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
         </h2>
         <input
           type="search"
+          aria-label="Search employee performance"
           placeholder="Search employee..."
           value={query}
           onChange={(event) => setQuery(event.target.value)}
@@ -157,7 +170,29 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
             <div className="muted">🏆 Excellent ratings</div>
             <div>{aggregate.excellentCount}</div>
           </div>
+          <div className="metric-card trend-metric">
+            <div className="muted">📈 30-day trend</div>
+            <div className={trend.delta === null ? '' : trend.delta >= 0 ? 'trend-positive' : 'trend-negative'}>
+              {trend.delta === null ? '—' : `${trend.delta >= 0 ? '+' : ''}${trend.delta.toFixed(1)}`}
+            </div>
+            <small>{trend.currentCount} recent evaluations</small>
+          </div>
         </div>
+      ) : null}
+
+      {debounced.length < 2 && needsAttention.length > 0 ? (
+        <section className="attention-list" aria-labelledby="coaching-title">
+          <div className="section-heading">
+            <h3 id="coaching-title">Needs coaching</h3>
+            <span className="muted">Average below 4.0</span>
+          </div>
+          {needsAttention.map((employee) => (
+            <button key={employee.name} type="button" className="attention-row" onClick={() => { setSelectedEmployee(employee); setProfileOpen(true) }}>
+              <span>{employee.name}</span>
+              <strong>{employee.average.toFixed(1)}</strong>
+            </button>
+          ))}
+        </section>
       ) : null}
 
       {debounced.length >= 2 ? (
@@ -185,17 +220,18 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
         ? createPortal(
             <div
               className={`overlay${profileOpen ? ' active' : ''}`}
+              aria-hidden={!profileOpen}
               onClick={(event) => {
                 if (event.target === event.currentTarget) setProfileOpen(false)
               }}
             >
-              <div className="overlay-sheet detail-sheet fade-up">
+              <div ref={profileRef} tabIndex={-1} className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="employee-profile-title">
                 <div className="sheet-header">
-                  <h2>
+                  <h2 id="employee-profile-title">
                     <span className="title-icon">👤</span>
                     {selectedEmployee ? selectedEmployee.name : 'Employee Profile'}
                   </h2>
-                  <button type="button" className="icon-btn" onClick={() => setProfileOpen(false)}>
+                  <button type="button" className="icon-btn" onClick={() => setProfileOpen(false)} aria-label="Close employee profile">
                     ✕
                   </button>
                 </div>

@@ -18,6 +18,8 @@ import {
   sendSuppliesNotification,
   sendFeedbackNotification,
   sendClientNotification,
+  sendPasswordReset,
+  sendUserInvite,
 } from '../../src/lib/email'
 
 async function spySendMail(rejectWith?: Error) {
@@ -35,6 +37,7 @@ const supplyBase: SupplyEmailData = {
   clientLocation: 'TechCorp Office - Dublin 2',
   priority: 'urgent',
   products: ['All-purpose cleaner', 'Rubber gloves'],
+  items: [{ product: 'All-purpose cleaner', quantity: 3 }, { product: 'Rubber gloves', quantity: 2 }],
   notes: 'Need before 9am',
   submittedBy: 'emma@ds.ie',
 }
@@ -102,6 +105,38 @@ describe('sendSuppliesNotification', () => {
     const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
     expect(html).toContain('TechCorp Office - Dublin 2')
   })
+
+  it('escapes dynamic HTML and strips header line breaks', async () => {
+    const sendMail = await spySendMail()
+    await sendSuppliesNotification({
+      ...supplyBase,
+      employeeName: 'Emma\r\nBcc: attacker@example.com',
+      notes: '<script>alert(1)</script>',
+    })
+    const message = sendMail.mock.calls[0]?.[0]
+    expect(message?.subject).not.toMatch(/[\r\n]/)
+    expect(message?.html).toContain('&lt;script&gt;alert(1)&lt;/script&gt;')
+    expect(message?.html).not.toContain('<script>alert(1)</script>')
+  })
+})
+
+describe('sendPasswordReset', () => {
+  it('sends a one-time reset link to the account email', async () => {
+    const sendMail = await spySendMail()
+    await sendPasswordReset({
+      to: 'emma@ds.ie',
+      name: 'Emma Employee',
+      resetUrl: 'https://diamondshine.ie/reset-password?token=secret',
+    })
+    expect(sendMail.mock.calls[0]?.[0]?.to).toBe('emma@ds.ie')
+    expect(sendMail.mock.calls[0]?.[0]?.html).toContain('/reset-password?token=secret')
+  })
+
+  it('html body contains requested quantities', async () => {
+    const sendMail = await spySendMail()
+    await sendSuppliesNotification(supplyBase)
+    expect(sendMail.mock.calls[0]?.[0]?.html).toContain('All-purpose cleaner × 3')
+  })
 })
 
 describe('sendFeedbackNotification', () => {
@@ -127,6 +162,28 @@ describe('sendFeedbackNotification', () => {
     await sendFeedbackNotification(feedbackBase)
     const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
     expect(html).toContain('4.75')
+  })
+
+  it('escapes feedback comments before rendering email HTML', async () => {
+    const sendMail = await spySendMail()
+    await sendFeedbackNotification({ ...feedbackBase, comments: '<img src=x onerror=alert(1)>' })
+    const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
+    expect(html).not.toContain('<img src=x onerror=alert(1)>')
+  })
+})
+
+describe('templated authentication emails', () => {
+  it('escapes invite variables without removing template markup', async () => {
+    const sendMail = await spySendMail()
+    await sendUserInvite({
+      to: 'new@ds.ie',
+      name: '<img src=x onerror=alert(1)>',
+      inviteUrl: 'https://diamondshine.ie/set-password?token=safe',
+    })
+    const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
+    expect(html).toContain('<a href="https://diamondshine.ie/set-password?token=safe">')
+    expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })
 

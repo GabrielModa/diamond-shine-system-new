@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ApiResponse, FeedbackEntry, SupplyRequest, SupplyPriority, SupplyStatus } from '../../../types'
 import { OverlayManager } from '../../../components/dashboard/OverlayManager'
 import { SuppliesStats } from '../../../components/dashboard/SuppliesStats'
@@ -15,7 +15,7 @@ import { ActivityFeed } from '../../../components/dashboard/ActivityFeed'
 type DashboardResponse = {
   supplies: {
     total: number
-    byStatus: { pending: number; emailSent: number; completed: number }
+    byStatus: { requested: number; triaged: number; approved: number; ordered: number; inTransit: number; delivered: number; rejected: number; cancelled: number }
     byPriority: { urgent: number; normal: number; low: number }
     mostRequestedProduct: string
     recent: SupplyRequest[]
@@ -28,15 +28,22 @@ type DashboardResponse = {
   }
 }
 
-const WARNING_MESSAGE =
-  '⚠️ This request has not been emailed to the client. Mark as completed without sending email?'
-const COMPLETE_MESSAGE = '✅ Mark as completed? This cannot be undone.'
-
 type ListPreset = {
   period?: 'all' | '7' | '30' | '90' | 'month'
   location?: string
   employee?: string
   search?: string
+  overdue?: boolean
+  unassigned?: boolean
+}
+
+type Assignee = { email: string; name: string | null; role: string; status: string }
+
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const payload = (await res.json()) as ApiResponse<T>
+  if (!res.ok || !payload.ok || !payload.data) throw new Error(payload.error || 'Request failed')
+  return payload.data
 }
 
 export default function DashboardPage() {
@@ -55,27 +62,21 @@ export default function DashboardPage() {
   const [lastUpdated, setLastUpdated] = useState<Date | null>(null)
   const [syncing, setSyncing] = useState(false)
   const [newSupplies, setNewSupplies] = useState(0)
+  const [assignees, setAssignees] = useState<Assignee[]>([])
 
-  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(url, {
-      credentials: 'include',
-      cache: 'no-store',
-      ...options,
-    })
-    const payload = (await res.json()) as ApiResponse<T>
-    if (!payload.ok || !payload.data) {
-      throw new Error(payload.error || 'Request failed')
-    }
-    return payload.data
-  }
+  const showToast = useCallback((type: 'success' | 'error', message: string) => {
+    setToast({ type, message })
+    setTimeout(() => setToast(null), 3000)
+  }, [])
 
-  async function refreshAll() {
+  const refreshAll = useCallback(async () => {
     setLoading(true)
     try {
-      const [dashboardRes, suppliesRes, feedbackRes] = await Promise.allSettled([
+      const [dashboardRes, suppliesRes, feedbackRes, usersRes] = await Promise.allSettled([
         fetchJson<DashboardResponse>('/api/dashboard'),
         fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200'),
         fetchJson<{ items: FeedbackEntry[] }>('/api/feedback'),
+        fetchJson<Assignee[]>('/api/users'),
       ])
 
       if (dashboardRes.status === 'fulfilled') {
@@ -99,12 +100,15 @@ export default function DashboardPage() {
         const fallback = dashboardRes.status === 'fulfilled' ? dashboardRes.value.feedback.recent : []
         setFeedback(fallback)
       }
+      if (usersRes.status === 'fulfilled') {
+        setAssignees(usersRes.value.filter((user) => user.status === 'active' && (user.role === 'admin' || user.role === 'supervisor')))
+      }
     } catch {
       setToast({ type: 'error', message: 'Failed to load dashboard data.' })
     } finally {
       setLoading(false)
     }
-  }
+  }, [showToast])
 
   async function refreshSuppliesOnly() {
     try {
@@ -126,7 +130,7 @@ export default function DashboardPage() {
     }
   }
 
-  async function refreshActivityOnly() {
+  const refreshActivityOnly = useCallback(async () => {
     setSyncing(true)
     try {
       const [suppliesRes, feedbackRes] = await Promise.allSettled([
@@ -154,23 +158,18 @@ export default function DashboardPage() {
     } finally {
       setSyncing(false)
     }
-  }
+  }, [showToast, supplies])
 
   useEffect(() => {
     void refreshAll()
-  }, [])
+  }, [refreshAll])
 
   useEffect(() => {
     const interval = setInterval(() => {
       void refreshActivityOnly()
     }, 120000)
     return () => clearInterval(interval)
-  }, [])
-
-  function showToast(type: 'success' | 'error', message: string) {
-    setToast({ type, message })
-    setTimeout(() => setToast(null), 3000)
-  }
+  }, [refreshActivityOnly])
 
   const mostRequested = dashboard?.supplies.mostRequestedProduct ?? ''
 
@@ -268,6 +267,7 @@ export default function DashboardPage() {
 
           <SupplyListSheet
             open={overlay.isOpen('list')}
+            active={overlay.isTop('list')}
             title={listTitle}
             requests={supplies}
             filter={listFilter}
@@ -282,72 +282,58 @@ export default function DashboardPage() {
               setSelectedSupply(request)
               overlay.open('email')
             }}
-            onMarkComplete={(request) => {
-              setSelectedSupply(request)
-              const message = request.status !== 'Email Sent' ? WARNING_MESSAGE : COMPLETE_MESSAGE
-              setConfirm({
-                message,
-                action: async () => {
-                  await fetch(`/api/supplies/${request.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
-                  })
-                  await refreshAll()
-                  showToast('success', 'Request completed.')
-                },
-              })
-              overlay.open('confirm')
-            }}
           />
 
           <SupplyDetailSheet
             open={overlay.isOpen('detail') && detailType === 'supply'}
+            active={overlay.isTop('detail') && detailType === 'supply'}
             request={detailType === 'supply' ? selectedSupply : null}
             onClose={() => overlay.closeTop('outside')}
             onSendEmail={() => overlay.open('email')}
-            onCompleteWithoutEmail={() => {
+            onTransition={(status) => {
               if (!selectedSupply) return
               setConfirm({
-                message: WARNING_MESSAGE,
+                message: `${status === 'Rejected' || status === 'Cancelled' ? '⛔' : '→'} Move this request from ${selectedSupply.status} to ${status}?`,
                 action: async () => {
-                  await fetch(`/api/supplies/${selectedSupply.id}/status`, {
+                  await fetchJson(`/api/supplies/${selectedSupply.id}/status`, {
                     method: 'PATCH',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
+                    body: JSON.stringify({ status }),
                   })
                   await refreshAll()
-                  showToast('success', 'Request completed.')
+                  showToast('success', `Request moved to ${status}.`)
                 },
               })
               overlay.open('confirm')
             }}
-            onMarkCompleted={() => {
+            assignees={assignees}
+            onAssign={async (assigneeEmail) => {
               if (!selectedSupply) return
-              setConfirm({
-                message: COMPLETE_MESSAGE,
-                action: async () => {
-                  await fetch(`/api/supplies/${selectedSupply.id}/status`, {
-                    method: 'PATCH',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ status: 'Completed' }),
-                  })
-                  await refreshAll()
-                  showToast('success', 'Request completed.')
-                },
-              })
-              overlay.open('confirm')
+              try {
+                const result = await fetchJson<{ id: string; assignedTo: string | null }>(`/api/supplies/${selectedSupply.id}/assign`, {
+                  method: 'PATCH',
+                  headers: { 'Content-Type': 'application/json' },
+                  body: JSON.stringify({ assigneeEmail }),
+                })
+                setSelectedSupply((current) => current ? { ...current, assignedTo: result.assignedTo ?? undefined } : current)
+                setSupplies((current) => current.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item))
+                showToast('success', result.assignedTo ? 'Responsible person assigned.' : 'Request unassigned.')
+              } catch (error) {
+                showToast('error', error instanceof Error ? error.message : 'Failed to assign request.')
+              }
             }}
           />
 
           <FeedbackDetailSheet
             open={overlay.isOpen('detail') && detailType === 'feedback'}
+            active={overlay.isTop('detail') && detailType === 'feedback'}
             entry={detailType === 'feedback' ? selectedFeedback : null}
             onClose={() => overlay.closeTop('outside')}
           />
 
           <EmailModal
             open={overlay.isOpen('email')}
+            active={overlay.isTop('email')}
             request={selectedSupply}
             onClose={() => overlay.closeTop('outside')}
             onSend={async ({ clientEmail, subject, htmlBody }) => {
@@ -358,17 +344,12 @@ export default function DashboardPage() {
                   headers: { 'Content-Type': 'application/json' },
                   body: JSON.stringify({ clientEmail, subject, htmlBody }),
                 })
-                const payload = (await res.json()) as ApiResponse<{ id: string; sent: boolean }>
+                const payload = (await res.json()) as ApiResponse<{ id: string; queued: boolean; notificationJobId: string }>
                 if (!res.ok || !payload.ok) {
                   showToast('error', payload.error || 'Failed to send email.')
                   return
                 }
-                showToast(
-                  payload.data?.sent ? 'success' : 'error',
-                  payload.data?.sent
-                    ? 'Email sent successfully.'
-                    : 'Email could not be sent. Please check SMTP settings.'
-                )
+                showToast('success', 'Email queued for delivery. You can track it in Communications.')
                 overlay.closeAll()
                 await refreshAll()
               } catch {
@@ -379,6 +360,7 @@ export default function DashboardPage() {
 
           <ConfirmModal
             open={overlay.isOpen('confirm')}
+            active={overlay.isTop('confirm')}
             message={confirm?.message ?? ''}
             onClose={() => overlay.closeTop('outside')}
             onConfirm={async () => {

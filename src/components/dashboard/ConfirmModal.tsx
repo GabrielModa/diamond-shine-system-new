@@ -1,13 +1,18 @@
 'use client'
 
+import { useDialogFocus } from './useDialogFocus'
+
 type ConfirmModalProps = {
   open: boolean
+  active: boolean
   message: string
   onConfirm: () => void
   onClose: () => void
 }
 
-export function ConfirmModal({ open, message, onConfirm, onClose }: ConfirmModalProps) {
+export function ConfirmModal({ open, active, message, onConfirm, onClose }: ConfirmModalProps) {
+  const dialogRef = useDialogFocus(active)
+
   return (
     <div
       id="confirmModal"
@@ -15,9 +20,10 @@ export function ConfirmModal({ open, message, onConfirm, onClose }: ConfirmModal
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!active}
     >
-      <div className="modal-card zoom-in">
-        <h3>Confirm Action</h3>
+      <div ref={dialogRef} tabIndex={-1} className="modal-card zoom-in" role="alertdialog" aria-modal="true" aria-labelledby="confirm-title" aria-describedby="confirmMessage">
+        <h3 id="confirm-title">Confirm Action</h3>
         <p id="confirmMessage" className="muted">
           {message}
         </p>

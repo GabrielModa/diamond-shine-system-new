@@ -1,6 +1,7 @@
 'use client'
 
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
+import { calculateSupplyOperationsMetrics, isSupplyOverdue } from '../../lib/business-logic'
 
 type SuppliesStatsProps = {
   requests: SupplyRequest[]
@@ -10,7 +11,7 @@ type SuppliesStatsProps = {
   onOpenList: (
     filter: { priority?: SupplyPriority; status?: SupplyStatus },
     title: string,
-    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string }
+    preset?: { period?: 'all' | '7' | '30' | '90' | 'month'; search?: string; overdue?: boolean; unassigned?: boolean }
   ) => void
 }
 
@@ -25,17 +26,23 @@ function countThisMonth(requests: SupplyRequest[]) {
 }
 
 export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, newCount = 0, onOpenList }: SuppliesStatsProps) {
-  const pending = requests.filter((item) => item.status === 'Pending')
-  const urgentCount = pending.filter((item) => item.priority === 'urgent').length
-  const normalCount = pending.filter((item) => item.priority === 'normal').length
-  const lowCount = pending.filter((item) => item.priority === 'low').length
+  const requested = requests.filter((item) => item.status === 'Requested')
+  const urgentCount = requested.filter((item) => item.priority === 'urgent').length
+  const normalCount = requested.filter((item) => item.priority === 'normal').length
+  const lowCount = requested.filter((item) => item.priority === 'low').length
 
-  const statusCounts = {
-    all: requests.length,
-    pending: pending.length,
-    emailSent: requests.filter((item) => item.status === 'Email Sent').length,
-    completed: requests.filter((item) => item.status === 'Completed').length,
-  }
+  const statusOptions: Array<{ status: SupplyStatus; icon: string }> = [
+    { status: 'Requested', icon: '🆕' },
+    { status: 'Triaged', icon: '🔎' },
+    { status: 'Approved', icon: '👍' },
+    { status: 'Ordered', icon: '🛒' },
+    { status: 'In transit', icon: '🚚' },
+    { status: 'Delivered', icon: '✅' },
+    { status: 'Rejected', icon: '⛔' },
+    { status: 'Cancelled', icon: '✕' },
+  ]
+  const overdueCount = requests.filter((item) => isSupplyOverdue(item.dueAt, item.status)).length
+  const { unassignedCount, slaRate, completedOnTime, completedWithSlaCount, averageResolutionHours } = calculateSupplyOperationsMetrics(requests)
 
   return (
       <div className="card supplies-card">
@@ -45,7 +52,7 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
               <span className="title-icon">📦</span>
               Supplies Control
             </h2>
-            <div className="muted">Pending requests by priority</div>
+            <div className="muted">New requests by priority</div>
           </div>
           {newCount > 0 ? <span className="new-pill">+{newCount} new</span> : null}
         </div>
@@ -55,7 +62,7 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           type="button"
           className="stat-card urgent"
           data-testid="stat-urgent"
-          onClick={() => onOpenList({ priority: 'urgent', status: 'Pending' }, 'URGENT Requests')}
+          onClick={() => onOpenList({ priority: 'urgent', status: 'Requested' }, 'URGENT New Requests')}
         >
           <div className="stat-label">Urgent</div>
           <div className="stat-value">{urgentCount}</div>
@@ -64,7 +71,7 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           type="button"
           className="stat-card normal"
           data-testid="stat-normal"
-          onClick={() => onOpenList({ priority: 'normal', status: 'Pending' }, 'NORMAL Requests')}
+          onClick={() => onOpenList({ priority: 'normal', status: 'Requested' }, 'NORMAL New Requests')}
         >
           <div className="stat-label">Normal</div>
           <div className="stat-value">{normalCount}</div>
@@ -73,7 +80,7 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           type="button"
           className="stat-card low"
           data-testid="stat-low"
-          onClick={() => onOpenList({ priority: 'low', status: 'Pending' }, 'LOW Requests')}
+          onClick={() => onOpenList({ priority: 'low', status: 'Requested' }, 'LOW New Requests')}
         >
           <div className="stat-label">Low</div>
           <div className="stat-value">{lowCount}</div>
@@ -86,32 +93,37 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           className={`status-pill${!activeFilter?.status && !activeFilter?.priority ? ' active' : ''}`}
           onClick={() => onOpenList({}, `All Requests`)}
         >
-          🗂 All [{statusCounts.all}]
+          🗂 All [{requests.length}]
         </button>
-        <button
-          type="button"
-          className={`status-pill${activeFilter?.status === 'Pending' ? ' active' : ''}`}
-          onClick={() => onOpenList({ status: 'Pending' }, `Pending Requests`)}
-        >
-          ⏳ Pending [{statusCounts.pending}]
-        </button>
-        <button
-          type="button"
-          className={`status-pill${activeFilter?.status === 'Email Sent' ? ' active' : ''}`}
-          onClick={() => onOpenList({ status: 'Email Sent' }, `Email Sent Requests`)}
-        >
-          📧 Email Sent [{statusCounts.emailSent}]
-        </button>
-        <button
-          type="button"
-          className={`status-pill${activeFilter?.status === 'Completed' ? ' active' : ''}`}
-          onClick={() => onOpenList({ status: 'Completed' }, `Done Requests`)}
-        >
-          ✅ Done [{statusCounts.completed}]
-        </button>
+        {statusOptions.map(({ status, icon }) => (
+          <button
+            key={status}
+            type="button"
+            className={`status-pill${activeFilter?.status === status ? ' active' : ''}`}
+            onClick={() => onOpenList({ status }, `${status} Requests`)}
+          >
+            {icon} {status} [{requests.filter((item) => item.status === status).length}]
+          </button>
+        ))}
       </div>
 
       <div className="metrics-row">
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'Overdue Requests', { overdue: true })}
+        >
+          <div className="muted">⚠️ Overdue</div>
+          <div>{overdueCount}</div>
+        </button>
+        <button
+          type="button"
+          className="metric-card action"
+          onClick={() => onOpenList({}, 'Unassigned Active Requests', { unassigned: true })}
+        >
+          <div className="muted">👤 Unassigned</div>
+          <div>{unassignedCount}</div>
+        </button>
         <button
           type="button"
           className="metric-card action"
@@ -141,6 +153,16 @@ export function SuppliesStats({ requests, mostRequestedProduct, activeFilter, ne
           <div className="muted">⭐ Most requested</div>
           <div>{mostRequestedProduct || '—'}</div>
         </button>
+        <div className="metric-card operational-kpi">
+          <div className="muted">🎯 SLA compliance</div>
+          <div>{slaRate === null ? '—' : `${slaRate}%`}</div>
+          <small>{completedWithSlaCount ? `${completedOnTime} of ${completedWithSlaCount} delivered on time` : 'No delivered requests yet'}</small>
+        </div>
+        <div className="metric-card operational-kpi">
+          <div className="muted">⏱ Average resolution</div>
+          <div>{averageResolutionHours === null ? '—' : averageResolutionHours < 24 ? `${averageResolutionHours.toFixed(1)}h` : `${(averageResolutionHours / 24).toFixed(1)}d`}</div>
+          <small>From request to delivery</small>
+        </div>
       </div>
     </div>
   )

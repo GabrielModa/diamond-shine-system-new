@@ -1,396 +1,103 @@
 'use client'
 
-import { useEffect, useState } from 'react'
-import type { ApiResponse } from '../../../types'
+import { useCallback, useEffect, useMemo, useState } from 'react'
+import type { ApiResponse, UserRole } from '../../../types'
 
-type User = {
-  id: string
-  email: string
-  name: string | null
-  role: 'admin' | 'supervisor' | 'employee' | 'viewer'
-  status: 'pending' | 'active' | 'inactive'
-  createdAt: string
-}
+type User = { id: string; email: string; name: string | null; role: UserRole; status: 'pending' | 'active' | 'inactive'; createdAt: string }
 
-type Template = {
-  id: string
-  key: string
-  subject: string
-  body: string
-  updatedAt: string
-}
-
-type AuditLog = {
-  id: string
-  actorEmail: string
-  action: string
-  targetType: string
-  targetId: string | null
-  metadata: string | null
-  createdAt: string
+async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
+  const payload = (await response.json()) as ApiResponse<T>
+  if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error ?? 'Request failed')
+  return payload.data
 }
 
 export default function UsersPage() {
   const [users, setUsers] = useState<User[]>([])
-  const [templates, setTemplates] = useState<Template[]>([])
-  const [logs, setLogs] = useState<AuditLog[]>([])
-  const [invite, setInvite] = useState({ email: '', name: '', role: 'employee' })
+  const [invite, setInvite] = useState<{ email: string; name: string; role: UserRole }>({ email: '', name: '', role: 'employee' })
+  const [query, setQuery] = useState('')
+  const [status, setStatus] = useState<'all' | User['status']>('all')
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
-  const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '' })
-  const invitePreviewData = {
-    name: 'Maria Silva',
-    email: 'maria@diamondshine.ie',
-    tempPassword: 'TempPass123!',
-    inviteUrl: 'https://diamondshine.ie/login',
-  }
+  const [loading, setLoading] = useState(true)
 
-  function renderTemplate(value: string, data: Record<string, string>) {
-    return Object.entries(data).reduce((acc, [key, val]) => acc.replaceAll(`{{${key}}}`, val), value)
-  }
-
-  async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
-    const res = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
-    const payload = (await res.json()) as ApiResponse<T>
-    if (!payload.ok || !payload.data) throw new Error(payload.error || 'Request failed')
-    return payload.data
-  }
-
-  async function refresh() {
-    try {
-      const [usersData, templatesData, auditData, alertData] = await Promise.all([
-        fetchJson<User[]>('/api/users'),
-        fetchJson<Template[]>('/api/templates'),
-        fetchJson<AuditLog[]>('/api/audit?limit=20'),
-        fetchJson<{ supplyAlerts: string; feedbackAlerts: string }>('/api/settings'),
-      ])
-      setUsers(usersData)
-      setTemplates(templatesData)
-      setLogs(auditData)
-      setAlerts(alertData)
-    } catch {
-      setToast({ type: 'error', message: 'Failed to load admin data.' })
-    }
-  }
-
-  useEffect(() => {
-    void refresh()
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    try { setUsers(await fetchJson<User[]>('/api/users')) }
+    catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to load users.' }) }
+    finally { setLoading(false) }
   }, [])
 
-  async function updateStatus(id: string, status: User['status']) {
-    try {
-      await fetch(`/api/users/${id}/status`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status }),
-      })
-      setToast({ type: 'success', message: `User status updated to ${status}.` })
-      await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to update user status.' })
-    }
-  }
-
-  async function updateRole(id: string, role: User['role']) {
-    try {
-      await fetch(`/api/users/${id}/role`, {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ role }),
-      })
-      setToast({ type: 'success', message: `Role updated to ${role}.` })
-      await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to update role.' })
-    }
-  }
+  useEffect(() => { void refresh() }, [refresh])
 
   async function inviteUser() {
     try {
-      const res = await fetchJson<{ id: string; tempPassword: string; emailSent: boolean }>('/api/users', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(invite),
+      const result = await fetchJson<{ emailSent: boolean }>('/api/users', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invite),
       })
-      const emailNote = res.emailSent ? 'Invite email sent.' : 'Invite created, but email failed.'
-      setToast({ type: res.emailSent ? 'success' : 'error', message: `${emailNote} Temp password: ${res.tempPassword}` })
+      setToast({ type: result.emailSent ? 'success' : 'error', message: result.emailSent ? 'Invitation sent.' : 'User created, but the invitation email failed.' })
       setInvite({ email: '', name: '', role: 'employee' })
       await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to invite user.' })
-    }
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to invite user.' }) }
   }
 
-  async function saveTemplate(template: Template) {
+  async function patchUser<T>(id: string, field: 'status' | 'role', value: string) {
     try {
-      await fetchJson<Template>('/api/templates', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ key: template.key, subject: template.subject, body: template.body }),
+      await fetchJson<T>(`/api/users/${id}/${field}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ [field]: value }),
       })
-      setToast({ type: 'success', message: 'Template saved.' })
+      setToast({ type: 'success', message: `User ${field} updated.` })
       await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to save template.' })
-    }
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : `Failed to update ${field}.` }) }
   }
 
-  async function saveAlerts() {
+  async function resendInvite(user: User) {
     try {
-      await fetchJson<{ ok: true }>('/api/settings', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(alerts),
-      })
-      setToast({ type: 'success', message: 'Notification emails updated.' })
-      await refresh()
-    } catch {
-      setToast({ type: 'error', message: 'Failed to update notifications.' })
-    }
+      const result = await fetchJson<{ emailSent: boolean }>(`/api/users/${user.id}/invite`, { method: 'POST' })
+      setToast({ type: result.emailSent ? 'success' : 'error', message: result.emailSent ? `Invitation resent to ${user.email}.` : 'A new link was created, but the email failed.' })
+    } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to resend invitation.' }) }
   }
 
-  const pending = users.filter((user) => user.status === 'pending')
-  const active = users.filter((user) => user.status === 'active')
-  const inactive = users.filter((user) => user.status === 'inactive')
+  const filtered = useMemo(() => {
+    const needle = query.trim().toLowerCase()
+    return users.filter((user) => (status === 'all' || user.status === status) && (!needle || `${user.name ?? ''} ${user.email}`.toLowerCase().includes(needle)))
+  }, [users, query, status])
 
   return (
     <main className="page-shell">
-      <div className="top-bar">
-        <a href="/home">← Back</a>
-        <div className="role-pill">Admin</div>
-      </div>
-      <div className="page-header">
-        <h1>User Management</h1>
-        <p className="muted">Invite, approve, and manage access across the team.</p>
-      </div>
-
-      <div className="card">
-        <h2>
-          <span className="title-icon">✉️</span>
-          Invite New User
-        </h2>
-        <div className="row">
-          <input
-            placeholder="Email"
-            value={invite.email}
-            onChange={(event) => setInvite((prev) => ({ ...prev, email: event.target.value }))}
-          />
-          <input
-            placeholder="Full name"
-            value={invite.name}
-            onChange={(event) => setInvite((prev) => ({ ...prev, name: event.target.value }))}
-          />
-          <select
-            value={invite.role}
-            onChange={(event) => setInvite((prev) => ({ ...prev, role: event.target.value }))}
-          >
-            <option value="employee">Employee</option>
-            <option value="supervisor">Supervisor</option>
-            <option value="admin">Admin</option>
-            <option value="viewer">Viewer</option>
-          </select>
-          <button type="button" onClick={inviteUser}>
-            Send Invite
-          </button>
+      <header className="page-header"><h1>User Management</h1><p className="muted">Invite people and control access without exposing security credentials.</p></header>
+      <section className="card" aria-labelledby="invite-title">
+        <div className="section-heading"><h2 id="invite-title">Invite a user</h2><span className="muted">Secure link expires in 24 hours</span></div>
+        <div className="admin-form-grid">
+          <label><span>Full name</span><input value={invite.name} onChange={(event) => setInvite((current) => ({ ...current, name: event.target.value }))} /></label>
+          <label><span>Work email</span><input type="email" value={invite.email} onChange={(event) => setInvite((current) => ({ ...current, email: event.target.value }))} /></label>
+          <label><span>Role</span><select value={invite.role} onChange={(event) => setInvite((current) => ({ ...current, role: event.target.value as UserRole }))}><option value="employee">Employee</option><option value="supervisor">Supervisor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option></select></label>
+          <button className="btn-primary" type="button" disabled={!invite.name.trim() || !invite.email.trim()} onClick={() => void inviteUser()}>Send invitation</button>
         </div>
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">🕒</span>
-          Pending Approvals
-        </h2>
-        {pending.length === 0 ? <div className="muted">No pending users.</div> : null}
-        {pending.map((user) => (
-          <div key={user.id} className="list-item">
-            <div className="list-main">
-              <div className="list-title">{user.name ?? user.email}</div>
-              <div className="muted">{user.email}</div>
-            </div>
-            <div className="list-meta">
-              <span className="badge normal">{user.role}</span>
-              <span className="status-badge Pending">Pending</span>
-            </div>
-            <div className="list-actions">
-              <button type="button" className="btn-success" onClick={() => updateStatus(user.id, 'active')}>
-                Approve
-              </button>
-              <button type="button" className="btn-warning" onClick={() => updateStatus(user.id, 'inactive')}>
-                Reject
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">✅</span>
-          Active Users
-        </h2>
-        {active.map((user) => (
-          <div key={user.id} className="list-item">
-            <div className="list-main">
-              <div className="list-title">{user.name ?? user.email}</div>
-              <div className="muted">{user.email}</div>
-            </div>
-            <div className="list-meta">
-              <select value={user.role} onChange={(event) => updateRole(user.id, event.target.value as User['role'])}>
-                <option value="employee">Employee</option>
-                <option value="supervisor">Supervisor</option>
-                <option value="admin">Admin</option>
-                <option value="viewer">Viewer</option>
-              </select>
-              <span className="status-badge Completed">Active</span>
-            </div>
-            <div className="list-actions">
-              <button type="button" className="btn-warning" onClick={() => updateStatus(user.id, 'inactive')}>
-                Deactivate
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">⛔</span>
-          Inactive Users
-        </h2>
-        {inactive.length === 0 ? <div className="muted">No inactive users.</div> : null}
-        {inactive.map((user) => (
-          <div key={user.id} className="list-item">
-            <div className="list-main">
-              <div className="list-title">{user.name ?? user.email}</div>
-              <div className="muted">{user.email}</div>
-            </div>
-            <div className="list-meta">
-              <span className="badge low">{user.role}</span>
-              <span className="status-badge Completed">Inactive</span>
-            </div>
-            <div className="list-actions">
-              <button type="button" className="btn-success" onClick={() => updateStatus(user.id, 'active')}>
-                Reactivate
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">📝</span>
-          Email Templates
-        </h2>
-        {templates.map((template) => (
-          <div key={template.id} className="template-item">
-            <div className="template-header">
-              <span className="template-key">{template.key}</span>
-              <span className="muted">Last updated: {new Date(template.updatedAt).toLocaleDateString('en-IE')}</span>
-            </div>
-            {template.key === 'user_invite' ? (
-              <div className="template-preview muted">
-                Placeholders: {'{{name}}'}, {'{{email}}'}, {'{{tempPassword}}'}, {'{{inviteUrl}}'}
+      </section>
+      <section className="card" aria-labelledby="directory-title">
+        <div className="section-heading"><h2 id="directory-title">Directory</h2><span className="count-pill">{filtered.length}</span></div>
+        <div className="admin-toolbar">
+          <input type="search" placeholder="Search name or email…" value={query} onChange={(event) => setQuery(event.target.value)} />
+          <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
+        </div>
+        {loading ? <div role="status" className="empty-state">Loading users…</div> : null}
+        {!loading && filtered.length === 0 ? <div className="empty-state">No users match these filters.</div> : null}
+        <div className="admin-list">
+          {filtered.map((user) => (
+            <article key={user.id} className="admin-user-row">
+              <div><strong>{user.name ?? user.email}</strong><div className="muted">{user.email}</div></div>
+              <select aria-label={`Role for ${user.name ?? user.email}`} value={user.role} onChange={(event) => void patchUser(user.id, 'role', event.target.value)}><option value="employee">Employee</option><option value="supervisor">Supervisor</option><option value="viewer">Viewer</option><option value="admin">Administrator</option></select>
+              <span className={`status-badge ${user.status === 'active' ? 'Completed' : user.status === 'pending' ? 'Pending' : 'Cancelled'}`}>{user.status}</span>
+              <div className="row tight">
+                {user.status === 'pending' ? <button className="btn-secondary" type="button" onClick={() => void resendInvite(user)}>Resend invite</button> : null}
+                {user.status !== 'active' ? <button className="btn-success" type="button" onClick={() => void patchUser(user.id, 'status', 'active')}>Activate</button> : null}
+                {user.status === 'active' ? <button className="btn-ghost danger" type="button" onClick={() => void patchUser(user.id, 'status', 'inactive')}>Deactivate</button> : null}
               </div>
-            ) : null}
-            <div className="template-grid">
-              <div className="template-label">Subject</div>
-              <input
-                value={template.subject}
-                onChange={(event) =>
-                  setTemplates((prev) =>
-                    prev.map((item) => (item.id === template.id ? { ...item, subject: event.target.value } : item))
-                  )
-                }
-              />
-              <div className="template-label">Body</div>
-              <textarea
-                value={template.body}
-                onChange={(event) =>
-                  setTemplates((prev) =>
-                    prev.map((item) => (item.id === template.id ? { ...item, body: event.target.value } : item))
-                  )
-                }
-              />
-            </div>
-            {template.key === 'user_invite' ? (
-              <div className="template-preview">
-                <div className="template-preview-title">Preview</div>
-                <div className="template-preview-card">
-                  <div className="template-preview-subject">
-                    {renderTemplate(template.subject, invitePreviewData)}
-                  </div>
-                  <div
-                    className="template-preview-body"
-                    dangerouslySetInnerHTML={{
-                      __html: renderTemplate(template.body, invitePreviewData),
-                    }}
-                  />
-                </div>
-              </div>
-            ) : null}
-            <div className="template-actions">
-              <button type="button" className="btn-primary" onClick={() => saveTemplate(template)}>
-                Save Template
-              </button>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">🔔</span>
-          Notification Emails
-        </h2>
-        <div className="template-item">
-          <div className="template-header">
-            <span className="template-key">Supplies alerts</span>
-            <span className="muted">Comma-separated emails</span>
-          </div>
-          <input
-            value={alerts.supplyAlerts}
-            placeholder="alerts@company.com, manager@company.com"
-            onChange={(event) => setAlerts((prev) => ({ ...prev, supplyAlerts: event.target.value }))}
-          />
+            </article>
+          ))}
         </div>
-        <div className="template-item">
-          <div className="template-header">
-            <span className="template-key">Feedback alerts</span>
-            <span className="muted">Comma-separated emails</span>
-          </div>
-          <input
-            value={alerts.feedbackAlerts}
-            placeholder="quality@company.com"
-            onChange={(event) => setAlerts((prev) => ({ ...prev, feedbackAlerts: event.target.value }))}
-          />
-        </div>
-        <div className="template-actions">
-          <button type="button" className="btn-primary" onClick={saveAlerts}>
-            Save notifications
-          </button>
-        </div>
-      </div>
-
-      <div className="card section-card">
-        <h2>
-          <span className="title-icon">🧾</span>
-          Audit Log
-        </h2>
-        {logs.map((log) => (
-          <div key={log.id} className="list-item">
-            <div className="list-main">
-              <div className="list-title">{log.action}</div>
-              <div className="muted">{log.actorEmail}</div>
-            </div>
-            <div className="list-meta">
-              <span className="badge normal">{log.targetType}</span>
-              <span className="muted">{new Date(log.createdAt).toLocaleString('en-IE')}</span>
-            </div>
-          </div>
-        ))}
-      </div>
-
-      {toast ? <div className={`toast ${toast.type}`}>{toast.message}</div> : null}
+      </section>
+      {toast ? <div className={`toast toast-strong ${toast.type}`} role={toast.type === 'error' ? 'alert' : 'status'}>{toast.message}</div> : null}
     </main>
   )
 }

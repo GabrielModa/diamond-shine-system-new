@@ -25,8 +25,11 @@ async function updateStatus(page: any, id: string, status: string) {
 
 async function createFeedback(page: any, payload: any) {
   const cookie = await getCookieHeader(page)
+  const employeesResponse = await page.request.get('/api/employees', { headers: { Cookie: cookie } })
+  const employeesPayload = await employeesResponse.json()
+  const employee = employeesPayload.data.find((item: { name: string | null }) => item.name === payload.employeeName) ?? employeesPayload.data[0]
   await page.request.post('/api/feedback', {
-    data: payload,
+    data: { ...payload, employeeId: employee.id, employeeName: undefined },
     headers: { Cookie: cookie },
   })
 }
@@ -53,7 +56,7 @@ test('dashboard loads with Urgent, Normal and Low stat cards', async ({ page }) 
   await expect(page.locator('[data-testid="stat-low"]')).toBeVisible()
 })
 
-test('clicking Urgent card opens filtered list with only pending urgent items', async ({ page }) => {
+test('clicking Urgent card opens filtered list with only new urgent items', async ({ page }) => {
   await createSupply(page, {
     employeeName: 'Urgent Employee',
     clientLocation: 'TechCorp Office - Dublin 2',
@@ -67,7 +70,7 @@ test('clicking Urgent card opens filtered list with only pending urgent items', 
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()
   const total = await page.locator('.list-item').count()
   await expect(page.locator('.list-item .badge.urgent')).toHaveCount(total)
-  await expect(page.locator('.list-item .status-badge.Pending')).toHaveCount(total)
+  await expect(page.locator('.list-item .status-badge.Requested')).toHaveCount(total)
 })
 
 test('clicking a list item opens the detail sheet with correct data', async ({ page }) => {
@@ -81,8 +84,10 @@ test('clicking a list item opens the detail sheet with correct data', async ({ p
   await waitForDashboardCards(page)
   await page.click('.stat-card.normal')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await expect(page.locator('#detailOverlay.overlay.active')).toBeVisible()
+  await expect(page.locator('#listOverlay')).toHaveAttribute('aria-hidden', 'true')
+  await expect(page.locator('#detailOverlay')).toHaveAttribute('aria-hidden', 'false')
   await expect(page.locator('#detailOverlay [data-testid="supply-detail"]')).toBeVisible()
   await expect(page.locator('#detailOverlay')).toContainText('Detail Employee')
   await expect(page.locator('#detailOverlay')).toContainText('Green Bank - Temple Bar')
@@ -99,17 +104,16 @@ test('clicking Send Email opens modal with pre-filled subject and body', async (
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
-  await page.click('button:has-text("Send Email to Client")')
+  await page.click('#listOverlay.overlay.active .list-open-button')
+  await page.click('button:has-text("Notify client")')
   await expect(page.locator('#emailModal.modal-overlay.active')).toBeVisible()
   const subject = await page.inputValue('#emailSubject')
   const body = await page.inputValue('#emailBody')
-  expect(subject).toContain('Diamond Shine Supplies')
-  expect(subject).toContain('URGENT')
+  expect(subject).toContain('SUPPLIES REQUEST')
   expect(body).toContain('Diamond Shine')
 })
 
-test('completing a Pending request shows ONE confirm modal with email warning', async ({ page }) => {
+test('triaging a requested item shows one contextual confirmation', async ({ page }) => {
   await createSupply(page, {
     employeeName: 'Pending Employee',
     clientLocation: 'Red Company - Dun Laoghaire',
@@ -120,36 +124,35 @@ test('completing a Pending request shows ONE confirm modal with email warning', 
   await waitForDashboardCards(page)
   await page.click('.stat-card.low')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
-  await page.click('button:has-text("Complete Without Email")')
+  await page.click('#listOverlay.overlay.active .list-open-button')
+  await page.locator('#detailOverlay').getByRole('button', { name: /Triaged/ }).click()
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
-  await expect(page.locator('#confirmMessage')).toContainText('has not been emailed')
+  await expect(page.locator('#confirmMessage')).toContainText('Requested to Triaged')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toHaveCount(1)
 })
 
-test('completing an Email Sent request shows ONE confirm modal without email warning', async ({ page }) => {
+test('delivering an in-transit request shows one confirmation', async ({ page }) => {
   const id = await createSupply(page, {
     employeeName: 'Email Sent Employee',
     clientLocation: 'TechCorp Office - Dublin 2',
     priority: 'urgent',
     products: ['Microfiber cloths'],
   })
-  await updateStatus(page, id, 'Email Sent')
+  for (const status of ['Triaged', 'Approved', 'Ordered', 'In transit']) await updateStatus(page, id, status)
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.click('.status-pill:has-text("Email Sent")')
+  await page.click('.status-pill:has-text("In transit")')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
-  await page.click('button:has-text("Mark as Completed")')
+  await page.click('#listOverlay.overlay.active .list-open-button')
+  await page.locator('#detailOverlay').getByRole('button', { name: /Delivered/ }).click()
   await expect(page.locator('#confirmModal.modal-overlay.active')).toBeVisible()
-  await expect(page.locator('#confirmMessage')).toContainText('Mark as completed')
-  await expect(page.locator('#confirmMessage')).not.toContainText('not been emailed')
+  await expect(page.locator('#confirmMessage')).toContainText('In transit to Delivered')
   await expect(page.locator('#confirmModal.modal-overlay.active')).toHaveCount(1)
 })
 
 test('searching an employee shows their profile with evaluations', async ({ page }) => {
   await createFeedback(page, {
-    employeeName: 'Sarah Johnson',
+    employeeName: 'Strikerlift',
     clientLocation: 'TechCorp Office - Dublin 2',
     cleanliness: 4.5,
     punctuality: 4.5,
@@ -167,15 +170,15 @@ test('searching an employee shows their profile with evaluations', async ({ page
   })
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.fill('input[placeholder="Search employee..."]', 'sa')
+  await page.fill('input[placeholder="Search employee..."]', 'str')
   await expect(page.locator('.found-count')).toContainText('Found')
-  await page.click('.result-row:has-text("Sarah Johnson")')
-  await expect(page.locator('text=👤 Sarah Johnson')).toBeVisible()
+  await page.click('.result-row:has-text("Strikerlift")')
+  await expect(page.locator('text=👤 Strikerlift')).toBeVisible()
 })
 
 test('clicking an evaluation in employee profile opens Feedback Detail', async ({ page }) => {
   await createFeedback(page, {
-    employeeName: 'Sarah Johnson',
+    employeeName: 'Strikerlift',
     clientLocation: 'TechCorp Office - Dublin 2',
     cleanliness: 4.5,
     punctuality: 4.5,
@@ -185,8 +188,8 @@ test('clicking an evaluation in employee profile opens Feedback Detail', async (
   })
   await page.goto('/dashboard')
   await waitForDashboardCards(page)
-  await page.fill('input[placeholder="Search employee..."]', 'sa')
-  await page.click('.result-row:has-text("Sarah Johnson")')
+  await page.fill('input[placeholder="Search employee..."]', 'str')
+  await page.click('.result-row:has-text("Strikerlift")')
   await page.click('.profile-item')
   await expect(page.locator('#detailOverlay.overlay.active')).toBeVisible()
   await expect(page.locator('text=⭐ Evaluation')).toBeVisible()
@@ -203,12 +206,28 @@ test('ESC closes detail but not list (stack behavior)', async ({ page }) => {
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.keyboard.press('Escape')
   await expect(page.locator('#detailOverlay.overlay.active')).toHaveCount(0)
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()
   await page.keyboard.press('Escape')
   await expect(page.locator('#listOverlay.overlay.active')).toHaveCount(0)
+})
+
+test('keyboard focus stays inside the active request dialog', async ({ page }) => {
+  await createSupply(page, {
+    employeeName: 'Keyboard Employee',
+    clientLocation: 'TechCorp Office - Dublin 2',
+    priority: 'urgent',
+    products: ['Bleach'],
+  })
+  await page.goto('/dashboard')
+  await waitForDashboardCards(page)
+  await page.click('.stat-card.urgent')
+  await expect(page.locator('#listOverlay [aria-label="Close"]')).toBeFocused()
+  await page.keyboard.press('Shift+Tab')
+  const focusIsInsideDialog = await page.evaluate(() => Boolean(document.activeElement?.closest('[role="dialog"]')))
+  expect(focusIsInsideDialog).toBe(true)
 })
 
 test('browser back closes topmost overlay only', async ({ page }) => {
@@ -222,7 +241,7 @@ test('browser back closes topmost overlay only', async ({ page }) => {
   await waitForDashboardCards(page)
   await page.click('.stat-card.urgent')
   await page.waitForSelector('#listOverlay.overlay.active .list-item')
-  await page.click('#listOverlay.overlay.active .list-item')
+  await page.click('#listOverlay.overlay.active .list-open-button')
   await page.goBack()
   await expect(page.locator('#detailOverlay.overlay.active')).toHaveCount(0)
   await expect(page.locator('#listOverlay.overlay.active')).toBeVisible()

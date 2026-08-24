@@ -8,6 +8,13 @@ import {
   formatDublinDate,
   timeAgo,
   consecutiveExcellent,
+  calculateSupplyDueAt,
+  getSupplySlaHours,
+  isSupplyOverdue,
+  calculateSupplyOperationsMetrics,
+  calculateFeedbackTrend,
+  canTransitionSupplyStatus,
+  getSupplyNextStatuses,
 } from '../../src/lib/business-logic'
 
 describe('calculateOverall', () => {
@@ -61,6 +68,8 @@ describe('isValidRating', () => {
 describe('checkPageAccess', () => {
   describe('admin', () => {
     it('can access home', () => expect(checkPageAccess('admin', 'home')).toBe(true))
+    it('can access work orders', () => expect(checkPageAccess('admin', 'work-orders')).toBe(true))
+    it('can access quality control', () => expect(checkPageAccess('admin', 'quality')).toBe(true))
     it('can access supplies', () => expect(checkPageAccess('admin', 'supplies')).toBe(true))
     it('can access feedback', () => expect(checkPageAccess('admin', 'feedback')).toBe(true))
     it('can access dashboard', () => expect(checkPageAccess('admin', 'dashboard')).toBe(true))
@@ -68,6 +77,8 @@ describe('checkPageAccess', () => {
   })
   describe('supervisor', () => {
     it('can access home', () => expect(checkPageAccess('supervisor', 'home')).toBe(true))
+    it('can access work orders', () => expect(checkPageAccess('supervisor', 'work-orders')).toBe(true))
+    it('can access quality control', () => expect(checkPageAccess('supervisor', 'quality')).toBe(true))
     it('can access supplies', () => expect(checkPageAccess('supervisor', 'supplies')).toBe(true))
     it('can access feedback', () => expect(checkPageAccess('supervisor', 'feedback')).toBe(true))
     it('cannot access dashboard', () => expect(checkPageAccess('supervisor', 'dashboard')).toBe(false))
@@ -87,20 +98,69 @@ describe('checkPageAccess', () => {
 })
 
 describe('getAllowedPages', () => {
-  it('admin gets all 5 pages', () => {
-    expect(getAllowedPages('admin').sort()).toEqual(['dashboard', 'feedback', 'home', 'supplies', 'users'])
+  it('admin gets the complete operations suite', () => {
+    expect(getAllowedPages('admin').sort()).toEqual(['audit', 'clients', 'communications', 'dashboard', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'people', 'quality', 'schedule', 'supplies', 'timesheets', 'users', 'work-orders'])
   })
-  it('supervisor gets 3 pages (no dashboard)', () => {
-    expect(getAllowedPages('supervisor').sort()).toEqual(['feedback', 'home', 'supplies'])
+  it('supervisor gets operations and scheduling without administration', () => {
+    expect(getAllowedPages('supervisor').sort()).toEqual(['clients', 'communications', 'feedback', 'field-control', 'home', 'insights', 'my-requests', 'operations', 'people', 'quality', 'schedule', 'supplies', 'timesheets', 'work-orders'])
   })
-  it('employee gets 2 pages (home + supplies)', () => {
-    expect(getAllowedPages('employee').sort()).toEqual(['home', 'supplies'])
+  it('employee gets their schedule, supplies and tracking', () => {
+    expect(getAllowedPages('employee').sort()).toEqual(['communications', 'home', 'my-requests', 'schedule', 'supplies', 'timesheets'])
   })
-  it('viewer gets only home', () => {
-    expect(getAllowedPages('viewer')).toEqual(['home'])
+  it('viewer gets read-only operational views', () => {
+    expect(getAllowedPages('viewer')).toEqual(['home', 'clients', 'operations', 'schedule'])
   })
   it('unknown role gets empty array', () => {
     expect(getAllowedPages('unknown' as never)).toEqual([])
+  })
+})
+
+describe('supply SLA', () => {
+  it('uses shorter deadlines for higher priorities', () => {
+    expect(getSupplySlaHours('urgent')).toBe(24)
+    expect(getSupplySlaHours('normal')).toBe(72)
+    expect(getSupplySlaHours('low')).toBe(168)
+  })
+
+  it('calculates the deadline from the submission time', () => {
+    expect(calculateSupplyDueAt('urgent', new Date('2026-08-20T10:00:00Z')).toISOString()).toBe('2026-08-21T10:00:00.000Z')
+  })
+
+  it('marks only unfinished requests past their deadline as overdue', () => {
+    const now = new Date('2026-08-22T10:00:00Z')
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Requested', now)).toBe(true)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Delivered', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-21T10:00:00Z', 'Cancelled', now)).toBe(false)
+    expect(isSupplyOverdue('2026-08-23T10:00:00Z', 'Requested', now)).toBe(false)
+  })
+
+  it('summarizes ownership, SLA compliance, and resolution time', () => {
+    const metrics = calculateSupplyOperationsMetrics([
+      { status: 'Requested', createdAt: '2026-08-20T00:00:00Z' },
+      { status: 'Ordered', createdAt: '2026-08-20T00:00:00Z', assignedTo: 'lead@test.ie' },
+      { status: 'Delivered', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-20T12:00:00Z' },
+      { status: 'Delivered', createdAt: '2026-08-20T00:00:00Z', dueAt: '2026-08-21T00:00:00Z', completedAt: '2026-08-22T00:00:00Z' },
+    ])
+
+    expect(metrics.unassignedCount).toBe(1)
+    expect(metrics.slaRate).toBe(50)
+    expect(metrics.completedOnTime).toBe(1)
+    expect(metrics.averageResolutionHours).toBe(30)
+  })
+
+  it('enforces the operational lifecycle without communication states', () => {
+    expect(getSupplyNextStatuses('Requested')).toEqual(['Triaged', 'Rejected', 'Cancelled'])
+    expect(canTransitionSupplyStatus('Triaged', 'Approved')).toBe(true)
+    expect(canTransitionSupplyStatus('Approved', 'Delivered')).toBe(false)
+    expect(getSupplyNextStatuses('Delivered')).toEqual([])
+  })
+
+  it('returns empty KPI states when there are no completed requests', () => {
+    expect(calculateSupplyOperationsMetrics([])).toMatchObject({
+      unassignedCount: 0,
+      slaRate: null,
+      averageResolutionHours: null,
+    })
   })
 })
 
@@ -169,5 +229,24 @@ describe('consecutiveExcellent', () => {
 
   it('stops counting at first non-excellent', () => {
     expect(consecutiveExcellent([{ overall: 4.6 }, { overall: 4.0 }, { overall: 5.0 }])).toBe(1)
+  })
+})
+
+describe('feedback trend', () => {
+  it('compares the latest 30 days with the preceding period', () => {
+    const trend = calculateFeedbackTrend([
+      { overall: 5, createdAt: '2026-08-15T00:00:00Z' },
+      { overall: 4, createdAt: '2026-08-05T00:00:00Z' },
+      { overall: 3, createdAt: '2026-07-15T00:00:00Z' },
+      { overall: 4, createdAt: '2026-07-10T00:00:00Z' },
+    ], new Date('2026-08-20T00:00:00Z'))
+
+    expect(trend.currentAverage).toBe(4.5)
+    expect(trend.previousAverage).toBe(3.5)
+    expect(trend.delta).toBe(1)
+  })
+
+  it('does not invent a delta without both periods', () => {
+    expect(calculateFeedbackTrend([], new Date('2026-08-20T00:00:00Z')).delta).toBeNull()
   })
 })

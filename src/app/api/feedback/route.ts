@@ -4,12 +4,12 @@ import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { calculateOverall, getCategoryLabel, isValidRating } from '../../../lib/business-logic'
-import { sendFeedbackNotification } from '../../../lib/email'
+import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbCategoryToLabel, labelToDbCategory } from '../../../lib/mappers'
 import { logAudit } from '../../../lib/audit'
 
 const bodySchema = z.object({
-  employeeName: z.string().min(1),
+  employeeId: z.string().min(1),
   clientLocation: z.enum(CLIENT_LOCATIONS),
   cleanliness: z.number(),
   punctuality: z.number(),
@@ -38,6 +38,24 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid ratings' }, { status: 400 })
   }
 
+  const employee = await prisma.user.findFirst({
+    where: {
+      id: parsed.data.employeeId,
+      status: 'active',
+      memberships: {
+        some: {
+          organizationId: auth.user.organizationId,
+          role: 'employee',
+          status: 'active',
+        },
+      },
+    },
+    select: { id: true, name: true, email: true },
+  })
+  if (!employee) {
+    return NextResponse.json({ ok: false, error: 'Employee not found or inactive' }, { status: 400 })
+  }
+
   const overall = calculateOverall(
     parsed.data.cleanliness,
     parsed.data.punctuality,
@@ -48,7 +66,9 @@ export async function POST(request: NextRequest) {
 
   const created = await prisma.feedbackEntry.create({
     data: {
-      employeeName: parsed.data.employeeName,
+      organizationId: auth.user.organizationId,
+      employeeId: employee.id,
+      employeeName: employee.name ?? employee.email,
       clientLocation: parsed.data.clientLocation,
       cleanliness: parsed.data.cleanliness,
       punctuality: parsed.data.punctuality,
@@ -61,7 +81,13 @@ export async function POST(request: NextRequest) {
     },
   })
 
-  void sendFeedbackNotification({
+  const notification = await enqueueNotification({
+    organizationId: auth.user.organizationId,
+    kind: 'feedback_alert',
+    createdBy: auth.user.email,
+    entityType: 'feedback',
+    entityId: created.id,
+    payload: {
     id: created.id,
     employeeName: created.employeeName,
     clientLocation: created.clientLocation,
@@ -73,14 +99,16 @@ export async function POST(request: NextRequest) {
     category,
     comments: created.comments ?? undefined,
     submittedBy: created.submittedBy,
-    createdAt: created.createdAt,
+    createdAt: created.createdAt.toISOString(),
+    },
   })
 
   await logAudit(auth.user.email, 'create_feedback', 'feedback', created.id, {
     employeeName: created.employeeName,
-  })
+    notificationJobId: notification.id,
+  }, auth.user.organizationId)
 
-  return NextResponse.json({ ok: true, data: { id: created.id } }, { status: 201 })
+  return NextResponse.json({ ok: true, data: { id: created.id, notificationQueued: true } }, { status: 201 })
 }
 
 export async function GET(request: NextRequest) {
@@ -88,7 +116,10 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const where = auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : {}
+  const where = {
+    organizationId: auth.user.organizationId,
+    ...(auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : {}),
+  }
   const [total, items] = await Promise.all([
     prisma.feedbackEntry.count({ where }),
     prisma.feedbackEntry.findMany({ where, orderBy: { createdAt: 'desc' } }),

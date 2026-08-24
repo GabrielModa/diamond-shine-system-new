@@ -10,7 +10,7 @@ export const supplies = {
     employeeName: 'Emma Employee',
     clientLocation: 'TechCorp Office - Dublin 2',
     priority: 'urgent' as const,
-    products: ['All-purpose cleaner', 'Rubber gloves'],
+    items: [{ product: 'All-purpose cleaner', quantity: 3 }, { product: 'Rubber gloves', quantity: 2 }],
     notes: 'Need before 9am',
   },
   emailSentNormal: {

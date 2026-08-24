@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../../../lib/prisma'
 import { requireAuth } from '../../../../../lib/auth'
-import { sendClientNotification } from '../../../../../lib/email'
+import { enqueueNotification } from '../../../../../lib/notification-queue'
 import { logAudit } from '../../../../../lib/audit'
 
 const bodySchema = z.object({
@@ -11,7 +11,8 @@ const bodySchema = z.object({
   htmlBody: z.string().min(1),
 })
 
-export async function POST(request: NextRequest, { params }: { params: { id: string } }) {
+export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
+  const { id } = await params
   console.log('[API /api/supplies/:id/notify POST]')
   const auth = await requireAuth(request, ['admin'])
   if ('response' in auth) return auth.response
@@ -21,31 +22,29 @@ export async function POST(request: NextRequest, { params }: { params: { id: str
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  const row = await prisma.supplyRequest.findUnique({ where: { id: params.id } })
+  const row = await prisma.supplyRequest.findFirst({
+    where: { id, organizationId: auth.user.organizationId },
+  })
   if (!row) {
     return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   }
 
-  if (row.status === 'Completed') {
+  if (row.status === 'Delivered' || row.status === 'Rejected' || row.status === 'Cancelled') {
     return NextResponse.json({ ok: false, error: 'Conflict' }, { status: 409 })
   }
 
-  const sendResult = await sendClientNotification({
-    to: parsed.data.clientEmail,
-    subject: parsed.data.subject,
-    htmlBody: parsed.data.htmlBody,
+  const job = await enqueueNotification({
+    organizationId: auth.user.organizationId,
+    kind: 'client_supply',
+    createdBy: auth.user.email,
+    entityType: 'supply',
+    entityId: id,
+    payload: { to: parsed.data.clientEmail, subject: parsed.data.subject, htmlBody: parsed.data.htmlBody },
   })
 
-  if (sendResult.ok) {
-    await prisma.supplyRequest.update({
-      where: { id: params.id },
-      data: { status: 'EmailSent', emailSentAt: new Date() },
-    })
-  }
-
-  await logAudit(auth.user.email, 'send_supply_email', 'supply', params.id, {
+  await logAudit(auth.user.email, 'send_supply_email', 'supply', id, {
     clientEmail: parsed.data.clientEmail,
-  })
+  }, auth.user.organizationId)
 
-  return NextResponse.json({ ok: true, data: { id: params.id, sent: sendResult.ok } })
+  return NextResponse.json({ ok: true, data: { id, queued: true, notificationJobId: job.id } }, { status: 202 })
 }

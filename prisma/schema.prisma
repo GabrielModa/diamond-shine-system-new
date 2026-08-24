@@ -1,79 +1,1035 @@
 model User {
-  id              String          @id @default(cuid())
-  email           String          @unique
-  password        String?
-  name            String?
-  role            UserRole        @default(viewer)
-  status          String          @default("pending")
-  createdAt       DateTime        @default(now())
-  updatedAt       DateTime        @updatedAt
-  supplyRequests  SupplyRequest[]
-  feedbackEntries FeedbackEntry[]
-  auditLogs       AuditLog[]      @relation("AuditActor")
+  id                  String                       @id @default(cuid())
+  email               String                       @unique
+  password            String?
+  name                String?
+  role                UserRole                     @default(viewer)
+  status              String                       @default("pending")
+  createdAt           DateTime                     @default(now())
+  updatedAt           DateTime                     @updatedAt
+  supplyRequests      SupplyRequest[]
+  feedbackEntries     FeedbackEntry[]              @relation("FeedbackSubmitter")
+  receivedFeedback    FeedbackEntry[]              @relation("FeedbackEmployee")
+  auditLogs           AuditLog[]                   @relation("AuditActor")
+  authTokens          AuthToken[]
+  mobileSessions      MobileSession[]
+  devicePushTokens    DevicePushToken[]
+  memberships         Membership[]
+  visitAssignments    VisitAssignment[]
+  visitReviews        VisitReview[]
+  timeEntries         TimeEntry[]
+  timeEntryDisputes   TimeEntryDispute[]
+  evidenceAssets      EvidenceAsset[]
+  incidents           Incident[]
+  offlineMutations    OfflineMutation[]
+  materialStockCounts MaterialStockCount[]
+  qualityInspections  QualityInspection[]          @relation("QualityInspector")
+  correctiveAssigned  CorrectiveAction[]           @relation("CorrectiveAssignee")
+  correctiveCreated   CorrectiveAction[]           @relation("CorrectiveCreator")
+  correctiveResolved  CorrectiveAction[]           @relation("CorrectiveResolver")
+  noticesCreated      OperationalNotice[]          @relation("NoticeCreator")
+  noticeRecipients    OperationalNoticeRecipient[]
+  availability        Availability[]
+  preferredSites      SitePreferredAssignee[]
 
   @@map("users")
 }
 
-model AuditLog {
-  id         String   @id @default(cuid())
-  actorEmail String
-  action     String
-  targetType String
-  targetId   String?
-  metadata   String?
+model Organization {
+  id                   String                       @id @default(cuid())
+  name                 String
+  slug                 String                       @unique
+  timezone             String                       @default("Europe/Dublin")
+  status               OrganizationStatus           @default(active)
+  createdAt            DateTime                     @default(now())
+  updatedAt            DateTime                     @updatedAt
+  memberships          Membership[]
+  capabilityGrants     CapabilityGrant[]
+  supplyRequests       SupplyRequest[]
+  feedbackEntries      FeedbackEntry[]
+  auditLogs            AuditLog[]
+  emailTemplates       EmailTemplate[]
+  notificationSettings NotificationSetting[]
+  notificationJobs     NotificationJob[]
+  authTokens           AuthToken[]
+  mobileSessions       MobileSession[]
+  devicePushTokens     DevicePushToken[]
+  clients              Client[]
+  contracts            Contract[]
+  sites                Site[]
+  areas                Area[]
+  evidencePolicies     EvidencePolicy[]
+  servicePlans         ServicePlan[]
+  servicePlanVersions  ServicePlanVersion[]
+  taskTemplates        TaskTemplate[]
+  versionTasks         ServicePlanVersionTask[]
+  jobs                 Job[]
+  visits               Visit[]
+  visitAssignments     VisitAssignment[]
+  visitReviews         VisitReview[]
+  visitTaskResults     VisitTaskResult[]
+  timeEntries          TimeEntry[]
+  timeEntryDisputes    TimeEntryDispute[]
+  evidenceAssets       EvidenceAsset[]
+  incidents            Incident[]
+  locationEvents       LocationEvent[]
+  offlineMutations     OfflineMutation[]
+  materialCatalogItems MaterialCatalogItem[]
+  siteStockLevels      SiteStockLevel[]
+  materialStockCounts  MaterialStockCount[]
+  materialCountLines   MaterialStockCountLine[]
+  qualityInspections   QualityInspection[]
+  qualityItems         QualityInspectionItem[]
+  correctiveActions    CorrectiveAction[]
+  operationalNotices   OperationalNotice[]
+  noticeRecipients     OperationalNoticeRecipient[]
+  availability         Availability[]
+  sitePreferredAssignees SitePreferredAssignee[]
+
+  @@map("organizations")
+}
+
+model Membership {
+  id               String            @id @default(cuid())
+  organizationId   String
+  userId           String
+  role             MembershipRole
+  status           MembershipStatus  @default(active)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user             User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+  capabilityGrants CapabilityGrant[]
+
+  @@unique([organizationId, userId])
+  @@index([userId, status])
+  @@index([organizationId, role, status])
+  @@map("memberships")
+}
+
+model CapabilityGrant {
+  id             String       @id @default(cuid())
+  organizationId String
+  membershipId   String
+  capability     String
+  scopeType      ScopeType    @default(organization)
+  scopeId        String       @default("")
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  membership     Membership   @relation(fields: [membershipId], references: [id], onDelete: Cascade)
+
+  @@unique([membershipId, capability, scopeType, scopeId])
+  @@index([organizationId, capability, scopeType, scopeId])
+  @@map("capability_grants")
+}
+
+model Client {
+  id             String           @id @default(cuid())
+  organizationId String
+  displayName    String
+  legalName      String?
+  type           ClientType       @default(commercial)
+  status         CommercialStatus @default(active)
+  billingEmail   String?
+  phone          String?
+  externalId     String?
+  version        Int              @default(1)
+  archivedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  contacts       Contact[]
+  contracts      Contract[]
+  sites          Site[]
+
+  @@unique([organizationId, externalId])
+  @@index([organizationId, status, displayName])
+  @@map("clients")
+}
+
+model Contact {
+  id        String   @id @default(cuid())
+  clientId  String
+  name      String
+  role      String?
+  email     String?
+  phone     String?
+  isPrimary Boolean  @default(false)
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  client    Client   @relation(fields: [clientId], references: [id], onDelete: Cascade)
+
+  @@index([clientId, isPrimary])
+  @@map("contacts")
+}
+
+model Contract {
+  id               String           @id @default(cuid())
+  organizationId   String
+  clientId         String
+  name             String
+  reference        String?
+  status           CommercialStatus @default(draft)
+  startDate        DateTime?
+  endDate          DateTime?
+  currency         String           @default("EUR")
+  completionPolicy Json?
+  version          Int              @default(1)
+  archivedAt       DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+  organization     Organization     @relation(fields: [organizationId], references: [id])
+  client           Client           @relation(fields: [clientId], references: [id])
+  sites            ContractSite[]
+  servicePlans     ServicePlan[]
+  jobs             Job[]
+
+  @@unique([organizationId, reference])
+  @@index([organizationId, clientId, status])
+  @@map("contracts")
+}
+
+model Site {
+  id                  String               @id @default(cuid())
+  organizationId      String
+  clientId            String
+  name                String
+  status              CommercialStatus     @default(active)
+  addressLine1        String
+  addressLine2        String?
+  city                String
+  region              String?
+  postalCode          String
+  countryCode         String               @default("IE")
+  timezone            String               @default("Europe/Dublin")
+  latitude            Decimal?             @db.Decimal(10, 7)
+  longitude           Decimal?             @db.Decimal(10, 7)
+  coordinateAccuracyM Int?
+  coordinateSource    CoordinateSource     @default(manual)
+  geofenceVerifiedM   Int                  @default(150)
+  geofenceNearM       Int                  @default(250)
+  geofenceSuspiciousM Int                  @default(700)
+  version             Int                  @default(1)
+  archivedAt          DateTime?
+  createdAt           DateTime             @default(now())
+  updatedAt           DateTime             @updatedAt
+  organization        Organization         @relation(fields: [organizationId], references: [id])
+  client              Client               @relation(fields: [clientId], references: [id])
+  access              SiteAccess?
+  contracts           ContractSite[]
+  areas               Area[]
+  servicePlans        ServicePlan[]
+  jobs                Job[]
+  visits              Visit[]
+  stockLevels         SiteStockLevel[]
+  materialStockCounts MaterialStockCount[]
+  supplyRequests      SupplyRequest[]
+  qualityInspections  QualityInspection[]
+  correctiveActions   CorrectiveAction[]
+  operationalNotices  OperationalNotice[]
+  preferredAssignees  SitePreferredAssignee[]
+
+  @@index([organizationId, clientId, status])
+  @@index([organizationId, postalCode])
+  @@map("sites")
+}
+
+model SitePreferredAssignee {
+  id             String       @id @default(cuid())
+  organizationId String
+  siteId         String
+  userId         String
+  priority       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  site           Site         @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([siteId, userId])
+  @@index([organizationId, siteId, priority])
+  @@map("site_preferred_assignees")
+}
+
+model ContractSite {
+  contractId String
+  siteId     String
   createdAt  DateTime @default(now())
-  actor      User     @relation("AuditActor", fields: [actorEmail], references: [email])
+  contract   Contract @relation(fields: [contractId], references: [id], onDelete: Cascade)
+  site       Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@id([contractId, siteId])
+  @@index([siteId])
+  @@map("contract_sites")
+}
+
+model SiteAccess {
+  id                    String   @id @default(cuid())
+  siteId                String   @unique
+  accessWindows         Json?
+  entryInstructions     String?
+  keyInstructions       String?
+  alarmInstructions     String?
+  parkingInstructions   String?
+  emergencyContactName  String?
+  emergencyContactPhone String?
+  hazards               Json?
+  equipment             Json?
+  securityCloseDown     Json?
+  updatedAt             DateTime @updatedAt
+  createdAt             DateTime @default(now())
+  site                  Site     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+
+  @@map("site_access")
+}
+
+model Area {
+  id             String         @id @default(cuid())
+  organizationId String
+  siteId         String
+  parentId       String?
+  name           String
+  type           AreaType       @default(room)
+  code           String?
+  sortOrder      Int            @default(0)
+  active         Boolean        @default(true)
+  createdAt      DateTime       @default(now())
+  updatedAt      DateTime       @updatedAt
+  organization   Organization   @relation(fields: [organizationId], references: [id])
+  site           Site           @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  parent         Area?          @relation("AreaHierarchy", fields: [parentId], references: [id])
+  children       Area[]         @relation("AreaHierarchy")
+  taskTemplates  TaskTemplate[]
+
+  @@unique([siteId, code])
+  @@index([organizationId, siteId, parentId, sortOrder])
+  @@map("areas")
+}
+
+model EvidencePolicy {
+  id                  String        @id @default(cuid())
+  organizationId      String
+  name                String
+  requireStartPhoto   Boolean       @default(false)
+  requireFinishPhoto  Boolean       @default(false)
+  requireSignature    Boolean       @default(false)
+  requireProblemPhoto Boolean       @default(true)
+  minimumPhotoCount   Int           @default(0)
+  rules               Json?
+  archivedAt          DateTime?
+  createdAt           DateTime      @default(now())
+  updatedAt           DateTime      @updatedAt
+  organization        Organization  @relation(fields: [organizationId], references: [id])
+  servicePlans        ServicePlan[]
+
+  @@index([organizationId, archivedAt])
+  @@map("evidence_policies")
+}
+
+model ServicePlan {
+  id                      String               @id @default(cuid())
+  organizationId          String
+  contractId              String?
+  siteId                  String
+  evidencePolicyId        String?
+  name                    String
+  description             String?
+  status                  ServicePlanStatus    @default(draft)
+  expectedDurationMinutes Int
+  requiredWorkers         Int                  @default(1)
+  version                 Int                  @default(1)
+  archivedAt              DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
+  organization            Organization         @relation(fields: [organizationId], references: [id])
+  contract                Contract?            @relation(fields: [contractId], references: [id])
+  site                    Site                 @relation(fields: [siteId], references: [id])
+  evidencePolicy          EvidencePolicy?      @relation(fields: [evidencePolicyId], references: [id])
+  tasks                   TaskTemplate[]
+  versions                ServicePlanVersion[]
+  jobs                    Job[]
+
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, contractId])
+  @@map("service_plans")
+}
+
+model TaskTemplate {
+  id                 String           @id @default(cuid())
+  organizationId     String
+  servicePlanId      String
+  areaId             String?
+  title              String
+  instructions       String?
+  responseType       TaskResponseType @default(done_na_problem)
+  critical           Boolean          @default(false)
+  required           Boolean          @default(true)
+  evidenceRequired   Boolean          @default(false)
+  evidenceVisibility String           @default("internal")
+  options            Json?
+  conditionalRules   Json?
+  sortOrder          Int              @default(0)
+  active             Boolean          @default(true)
+  createdAt          DateTime         @default(now())
+  updatedAt          DateTime         @updatedAt
+  organization       Organization     @relation(fields: [organizationId], references: [id])
+  servicePlan        ServicePlan      @relation(fields: [servicePlanId], references: [id], onDelete: Cascade)
+  area               Area?            @relation(fields: [areaId], references: [id])
+
+  @@index([organizationId, servicePlanId, areaId, sortOrder])
+  @@map("task_templates")
+}
+
+model ServicePlanVersion {
+  id                      String                   @id @default(cuid())
+  organizationId          String
+  servicePlanId           String
+  versionNumber           Int
+  expectedDurationMinutes Int
+  requiredWorkers         Int
+  snapshot                Json
+  contentHash             String
+  publishedAt             DateTime                 @default(now())
+  publishedBy             String
+  organization            Organization             @relation(fields: [organizationId], references: [id])
+  servicePlan             ServicePlan              @relation(fields: [servicePlanId], references: [id])
+  tasks                   ServicePlanVersionTask[]
+  jobs                    Job[]
+  visits                  Visit[]
+  taskResults             VisitTaskResult[]
+
+  @@unique([servicePlanId, versionNumber])
+  @@unique([servicePlanId, contentHash])
+  @@index([organizationId, publishedAt])
+  @@map("service_plan_versions")
+}
+
+model ServicePlanVersionTask {
+  id                 String             @id @default(cuid())
+  organizationId     String
+  versionId          String
+  sourceTaskId       String
+  sourceAreaId       String?
+  areaName           String?
+  title              String
+  instructions       String?
+  responseType       TaskResponseType
+  critical           Boolean
+  required           Boolean
+  evidenceRequired   Boolean
+  evidenceVisibility String
+  options            Json?
+  conditionalRules   Json?
+  sortOrder          Int
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  version            ServicePlanVersion @relation(fields: [versionId], references: [id], onDelete: Cascade)
+  taskResults        VisitTaskResult[]
+
+  @@index([organizationId, versionId, sortOrder])
+  @@map("service_plan_version_tasks")
+}
+
+model Job {
+  id                   String             @id @default(cuid())
+  organizationId       String
+  contractId           String?
+  siteId               String
+  servicePlanId        String
+  servicePlanVersionId String
+  name                 String
+  status               JobStatus          @default(draft)
+  recurrence           Json?
+  startDate            DateTime
+  endDate              DateTime?
+  defaultStartMinutes  Int?
+  defaultDurationMin   Int
+  timezone             String             @default("Europe/Dublin")
+  requiredWorkers      Int                @default(1)
+  instructions         String?
+  version              Int                @default(1)
+  archivedAt           DateTime?
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
+  organization         Organization       @relation(fields: [organizationId], references: [id])
+  contract             Contract?          @relation(fields: [contractId], references: [id])
+  site                 Site               @relation(fields: [siteId], references: [id])
+  servicePlan          ServicePlan        @relation(fields: [servicePlanId], references: [id])
+  servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
+  visits               Visit[]
+
+  @@index([organizationId, status, startDate])
+  @@index([organizationId, siteId, status])
+  @@map("jobs")
+}
+
+model Visit {
+  id                   String               @id @default(cuid())
+  organizationId       String
+  jobId                String
+  siteId               String
+  servicePlanVersionId String
+  scheduledStart       DateTime
+  scheduledEnd         DateTime
+  timezone             String               @default("Europe/Dublin")
+  status               VisitStatus          @default(scheduled)
+  sequenceNumber       Int
+  generationKey        String
+  requiredWorkers      Int                  @default(1)
+  dispatchNotes        String?
+  startedAt            DateTime?
+  completedAt          DateTime?
+  reopenedAt           DateTime?
+  reopenReason         String?
+  cancelledAt          DateTime?
+  cancellationReason   String?
+  version              Int                  @default(1)
+  createdAt            DateTime             @default(now())
+  updatedAt            DateTime             @updatedAt
+  organization         Organization         @relation(fields: [organizationId], references: [id])
+  job                  Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  site                 Site                 @relation(fields: [siteId], references: [id])
+  servicePlanVersion   ServicePlanVersion   @relation(fields: [servicePlanVersionId], references: [id])
+  assignments          VisitAssignment[]
+  taskResults          VisitTaskResult[]
+  timeEntries          TimeEntry[]
+  evidenceAssets       EvidenceAsset[]
+  incidents            Incident[]
+  locationEvents       LocationEvent[]
+  materialStockCounts  MaterialStockCount[]
+  supplyRequests       SupplyRequest[]
+  qualityInspections   QualityInspection[]
+  correctiveActions    CorrectiveAction[]
+  operationalNotices   OperationalNotice[]
+  reviews              VisitReview[]
+
+  @@unique([jobId, generationKey])
+  @@index([organizationId, scheduledStart, status])
+  @@index([organizationId, siteId, scheduledStart])
+  @@map("visits")
+}
+
+model VisitReview {
+  id             String       @id @default(cuid())
+  organizationId String
+  visitId        String
+  decision       String
+  note           String?
+  reviewedBy     String
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  visit          Visit        @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reviewer       User         @relation(fields: [reviewedBy], references: [id])
+
+  @@index([organizationId, visitId, createdAt])
+  @@index([organizationId, decision, createdAt])
+  @@map("visit_reviews")
+}
+
+model VisitAssignment {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  userId         String
+  status         AssignmentStatus @default(assigned)
+  assignedAt     DateTime         @default(now())
+  notifiedAt     DateTime?
+  seenAt         DateTime?
+  acknowledgedAt DateTime?
+  declinedAt     DateTime?
+  declineReason  String?
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  user           User             @relation(fields: [userId], references: [id])
+
+  @@unique([visitId, userId])
+  @@index([organizationId, userId, status])
+  @@map("visit_assignments")
+}
+
+model Availability {
+  id             String       @id @default(cuid())
+  organizationId String
+  userId         String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  cancelledAt    DateTime?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, userId, startsAt, endsAt])
+  @@index([organizationId, startsAt, endsAt])
+  @@map("availability")
+}
+
+model VisitTaskResult {
+  id             String                 @id @default(cuid())
+  organizationId String
+  visitId        String
+  versionId      String
+  versionTaskId  String
+  status         TaskExecutionStatus    @default(pending)
+  response       Json?
+  note           String?
+  completedBy    String?
+  completedAt    DateTime?
+  version        Int                    @default(1)
+  createdAt      DateTime               @default(now())
+  updatedAt      DateTime               @updatedAt
+  organization   Organization           @relation(fields: [organizationId], references: [id])
+  visit          Visit                  @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  planVersion    ServicePlanVersion     @relation(fields: [versionId], references: [id])
+  versionTask    ServicePlanVersionTask @relation(fields: [versionTaskId], references: [id])
+  evidence       EvidenceAsset[]
+
+  @@unique([visitId, versionTaskId])
+  @@index([organizationId, visitId, status])
+  @@map("visit_task_results")
+}
+
+model TimeEntry {
+  id                 String          @id @default(cuid())
+  organizationId     String
+  visitId            String?
+  userId             String
+  kind               TimeEntryKind
+  status             TimeEntryStatus @default(running)
+  startedAt          DateTime
+  endedAt            DateTime?
+  durationSeconds    Int?
+  startLatitude      Decimal?        @db.Decimal(10, 7)
+  startLongitude     Decimal?        @db.Decimal(10, 7)
+  startAccuracyM     Int?
+  startDistanceM     Int?
+  startLocationClass LocationClass?
+  endLatitude        Decimal?        @db.Decimal(10, 7)
+  endLongitude       Decimal?        @db.Decimal(10, 7)
+  endAccuracyM       Int?
+  endDistanceM       Int?
+  endLocationClass   LocationClass?
+  source             String          @default("online")
+  clientMutationId   String?
+  reviewReason       String?
+  approvedBy         String?
+  approvedAt         DateTime?
+  createdAt          DateTime        @default(now())
+  updatedAt          DateTime        @updatedAt
+  organization       Organization    @relation(fields: [organizationId], references: [id])
+  visit              Visit?          @relation(fields: [visitId], references: [id])
+  user               User            @relation(fields: [userId], references: [id])
+  locationEvents     LocationEvent[]
+  disputes           TimeEntryDispute[]
+
+  @@unique([organizationId, clientMutationId])
+  @@index([organizationId, userId, startedAt])
+  @@index([organizationId, visitId, status])
+  @@map("time_entries")
+}
+
+model TimeEntryDispute {
+  id             String    @id @default(cuid())
+  organizationId String
+  timeEntryId    String
+  userId         String
+  reason         String
+  status         String    @default("open")
+  resolution     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  timeEntry      TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  user           User      @relation(fields: [userId], references: [id])
+
+  @@index([organizationId, status, createdAt])
+  @@index([organizationId, timeEntryId])
+  @@index([organizationId, userId, createdAt])
+  @@map("time_entry_disputes")
+}
+
+model LocationEvent {
+  id             String            @id @default(cuid())
+  organizationId String
+  visitId        String?
+  timeEntryId    String?
+  kind           LocationEventKind
+  latitude       Decimal           @db.Decimal(10, 7)
+  longitude      Decimal           @db.Decimal(10, 7)
+  accuracyM      Int?
+  distanceM      Int?
+  classification LocationClass?
+  capturedAt     DateTime
+  source         String            @default("device")
+  organization   Organization      @relation(fields: [organizationId], references: [id])
+  visit          Visit?            @relation(fields: [visitId], references: [id])
+  timeEntry      TimeEntry?        @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, visitId, capturedAt])
+  @@map("location_events")
+}
+
+model EvidenceAsset {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  taskResultId   String?
+  uploadedBy     String
+  kind           EvidenceKind
+  storageKey     String
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  visibility     String           @default("internal")
+  latitude       Decimal?         @db.Decimal(10, 7)
+  longitude      Decimal?         @db.Decimal(10, 7)
+  capturedAt     DateTime?
+  metadata       Json?
+  createdAt      DateTime         @default(now())
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  taskResult     VisitTaskResult? @relation(fields: [taskResultId], references: [id], onDelete: SetNull)
+  uploader       User             @relation(fields: [uploadedBy], references: [id])
+
+  @@index([organizationId, visitId, kind])
+  @@map("evidence_assets")
+}
+
+model Incident {
+  id             String           @id @default(cuid())
+  organizationId String
+  visitId        String
+  reportedBy     String
+  category       IncidentCategory
+  severity       IncidentSeverity @default(medium)
+  title          String
+  description    String
+  status         IncidentStatus   @default(open)
+  resolution     String?
+  resolvedBy     String?
+  resolvedAt     DateTime?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id])
+  visit          Visit            @relation(fields: [visitId], references: [id], onDelete: Cascade)
+  reporter       User             @relation(fields: [reportedBy], references: [id])
+
+  @@index([organizationId, status, severity, createdAt])
+  @@map("incidents")
+}
+
+model OfflineMutation {
+  id               String                @id @default(cuid())
+  organizationId   String
+  userId           String
+  clientMutationId String
+  deviceId         String
+  mutationType     String
+  entityId         String?
+  payload          Json
+  status           OfflineMutationStatus @default(processed)
+  result           Json?
+  error            String?
+  clientCreatedAt  DateTime
+  processedAt      DateTime              @default(now())
+  organization     Organization          @relation(fields: [organizationId], references: [id])
+  user             User                  @relation(fields: [userId], references: [id])
+
+  @@unique([organizationId, clientMutationId])
+  @@index([organizationId, userId, processedAt])
+  @@map("offline_mutations")
+}
+
+model AuthToken {
+  id             String        @id @default(cuid())
+  tokenHash      String        @unique
+  type           AuthTokenType
+  userId         String
+  organizationId String        @default("org_legacy_diamond_shine")
+  expiresAt      DateTime
+  usedAt         DateTime?
+  createdAt      DateTime      @default(now())
+  user           User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization  @relation(fields: [organizationId], references: [id])
+
+  @@index([userId, type])
+  @@index([organizationId, type])
+  @@index([expiresAt])
+  @@map("auth_tokens")
+}
+
+model MobileSession {
+  id             String       @id @default(cuid())
+  userId         String
+  organizationId String
+  deviceName     String?
+  expiresAt      DateTime
+  revokedAt      DateTime?
+  createdAt      DateTime     @default(now())
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([userId, revokedAt, expiresAt])
+  @@index([organizationId, revokedAt, expiresAt])
+  @@map("mobile_sessions")
+}
+
+model DevicePushToken {
+  id               String       @id @default(cuid())
+  userId           String
+  organizationId   String
+  token            String       @unique
+  platform         String
+  deviceId         String?
+  active           Boolean      @default(true)
+  lastRegisteredAt DateTime     @default(now())
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+  user             User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  organization     Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, userId, active])
+  @@index([organizationId, active, updatedAt])
+  @@map("device_push_tokens")
+}
+
+model AuthRateLimit {
+  id        String   @id @default(cuid())
+  key       String   @unique
+  attempts  Int      @default(0)
+  resetAt   DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([resetAt])
+  @@map("auth_rate_limits")
+}
+
+model AuditLog {
+  id             String       @id @default(cuid())
+  actorEmail     String
+  action         String
+  targetType     String
+  targetId       String?
+  metadata       String?
+  createdAt      DateTime     @default(now())
+  actor          User         @relation("AuditActor", fields: [actorEmail], references: [email])
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
   @@index([actorEmail])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("audit_logs")
 }
 
 model EmailTemplate {
-  id        String   @id @default(cuid())
-  key       String   @unique
-  subject   String
-  body      String
-  updatedAt DateTime @updatedAt
-  createdAt DateTime @default(now())
+  id             String       @id @default(cuid())
+  key            String
+  subject        String
+  body           String
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
+  @@unique([organizationId, key])
+  @@index([organizationId])
   @@map("email_templates")
 }
 
 model NotificationSetting {
-  id         String   @id @default(cuid())
-  key        String   @unique
-  recipients String
-  updatedAt  DateTime @updatedAt
-  createdAt  DateTime @default(now())
+  id             String       @id @default(cuid())
+  key            String
+  recipients     String
+  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime     @default(now())
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
 
+  @@unique([organizationId, key])
+  @@index([organizationId])
   @@map("notification_settings")
 }
 
 model SupplyRequest {
-  id             String         @id @default(cuid())
+  id             String              @id @default(cuid())
   employeeName   String
   clientLocation String
   priority       SupplyPriority
   products       String
   notes          String?
-  status         String         @default("Pending")
+  status         String              @default("Requested")
   submittedBy    String
   emailSentAt    DateTime?
   completedAt    DateTime?
-  createdAt      DateTime       @default(now())
-  updatedAt      DateTime       @updatedAt
-  user           User           @relation(fields: [submittedBy], references: [email])
+  dueAt          DateTime?
+  assignedTo     String?
+  siteId         String?
+  visitId        String?
+  source         String              @default("manual")
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+  user           User                @relation(fields: [submittedBy], references: [email])
+  items          SupplyRequestItem[]
+  statusEvents   SupplyStatusEvent[]
+  organizationId String              @default("org_legacy_diamond_shine")
+  organization   Organization        @relation(fields: [organizationId], references: [id])
+  site           Site?               @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  visit          Visit?              @relation(fields: [visitId], references: [id], onDelete: SetNull)
 
   @@index([status])
   @@index([submittedBy])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
+  @@index([organizationId, siteId, status])
   @@map("supply_requests")
 }
 
+model OperationalNotice {
+  id                      String                       @id @default(cuid())
+  organizationId          String
+  siteId                  String?
+  visitId                 String?
+  type                    OperationalNoticeType        @default(general)
+  priority                OperationalNoticePriority    @default(normal)
+  title                   String
+  body                    String
+  requiresAcknowledgement Boolean                      @default(true)
+  createdById             String
+  publishedAt             DateTime                     @default(now())
+  expiresAt               DateTime?
+  createdAt               DateTime                     @default(now())
+  updatedAt               DateTime                     @updatedAt
+  organization            Organization                 @relation(fields: [organizationId], references: [id])
+  site                    Site?                        @relation(fields: [siteId], references: [id], onDelete: SetNull)
+  visit                   Visit?                       @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  createdBy               User                         @relation("NoticeCreator", fields: [createdById], references: [id])
+  recipients              OperationalNoticeRecipient[]
+
+  @@index([organizationId, publishedAt])
+  @@index([organizationId, siteId, publishedAt])
+  @@index([organizationId, visitId])
+  @@map("operational_notices")
+}
+
+model OperationalNoticeRecipient {
+  id              String            @id @default(cuid())
+  organizationId  String
+  noticeId        String
+  userId          String
+  deliveredAt     DateTime          @default(now())
+  seenAt          DateTime?
+  acknowledgedAt  DateTime?
+  acknowledgement String?
+  createdAt       DateTime          @default(now())
+  updatedAt       DateTime          @updatedAt
+  organization    Organization      @relation(fields: [organizationId], references: [id])
+  notice          OperationalNotice @relation(fields: [noticeId], references: [id], onDelete: Cascade)
+  user            User              @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([noticeId, userId])
+  @@index([organizationId, userId, acknowledgedAt, deliveredAt])
+  @@index([organizationId, noticeId, acknowledgedAt])
+  @@map("operational_notice_recipients")
+}
+
+model QualityInspection {
+  id             String                  @id @default(cuid())
+  organizationId String
+  siteId         String
+  visitId        String?
+  inspectorId    String
+  type           QualityInspectionType   @default(routine)
+  status         QualityInspectionStatus @default(submitted)
+  score          Int
+  grade          String
+  passed         Boolean
+  summary        String?
+  clientVisible  Boolean                 @default(false)
+  inspectedAt    DateTime                @default(now())
+  submittedAt    DateTime?
+  closedAt       DateTime?
+  createdAt      DateTime                @default(now())
+  updatedAt      DateTime                @updatedAt
+  organization   Organization            @relation(fields: [organizationId], references: [id])
+  site           Site                    @relation(fields: [siteId], references: [id])
+  visit          Visit?                  @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  inspector      User                    @relation("QualityInspector", fields: [inspectorId], references: [id])
+  items          QualityInspectionItem[]
+  actions        CorrectiveAction[]
+
+  @@index([organizationId, inspectedAt])
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, visitId])
+  @@map("quality_inspections")
+}
+
+model QualityInspectionItem {
+  id             String             @id @default(cuid())
+  organizationId String
+  inspectionId   String
+  category       String
+  title          String
+  weight         Int                @default(1)
+  result         QualityCheckResult
+  score          Int
+  critical       Boolean            @default(false)
+  finding        String?
+  requiredAction String?
+  evidence       Json?
+  sortOrder      Int                @default(0)
+  createdAt      DateTime           @default(now())
+  organization   Organization       @relation(fields: [organizationId], references: [id])
+  inspection     QualityInspection  @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  corrective     CorrectiveAction?
+
+  @@index([organizationId, inspectionId, result])
+  @@map("quality_inspection_items")
+}
+
+model CorrectiveAction {
+  id               String                   @id @default(cuid())
+  organizationId   String
+  inspectionId     String
+  inspectionItemId String?                  @unique
+  siteId           String
+  visitId          String?
+  title            String
+  description      String?
+  severity         CorrectiveActionSeverity
+  status           CorrectiveActionStatus   @default(open)
+  assignedToId     String?
+  createdById      String
+  resolvedById     String?
+  dueAt            DateTime
+  acceptedAt       DateTime?
+  resolvedAt       DateTime?
+  verifiedAt       DateTime?
+  resolutionNote   String?
+  version          Int                      @default(1)
+  createdAt        DateTime                 @default(now())
+  updatedAt        DateTime                 @updatedAt
+  organization     Organization             @relation(fields: [organizationId], references: [id])
+  inspection       QualityInspection        @relation(fields: [inspectionId], references: [id], onDelete: Cascade)
+  inspectionItem   QualityInspectionItem?   @relation(fields: [inspectionItemId], references: [id], onDelete: SetNull)
+  site             Site                     @relation(fields: [siteId], references: [id])
+  visit            Visit?                   @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  assignedTo       User?                    @relation("CorrectiveAssignee", fields: [assignedToId], references: [id], onDelete: SetNull)
+  createdBy        User                     @relation("CorrectiveCreator", fields: [createdById], references: [id])
+  resolvedBy       User?                    @relation("CorrectiveResolver", fields: [resolvedById], references: [id], onDelete: SetNull)
+
+  @@index([organizationId, status, dueAt])
+  @@index([organizationId, siteId, status])
+  @@index([organizationId, assignedToId, status])
+  @@map("corrective_actions")
+}
+
 model FeedbackEntry {
-  id              String           @id @default(cuid())
+  id              String       @id @default(cuid())
   employeeName    String
+  employeeId      String?
   clientLocation  String
   cleanliness     Float
   punctuality     Float
@@ -83,13 +1039,18 @@ model FeedbackEntry {
   category        String
   comments        String?
   submittedBy     String
-  createdAt       DateTime         @default(now())
-  updatedAt       DateTime         @updatedAt
-  user            User             @relation(fields: [submittedBy], references: [email])
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+  user            User         @relation("FeedbackSubmitter", fields: [submittedBy], references: [email])
+  employee        User?        @relation("FeedbackEmployee", fields: [employeeId], references: [id], onDelete: SetNull)
+  organizationId  String       @default("org_legacy_diamond_shine")
+  organization    Organization @relation(fields: [organizationId], references: [id])
 
   @@index([submittedBy])
   @@index([employeeName])
+  @@index([employeeId])
   @@index([createdAt])
+  @@index([organizationId, createdAt])
   @@map("feedback_entries")
 }
 
@@ -106,6 +1067,388 @@ enum SupplyPriority {
   low
 }
 
+model NotificationJob {
+  id             String       @id @default(cuid())
+  kind           String
+  status         String       @default("queued")
+  payload        Json
+  entityType     String?
+  entityId       String?
+  createdBy      String
+  attempts       Int          @default(0)
+  maxAttempts    Int          @default(5)
+  nextAttemptAt  DateTime     @default(now())
+  lastAttemptAt  DateTime?
+  sentAt         DateTime?
+  lastError      String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  organizationId String       @default("org_legacy_diamond_shine")
+  organization   Organization @relation(fields: [organizationId], references: [id])
+
+  @@index([status, nextAttemptAt])
+  @@index([entityType, entityId])
+  @@index([createdAt])
+  @@index([organizationId, status, nextAttemptAt])
+  @@index([organizationId, createdAt])
+  @@map("notification_jobs")
+}
+
+model SupplyStatusEvent {
+  id         String        @id @default(cuid())
+  requestId  String
+  fromStatus String?
+  toStatus   String
+  actorEmail String
+  note       String?
+  createdAt  DateTime      @default(now())
+  request    SupplyRequest @relation(fields: [requestId], references: [id], onDelete: Cascade)
+
+  @@index([requestId, createdAt])
+  @@map("supply_status_events")
+}
+
+model SupplyRequestItem {
+  id              String               @id @default(cuid())
+  requestId       String
+  catalogItemId   String?
+  product         String
+  quantity        Int
+  currentQuantity Int?
+  targetQuantity  Int?
+  request         SupplyRequest        @relation(fields: [requestId], references: [id], onDelete: Cascade)
+  catalogItem     MaterialCatalogItem? @relation(fields: [catalogItemId], references: [id], onDelete: SetNull)
+
+  @@index([requestId])
+  @@index([catalogItemId])
+  @@map("supply_request_items")
+}
+
+model MaterialCatalogItem {
+  id                  String                   @id @default(cuid())
+  organizationId      String
+  sku                 String
+  name                String
+  category            String
+  unit                String                   @default("unit")
+  active              Boolean                  @default(true)
+  defaultParLevel     Int                      @default(10)
+  defaultReorderPoint Int                      @default(3)
+  createdAt           DateTime                 @default(now())
+  updatedAt           DateTime                 @updatedAt
+  organization        Organization             @relation(fields: [organizationId], references: [id])
+  stockLevels         SiteStockLevel[]
+  countLines          MaterialStockCountLine[]
+  requestItems        SupplyRequestItem[]
+
+  @@unique([organizationId, sku])
+  @@index([organizationId, active, category, name])
+  @@map("material_catalog_items")
+}
+
+model SiteStockLevel {
+  id                String              @id @default(cuid())
+  organizationId    String
+  siteId            String
+  catalogItemId     String
+  onHand            Int                 @default(0)
+  parLevel          Int
+  reorderPoint      Int
+  estimatedDailyUse Decimal?            @db.Decimal(10, 2)
+  lastCountedAt     DateTime?
+  lastCountedBy     String?
+  version           Int                 @default(1)
+  createdAt         DateTime            @default(now())
+  updatedAt         DateTime            @updatedAt
+  organization      Organization        @relation(fields: [organizationId], references: [id])
+  site              Site                @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  catalogItem       MaterialCatalogItem @relation(fields: [catalogItemId], references: [id])
+
+  @@unique([siteId, catalogItemId])
+  @@index([organizationId, siteId, onHand])
+  @@map("site_stock_levels")
+}
+
+model MaterialStockCount {
+  id             String                   @id @default(cuid())
+  organizationId String
+  siteId         String
+  visitId        String?
+  countedBy      String
+  source         String                   @default("visit")
+  note           String?
+  createdAt      DateTime                 @default(now())
+  organization   Organization             @relation(fields: [organizationId], references: [id])
+  site           Site                     @relation(fields: [siteId], references: [id], onDelete: Cascade)
+  visit          Visit?                   @relation(fields: [visitId], references: [id], onDelete: SetNull)
+  counter        User                     @relation(fields: [countedBy], references: [id])
+  lines          MaterialStockCountLine[]
+
+  @@index([organizationId, siteId, createdAt])
+  @@index([organizationId, visitId])
+  @@map("material_stock_counts")
+}
+
+model MaterialStockCountLine {
+  id               String              @id @default(cuid())
+  organizationId   String
+  stockCountId     String
+  catalogItemId    String
+  previousQuantity Int?
+  quantity         Int
+  note             String?
+  organization     Organization        @relation(fields: [organizationId], references: [id])
+  stockCount       MaterialStockCount  @relation(fields: [stockCountId], references: [id], onDelete: Cascade)
+  catalogItem      MaterialCatalogItem @relation(fields: [catalogItemId], references: [id])
+
+  @@unique([stockCountId, catalogItemId])
+  @@index([organizationId, catalogItemId])
+  @@map("material_stock_count_lines")
+}
+
+enum AuthTokenType {
+  invite
+  password_reset
+}
+
+enum OrganizationStatus {
+  active
+  suspended
+  archived
+}
+
+enum MembershipRole {
+  organization_admin
+  field_supervisor
+  scheduler
+  employee
+  stock_controller
+  quality_inspector
+  finance
+  viewer
+}
+
+enum MembershipStatus {
+  invited
+  active
+  suspended
+  removed
+}
+
+enum ScopeType {
+  organization
+  region
+  contract
+  site
+  self
+}
+
+enum ClientType {
+  commercial
+  residential
+  public_sector
+  internal
+}
+
+enum CommercialStatus {
+  draft
+  active
+  paused
+  ended
+  archived
+}
+
+enum CoordinateSource {
+  manual
+  geocoded
+  gps_verified
+  imported
+}
+
+enum AreaType {
+  building
+  floor
+  zone
+  room
+  fixture
+  asset
+}
+
+enum ServicePlanStatus {
+  draft
+  published
+  archived
+}
+
+enum TaskResponseType {
+  done_na_problem
+  yes_no
+  count
+  option
+  text
+  date
+  signature
+  evidence
+  stock_level
+}
+
+enum JobStatus {
+  draft
+  active
+  paused
+  completed
+  cancelled
+  archived
+}
+
+enum VisitStatus {
+  scheduled
+  dispatched
+  acknowledged
+  in_progress
+  completion_blocked
+  completed
+  cancelled
+  missed
+}
+
+enum AssignmentStatus {
+  assigned
+  notified
+  seen
+  acknowledged
+  declined
+  removed
+}
+
+enum TaskExecutionStatus {
+  pending
+  done
+  not_applicable
+  problem
+}
+
+enum TimeEntryKind {
+  visit
+  driving
+  office
+  supplies
+  break
+  general
+}
+
+enum TimeEntryStatus {
+  running
+  completed
+  needs_review
+  approved
+  rejected
+}
+
+enum LocationClass {
+  verified
+  near
+  suspicious
+  unavailable
+}
+
+enum LocationEventKind {
+  clock_in
+  clock_out
+  heartbeat
+  manual_correction
+}
+
+enum EvidenceKind {
+  photo
+  signature
+  document
+  note
+}
+
+enum IncidentCategory {
+  access
+  security
+  damage
+  safety
+  equipment
+  client
+  materials
+  other
+}
+
+enum IncidentSeverity {
+  low
+  medium
+  high
+  critical
+}
+
+enum IncidentStatus {
+  open
+  acknowledged
+  in_progress
+  resolved
+  closed
+}
+
+enum OfflineMutationStatus {
+  processed
+  duplicate
+  conflicted
+  failed
+}
+
+enum QualityInspectionType {
+  routine
+  spot_check
+  post_incident
+  client_complaint
+  handover
+}
+
+enum OperationalNoticeType {
+  schedule_change
+  site_instruction
+  incident
+  materials
+  quality
+  general
+}
+
+enum OperationalNoticePriority {
+  low
+  normal
+  high
+  critical
+}
+
+enum QualityInspectionStatus {
+  draft
+  submitted
+  closed
+}
+
+enum QualityCheckResult {
+  pass
+  fail
+  not_applicable
+}
+
+enum CorrectiveActionSeverity {
+  minor
+  major
+  critical
+}
+
+enum CorrectiveActionStatus {
+  open
+  accepted
+  in_progress
+  resolved
+  verified
+  waived
+}
 
 datasource db {
   provider = "postgresql"

@@ -1,6 +1,7 @@
 'use client'
 
 import type { FeedbackEntry } from '../../types'
+import { useDialogFocus } from './useDialogFocus'
 
 const CATEGORY_EMOJI: Record<string, string> = {
   Excellent: '🏆',
@@ -12,11 +13,13 @@ const CATEGORY_EMOJI: Record<string, string> = {
 
 type FeedbackDetailSheetProps = {
   open: boolean
+  active: boolean
   entry: FeedbackEntry | null
   onClose: () => void
 }
 
-export function FeedbackDetailSheet({ open, entry, onClose }: FeedbackDetailSheetProps) {
+export function FeedbackDetailSheet({ open, active, entry, onClose }: FeedbackDetailSheetProps) {
+  const dialogRef = useDialogFocus(active)
   if (!entry) return null
 
   const categoryEmoji = CATEGORY_EMOJI[entry.category] ?? ''
@@ -28,10 +31,11 @@ export function FeedbackDetailSheet({ open, entry, onClose }: FeedbackDetailShee
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!active}
     >
-      <div className="overlay-sheet detail-sheet fade-up">
+      <div ref={dialogRef} tabIndex={-1} className="overlay-sheet detail-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="feedback-detail-title">
         <div className="sheet-header">
-          <h2>⭐ Evaluation</h2>
+          <h2 id="feedback-detail-title">⭐ Evaluation</h2>
           <button type="button" className="icon-btn" onClick={onClose} aria-label="Close">
             ✕
           </button>

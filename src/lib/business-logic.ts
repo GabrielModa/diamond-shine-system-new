@@ -1,4 +1,4 @@
-import type { UserRole, Page, FeedbackCategory } from '../types'
+import type { UserRole, Page, FeedbackCategory, SupplyPriority, SupplyStatus } from '../types'
 import { PAGE_ACCESS } from './constants'
 
 export function calculateOverall(
@@ -67,4 +67,105 @@ export function consecutiveExcellent(entries: Array<{ overall: number }>): numbe
     }
   }
   return streak
+}
+
+export function getSupplySlaHours(priority: SupplyPriority): number {
+  if (priority === 'urgent') return 24
+  if (priority === 'normal') return 72
+  return 168
+}
+
+export function calculateSupplyDueAt(priority: SupplyPriority, from = new Date()): Date {
+  return new Date(from.getTime() + getSupplySlaHours(priority) * 60 * 60 * 1000)
+}
+
+export function isSupplyOverdue(
+  dueAt: string | Date | null | undefined,
+  status: SupplyStatus,
+  now = new Date()
+): boolean {
+  if (!dueAt || status === 'Delivered' || status === 'Rejected' || status === 'Cancelled') return false
+  const due = new Date(dueAt)
+  return !Number.isNaN(due.getTime()) && due.getTime() < now.getTime()
+}
+
+type SupplyMetricInput = {
+  status: SupplyStatus
+  createdAt: string | Date
+  completedAt?: string | Date | null
+  dueAt?: string | Date | null
+  assignedTo?: string | null
+}
+
+export function calculateSupplyOperationsMetrics(requests: SupplyMetricInput[]) {
+  const terminal: SupplyStatus[] = ['Delivered', 'Rejected', 'Cancelled']
+  const active = requests.filter((item) => !terminal.includes(item.status))
+  const completedWithSla = requests.filter((item) => item.status === 'Delivered' && item.completedAt && item.dueAt)
+  const completedOnTime = completedWithSla.filter(
+    (item) => new Date(item.completedAt!).getTime() <= new Date(item.dueAt!).getTime()
+  ).length
+  const resolved = requests.filter((item) => item.status === 'Delivered' && item.completedAt)
+  const averageResolutionHours = resolved.length
+    ? resolved.reduce(
+        (sum, item) => sum + Math.max(0, new Date(item.completedAt!).getTime() - new Date(item.createdAt).getTime()),
+        0
+      ) / resolved.length / 3_600_000
+    : null
+
+  return {
+    unassignedCount: active.filter((item) => !item.assignedTo).length,
+    slaRate: completedWithSla.length ? Math.round((completedOnTime / completedWithSla.length) * 100) : null,
+    completedOnTime,
+    completedWithSlaCount: completedWithSla.length,
+    averageResolutionHours,
+  }
+}
+
+const SUPPLY_TRANSITIONS: Record<SupplyStatus, SupplyStatus[]> = {
+  Requested: ['Triaged', 'Rejected', 'Cancelled'],
+  Triaged: ['Approved', 'Rejected', 'Cancelled'],
+  Approved: ['Ordered', 'Cancelled'],
+  Ordered: ['In transit', 'Cancelled'],
+  'In transit': ['Delivered'],
+  Delivered: [],
+  Rejected: [],
+  Cancelled: [],
+}
+
+export function getSupplyNextStatuses(status: SupplyStatus): SupplyStatus[] {
+  return SUPPLY_TRANSITIONS[status]
+}
+
+export function canTransitionSupplyStatus(from: SupplyStatus, to: SupplyStatus): boolean {
+  return SUPPLY_TRANSITIONS[from].includes(to)
+}
+
+export function calculateFeedbackTrend(
+  entries: Array<{ overall: number; createdAt: string | Date }>,
+  now = new Date()
+) {
+  const day = 24 * 60 * 60 * 1000
+  const currentStart = now.getTime() - 30 * day
+  const previousStart = now.getTime() - 60 * day
+  const current = entries.filter((entry) => {
+    const timestamp = new Date(entry.createdAt).getTime()
+    return timestamp >= currentStart && timestamp <= now.getTime()
+  })
+  const previous = entries.filter((entry) => {
+    const timestamp = new Date(entry.createdAt).getTime()
+    return timestamp >= previousStart && timestamp < currentStart
+  })
+  const average = (items: typeof entries) => items.length
+    ? items.reduce((sum, entry) => sum + entry.overall, 0) / items.length
+    : null
+  const currentAverage = average(current)
+  const previousAverage = average(previous)
+
+  return {
+    currentCount: current.length,
+    previousCount: previous.length,
+    currentAverage,
+    previousAverage,
+    delta: currentAverage !== null && previousAverage !== null ? currentAverage - previousAverage : null,
+  }
 }

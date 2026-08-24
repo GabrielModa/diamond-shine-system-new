@@ -16,6 +16,7 @@ export async function GET(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
 
   const logs = await prisma.auditLog.findMany({
+    where: { organizationId: auth.user.organizationId },
     orderBy: { createdAt: 'desc' },
     take: parsed.data.limit,
   })

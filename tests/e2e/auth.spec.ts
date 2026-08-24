@@ -18,3 +18,14 @@ test('admin can access /dashboard', async ({ page }) => {
   await page.goto('/dashboard')
   await expect(page).toHaveURL(/\/dashboard/)
 })
+
+test('mobile sign-in prioritizes the form without horizontal overflow', async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 })
+  await page.goto('/login')
+
+  await expect(page.locator('.auth-card-brand')).toBeVisible()
+  await expect(page.locator('.auth-hero')).toBeHidden()
+  await expect(page.getByRole('button', { name: 'Sign in' })).toBeVisible()
+  const hasHorizontalOverflow = await page.evaluate(() => document.documentElement.scrollWidth > document.documentElement.clientWidth)
+  expect(hasHorizontalOverflow).toBe(false)
+})

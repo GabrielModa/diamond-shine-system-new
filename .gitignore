@@ -1,6 +1,17 @@
 node_modules/
+.env
+.env.local
+.env.*.local
 .next/
+next-env.d.ts
 test-results/
 playwright-report/
+tsconfig.tsbuildinfo
 prisma/dev.db
 prisma/test.db
+.data/
+
+.next-integration/
+debug.log
+.next-dev.log
+.next-dev-error.log

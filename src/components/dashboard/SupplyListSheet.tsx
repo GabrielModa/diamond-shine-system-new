@@ -3,6 +3,8 @@
 import { useEffect, useMemo, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { timeAgo } from '../../lib/business-logic'
+import { isSupplyOverdue } from '../../lib/business-logic'
+import { useDialogFocus } from './useDialogFocus'
 
 type ListFilter = {
   priority?: SupplyPriority
@@ -14,10 +16,13 @@ type ListPreset = {
   location?: string
   employee?: string
   search?: string
+  overdue?: boolean
+  unassigned?: boolean
 }
 
 type SupplyListSheetProps = {
   open: boolean
+  active: boolean
   title: string
   requests: SupplyRequest[]
   filter: ListFilter
@@ -25,11 +30,11 @@ type SupplyListSheetProps = {
   onClose: () => void
   onSelect: (request: SupplyRequest) => void
   onSendEmail: (request: SupplyRequest) => void
-  onMarkComplete: (request: SupplyRequest) => void
 }
 
 export function SupplyListSheet({
   open,
+  active,
   title,
   requests,
   filter,
@@ -37,8 +42,8 @@ export function SupplyListSheet({
   onClose,
   onSelect,
   onSendEmail,
-  onMarkComplete,
 }: SupplyListSheetProps) {
+  const dialogRef = useDialogFocus(active)
   const [period, setPeriod] = useState('all')
   const [location, setLocation] = useState('all')
   const [employee, setEmployee] = useState('all')
@@ -52,7 +57,10 @@ export function SupplyListSheet({
     search: '',
   })
   const [searchDebounced, setSearchDebounced] = useState('')
-  const presetKey = `${preset?.period ?? ''}|${preset?.location ?? ''}|${preset?.employee ?? ''}|${preset?.search ?? ''}`
+  const presetPeriod = preset?.period
+  const presetLocation = preset?.location
+  const presetEmployee = preset?.employee
+  const presetSearch = preset?.search
 
   useEffect(() => {
     const timer = setTimeout(() => setSearchDebounced(search.trim()), 250)
@@ -78,17 +86,17 @@ export function SupplyListSheet({
   useEffect(() => {
     if (!open || !preset) return
     const next = {
-      period: preset.period ?? 'all',
-      location: preset.location ?? 'all',
-      employee: preset.employee ?? 'all',
-      search: preset.search ?? '',
+      period: presetPeriod ?? 'all',
+      location: presetLocation ?? 'all',
+      employee: presetEmployee ?? 'all',
+      search: presetSearch ?? '',
     }
     setPeriod(next.period)
     setLocation(next.location)
     setEmployee(next.employee)
     setSearch(next.search)
     setApplied(next)
-  }, [open, presetKey])
+  }, [open, preset, presetEmployee, presetLocation, presetPeriod, presetSearch])
 
   useEffect(() => {
     if (typeof window === 'undefined') return
@@ -107,6 +115,8 @@ export function SupplyListSheet({
 
     if (filter.priority) list = list.filter((item) => item.priority === filter.priority)
     if (filter.status) list = list.filter((item) => item.status === filter.status)
+    if (preset?.overdue) list = list.filter((item) => isSupplyOverdue(item.dueAt, item.status))
+    if (preset?.unassigned) list = list.filter((item) => !item.assignedTo && !['Delivered', 'Rejected', 'Cancelled'].includes(item.status))
 
     const now = new Date()
     if (applied.period !== 'all') {
@@ -138,7 +148,7 @@ export function SupplyListSheet({
     }
 
     return list
-  }, [requests, filter, applied])
+  }, [requests, filter, applied, preset?.overdue, preset?.unassigned])
 
   const employees = useMemo(() => {
     return Array.from(new Set(requests.map((item) => item.employeeName))).sort()
@@ -155,10 +165,11 @@ export function SupplyListSheet({
       onClick={(event) => {
         if (event.target === event.currentTarget) onClose()
       }}
+      aria-hidden={!active}
     >
-      <div className="overlay-sheet list-sheet fade-up">
+      <div ref={dialogRef} tabIndex={-1} className="overlay-sheet list-sheet fade-up" role="dialog" aria-modal="true" aria-labelledby="supply-list-title">
         <div className="sheet-header">
-          <h2>
+          <h2 id="supply-list-title">
             <span className="title-icon">📋</span>
             {title}
           </h2>
@@ -172,6 +183,7 @@ export function SupplyListSheet({
         <div className="filters-compact">
           <input
             type="search"
+            aria-label="Search supply requests"
             placeholder="Search requests..."
             value={search}
             onChange={(event) => setSearch(event.target.value)}
@@ -184,14 +196,14 @@ export function SupplyListSheet({
         {!isMobile || filtersOpen ? (
           <div className="filters card">
             <div className="filters-grid">
-              <select value={period} onChange={(event) => setPeriod(event.target.value)}>
+              <select aria-label="Filter by period" value={period} onChange={(event) => setPeriod(event.target.value)}>
                 <option value="all">All time</option>
                 <option value="month">This month</option>
                 <option value="7">Last 7 days</option>
                 <option value="30">Last 30 days</option>
                 <option value="90">Last 90 days</option>
               </select>
-              <select value={location} onChange={(event) => setLocation(event.target.value)}>
+              <select aria-label="Filter by location" value={location} onChange={(event) => setLocation(event.target.value)}>
                 <option value="all">All locations</option>
                 {locations.map((loc) => (
                   <option key={loc} value={loc}>
@@ -199,7 +211,7 @@ export function SupplyListSheet({
                   </option>
                 ))}
               </select>
-              <select value={employee} onChange={(event) => setEmployee(event.target.value)}>
+              <select aria-label="Filter by employee" value={employee} onChange={(event) => setEmployee(event.target.value)}>
                 <option value="all">All employees</option>
                 {employees.map((name) => (
                   <option key={name} value={name}>
@@ -209,6 +221,7 @@ export function SupplyListSheet({
               </select>
               <input
                 type="search"
+                aria-label="Search supply requests"
                 placeholder="Search requests..."
                 value={search}
                 onChange={(event) => setSearch(event.target.value)}
@@ -251,25 +264,28 @@ export function SupplyListSheet({
             <div className="empty-state">No requests found.</div>
           ) : null}
           {filtered.map((item) => (
-            <div key={item.id} className="list-item" onClick={() => onSelect(item)}>
-              <div className="list-main">
-                <div className="list-title">{item.employeeName}</div>
-                <div className="muted">{item.clientLocation}</div>
-              </div>
-              <div className="list-meta">
+            <div key={item.id} className="list-item">
+              <button type="button" className="list-open-button" onClick={() => onSelect(item)} aria-label={`Open request from ${item.employeeName} at ${item.clientLocation}`}>
+              <span className="list-main">
+                <span className="list-title">{item.employeeName}</span>
+                <span className="muted">{item.clientLocation}</span>
+              </span>
+              <span className="list-meta">
                 <span className={`status-badge ${item.status.replace(' ', '-')}`}>
-                  {item.status === 'Pending' ? '⏳' : item.status === 'Email Sent' ? '📧' : '✅'} {item.status}
+                  {item.status === 'Requested' ? '🆕' : item.status === 'In transit' ? '🚚' : item.status === 'Cancelled' || item.status === 'Rejected' ? '⛔' : item.status === 'Delivered' ? '✅' : '⏳'} {item.status}
                 </span>
                 <span className={`badge ${item.priority}`}>
                   {item.priority === 'urgent' ? '🔴' : item.priority === 'normal' ? '🟡' : '🟢'}{' '}
                   {item.priority.toUpperCase()}
                 </span>
                 <span className="muted">{timeAgo(item.createdAt)}</span>
-              </div>
+              </span>
+              </button>
               <div className="list-actions">
-                {item.status === 'Pending' ? (
+                {!['Delivered', 'Rejected', 'Cancelled'].includes(item.status) ? (
                   <button
                     title="Send Email"
+                    aria-label={`Send email for ${item.employeeName}'s request`}
                     className="btn-success"
                     onClick={(event) => {
                       event.stopPropagation()
@@ -277,18 +293,6 @@ export function SupplyListSheet({
                     }}
                   >
                     📧
-                  </button>
-                ) : null}
-                {item.status === 'Email Sent' ? (
-                  <button
-                    title="Mark Complete"
-                    className="btn-info"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onMarkComplete(item)
-                    }}
-                  >
-                    ✅
                   </button>
                 ) : null}
               </div>

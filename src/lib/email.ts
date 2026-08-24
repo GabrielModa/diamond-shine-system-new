@@ -1,6 +1,8 @@
 import nodemailer from 'nodemailer'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL, SMTP_FROM } from './constants'
 import { prisma } from './prisma'
+import { LEGACY_ORGANIZATION_ID } from './tenancy'
+import { getSmtpConfig } from './runtime-config'
 
 export interface SupplyEmailData {
   id: string
@@ -8,6 +10,7 @@ export interface SupplyEmailData {
   clientLocation: string
   priority: 'urgent' | 'normal' | 'low'
   products: string[]
+  items?: Array<{ product: string; quantity: number }>
   notes?: string
   submittedBy: string
   createdAt?: Date | string
@@ -37,19 +40,34 @@ export interface ClientEmailData {
 export interface InviteEmailData {
   to: string
   name: string
-  tempPassword: string
   inviteUrl: string
 }
 
+export interface QualityEmailData {
+  inspectionId?: string
+  actionId?: string
+  siteName: string
+  clientName: string
+  score?: number
+  grade?: string
+  correctiveActions?: number
+  title?: string
+  status?: string
+  severity?: string
+  assignedTo?: string
+}
+
+export interface PasswordResetEmailData {
+  to: string
+  name: string
+  resetUrl: string
+}
+
 function getTransport() {
-  return nodemailer.createTransport({
-    host: process.env.SMTP_HOST ?? 'localhost',
-    port: Number(process.env.SMTP_PORT ?? '587'),
-    secure: process.env.SMTP_SECURE === 'true',
-    auth: process.env.SMTP_USER
-      ? { user: process.env.SMTP_USER, pass: process.env.SMTP_PASS ?? '' }
-      : undefined,
-  })
+  if (process.env.EMAIL_TRANSPORT === 'json') {
+    return nodemailer.createTransport({ jsonTransport: true })
+  }
+  return nodemailer.createTransport(getSmtpConfig())
 }
 
 function priorityEmoji(priority: SupplyEmailData['priority']): string {
@@ -70,10 +88,25 @@ function formatDublinDate(value?: Date | string) {
   return date.toLocaleString('en-IE', { timeZone: 'Europe/Dublin' })
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>'"]/g, (character) => ({
+    '&': '&amp;',
+    '<': '&lt;',
+    '>': '&gt;',
+    "'": '&#39;',
+    '"': '&quot;',
+  }[character] ?? character))
+}
+
+function sanitizeHeader(value: string): string {
+  return value.replace(/[\r\n]+/g, ' ').trim()
+}
+
 function buildSuppliesEmailHtml(data: SupplyEmailData): string {
   const config = priorityConfig(data.priority)
-  const productsHtml = (data.products || []).map((p) => `<div class="product-item">• ${p}</div>`).join('')
-  const notesRow = data.notes ? `<tr><td>Notes</td><td>${data.notes}</td></tr>` : ''
+  const items = data.items?.length ? data.items : (data.products || []).map((product) => ({ product, quantity: 1 }))
+  const productsHtml = items.map((item) => `<div class="product-item">• ${escapeHtml(item.product)} × ${item.quantity}</div>`).join('')
+  const notesRow = data.notes ? `<tr><td>Notes</td><td>${escapeHtml(data.notes)}</td></tr>` : ''
   const timestamp = formatDublinDate(data.createdAt)
 
   return `<!DOCTYPE html>
@@ -105,20 +138,20 @@ function buildSuppliesEmailHtml(data: SupplyEmailData): string {
         <p>Supplies Management System</p>
       </div>
       <div class="priority-banner">
-        <h2>${config.emoji} ${config.label} PRIORITY <span class="pill">${data.id}</span></h2>
+        <h2>${config.emoji} ${config.label} PRIORITY <span class="pill">${escapeHtml(data.id)}</span></h2>
       </div>
       <div class="info-card">
         <table class="info-table">
-          <tr><td>Employee</td><td><strong>${data.employeeName}</strong></td></tr>
-          <tr><td>Location</td><td>${data.clientLocation}</td></tr>
+          <tr><td>Employee</td><td><strong>${escapeHtml(data.employeeName)}</strong></td></tr>
+          <tr><td>Location</td><td>${escapeHtml(data.clientLocation)}</td></tr>
           <tr><td>Products</td><td><div class="products-list">${productsHtml}</div></td></tr>
           ${notesRow}
-          <tr><td>Submitted by</td><td>${data.submittedBy}</td></tr>
+          <tr><td>Submitted by</td><td>${escapeHtml(data.submittedBy)}</td></tr>
           <tr><td>Date/Time</td><td>${timestamp}</td></tr>
         </table>
       </div>
       <div class="footer">
-        Request ID: <b>${data.id}</b> | Diamond Shine Automated System
+        Request ID: <b>${escapeHtml(data.id)}</b> | Diamond Shine Automated System
       </div>
     </div>
   </body>
@@ -151,29 +184,37 @@ function buildFeedbackEmailHtml(data: FeedbackEmailData): string {
       </div>
       <div class="score-card">
         <table class="score-table">
-          <tr><td>Employee</td><td><strong>${data.employeeName}</strong></td></tr>
-          <tr><td>Location</td><td>${data.clientLocation}</td></tr>
+          <tr><td>Employee</td><td><strong>${escapeHtml(data.employeeName)}</strong></td></tr>
+          <tr><td>Location</td><td>${escapeHtml(data.clientLocation)}</td></tr>
           <tr><td>Cleanliness</td><td>${data.cleanliness}</td></tr>
           <tr><td>Punctuality</td><td>${data.punctuality}</td></tr>
           <tr><td>Equipment</td><td>${data.equipment}</td></tr>
           <tr><td>Client Relations</td><td>${data.clientRelations}</td></tr>
-          <tr><td>Overall</td><td><b>${data.overall.toFixed(1)}</b> (${data.category})</td></tr>
-          <tr><td>Comments</td><td>${data.comments ?? ''}</td></tr>
-          <tr><td>Submitted by</td><td>${data.submittedBy}</td></tr>
+          <tr><td>Overall</td><td><b>${Number(data.overall.toFixed(2))}</b> (${escapeHtml(data.category)})</td></tr>
+          <tr><td>Comments</td><td>${escapeHtml(data.comments ?? '')}</td></tr>
+          <tr><td>Submitted by</td><td>${escapeHtml(data.submittedBy)}</td></tr>
           <tr><td>Date/Time</td><td>${timestamp}</td></tr>
         </table>
       </div>
       <div class="footer">
-        Feedback ID: <b>${data.id}</b> | Diamond Shine Automated System
+        Feedback ID: <b>${escapeHtml(data.id)}</b> | Diamond Shine Automated System
       </div>
     </div>
   </body>
   </html>`
 }
 
-async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback: string): Promise<string[]> {
+async function getRecipients(
+  key: 'supply_alerts' | 'feedback_alerts',
+  fallback: string,
+  organizationId: string
+): Promise<string[]> {
   try {
-    const record = await prisma.notificationSetting.findUnique({ where: { key } })
+    const record = await prisma.notificationSetting.findUnique({
+      where: {
+        organizationId_key: { organizationId, key },
+      },
+    })
     const value = record?.recipients?.trim() || fallback
     return value
       .split(',')
@@ -184,33 +225,43 @@ async function getRecipients(key: 'supply_alerts' | 'feedback_alerts', fallback:
   }
 }
 
-export async function sendSuppliesNotification(data: SupplyEmailData): Promise<void> {
+export async function sendSuppliesNotification(
+  data: SupplyEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
-    const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL)
+    const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL, organizationId)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,
-      subject: `${priorityEmoji(data.priority)} SUPPLIES REQUEST - ${data.employeeName} (ID: ${data.id})`,
+      subject: `${priorityEmoji(data.priority)} SUPPLIES REQUEST - ${sanitizeHeader(data.employeeName)} (ID: ${sanitizeHeader(data.id)})`,
       html: buildSuppliesEmailHtml(data),
     })
+    return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed supplies notification', error)
+    return { ok: false }
   }
 }
 
-export async function sendFeedbackNotification(data: FeedbackEmailData): Promise<void> {
+export async function sendFeedbackNotification(
+  data: FeedbackEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean }> {
   try {
     const transport = getTransport()
-    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL)
+    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL, organizationId)
     await transport.sendMail({
       from: SMTP_FROM,
       to: recipients,
-      subject: `📋 FEEDBACK - ${data.employeeName} (ID: ${data.id})`,
+      subject: `📋 FEEDBACK - ${sanitizeHeader(data.employeeName)} (ID: ${sanitizeHeader(data.id)})`,
       html: buildFeedbackEmailHtml(data),
     })
+    return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed feedback notification', error)
+    return { ok: false }
   }
 }
 
@@ -230,21 +281,62 @@ export async function sendClientNotification(
 const INVITE_TEMPLATE_FALLBACK = {
   subject: 'You are invited to Diamond Shine',
   body: `<p>Hello {{name}},</p>
-<p>You have been invited to Diamond Shine. Use the temporary password below to log in:</p>
-<p><b>Password:</b> {{tempPassword}}</p>
-<p>Login here: <a href="{{inviteUrl}}">{{inviteUrl}}</a></p>
+<p>You have been invited to Diamond Shine.</p>
+<p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>
 <p>If you did not request this, please ignore this email.</p>`,
 }
 
 function renderTemplate(template: { subject: string; body: string }, data: Record<string, string>) {
-  const replace = (value: string) =>
-    Object.entries(data).reduce((acc, [key, val]) => acc.replaceAll(`{{${key}}}`, val), value)
-  return { subject: replace(template.subject), body: replace(template.body) }
+  const subject = Object.entries(data).reduce(
+    (value, [key, replacement]) => value.replaceAll(`{{${key}}}`, sanitizeHeader(replacement)),
+    template.subject
+  )
+  const body = Object.entries(data).reduce(
+    (value, [key, replacement]) => value.replaceAll(`{{${key}}}`, escapeHtml(replacement)),
+    template.body
+  )
+  return { subject, body }
+}
+
+export async function sendQualityNotification(
+  data: QualityEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transport = getTransport()
+    const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL, organizationId)
+    const identifier = data.actionId ?? data.inspectionId ?? 'quality-update'
+    const rows = [
+      ['Client', data.clientName],
+      ['Site', data.siteName],
+      ...(data.score === undefined ? [] : [['Score', `${data.score}/100`]]),
+      ...(data.grade ? [['Grade', data.grade]] : []),
+      ...(data.correctiveActions === undefined ? [] : [['Corrective actions', `${data.correctiveActions}`]]),
+      ...(data.title ? [['Action', data.title]] : []),
+      ...(data.severity ? [['Severity', data.severity]] : []),
+      ...(data.status ? [['Status', data.status]] : []),
+      ...(data.assignedTo ? [['Assigned to', data.assignedTo]] : []),
+    ].map(([label, value]) => `<tr><td style="padding:8px 12px;font-weight:700">${escapeHtml(label)}</td><td style="padding:8px 12px">${escapeHtml(value)}</td></tr>`).join('')
+    await transport.sendMail({
+      from: SMTP_FROM,
+      to: recipients,
+      subject: `QUALITY - ${sanitizeHeader(data.clientName)} / ${sanitizeHeader(data.siteName)}`,
+      html: `<div style="font-family:Arial,sans-serif;max-width:640px;margin:auto"><h1>Diamond Shine quality update</h1><table style="width:100%;border-collapse:collapse">${rows}</table><p>Reference: ${escapeHtml(identifier)}</p></div>`,
+    })
+    return { ok: true }
+  } catch (error) {
+    console.error('[EMAIL] failed quality notification', error)
+    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+  }
 }
 
 async function getTemplate(key: string) {
   try {
-    const template = await prisma.emailTemplate.findUnique({ where: { key } })
+    const template = await prisma.emailTemplate.findUnique({
+      where: {
+        organizationId_key: { organizationId: LEGACY_ORGANIZATION_ID, key },
+      },
+    })
     if (!template) return null
     return { subject: template.subject, body: template.body }
   } catch {
@@ -259,7 +351,6 @@ export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boole
     const rendered = renderTemplate(template, {
       name: data.name,
       email: data.to,
-      tempPassword: data.tempPassword,
       inviteUrl: data.inviteUrl,
     })
     await transport.sendMail({
@@ -271,6 +362,28 @@ export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boole
     return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed invite email', error)
+    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+  }
+}
+
+export async function sendPasswordReset(
+  data: PasswordResetEmailData
+): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transport = getTransport()
+    const template = (await getTemplate('password_reset')) ?? {
+      subject: 'Reset your Diamond Shine password',
+      body: '<p>Hello {{name}},</p><p><a href="{{resetUrl}}">Reset your password</a>. This secure link expires in 24 hours and can only be used once.</p><p>If you did not request this, you can ignore this email.</p>',
+    }
+    const rendered = renderTemplate(template, {
+      name: data.name,
+      email: data.to,
+      resetUrl: data.resetUrl,
+    })
+    await transport.sendMail({ from: SMTP_FROM, to: data.to, subject: rendered.subject, html: rendered.body })
+    return { ok: true }
+  } catch (error) {
+    console.error('[EMAIL] failed password reset email', error)
     return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
   }
 }
