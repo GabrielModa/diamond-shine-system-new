@@ -29,6 +29,13 @@ export default function DetailDialog({ open, title, eyebrow, onClose, children }
     return () => window.removeEventListener('keydown', onKeyDown)
   }, [onClose, open])
 
+  useEffect(() => {
+    if (!open) return
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    return () => { document.body.style.overflow = previousOverflow }
+  }, [open])
+
   if (!open) return null
 
   return (

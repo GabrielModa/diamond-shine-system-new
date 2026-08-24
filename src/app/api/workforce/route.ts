@@ -17,15 +17,19 @@ export async function GET(request: NextRequest) {
 
   const now = new Date()
   const from = new Date(now.getTime() - rangeDays[parsed.data.range] * 86_400_000)
+  const planningTo = new Date(now.getTime() + rangeDays[parsed.data.range] * 86_400_000)
   const organizationId = auth.user.organizationId
   const [users, visits, entries, feedback] = await Promise.all([
     prisma.user.findMany({
-      where: { status: 'active', memberships: { some: { organizationId, status: 'active', role: { in: ['employee', 'supervisor'] } } } },
+      where: { status: 'active', memberships: { some: { organizationId, status: 'active', role: { in: ['employee', 'field_supervisor', 'scheduler', 'quality_inspector'] } } } },
       select: { id: true, name: true, email: true },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
     }),
     prisma.visit.findMany({
-      where: { organizationId, scheduledStart: { gte: from, lte: now } },
+      // Capacity needs the recent operational context and the upcoming window.
+      // Restricting this to the past made future service sites disappear from
+      // coverage planning exactly when a scheduler needed to allocate people.
+      where: { organizationId, scheduledStart: { gte: from, lte: planningTo } },
       select: {
         id: true, status: true, scheduledStart: true, scheduledEnd: true,
         site: { select: { id: true, name: true, city: true, addressLine1: true, latitude: true, longitude: true, client: { select: { displayName: true } } } },
@@ -72,9 +76,9 @@ export async function GET(request: NextRequest) {
   const actualMinutes = employees.reduce((sum, item) => sum + item.actualMinutes, 0)
 
   return NextResponse.json({ ok: true, data: {
-    generatedAt: now, range: parsed.data.range, from, to: now,
+    generatedAt: now, range: parsed.data.range, from, to: planningTo,
     summary: { employees: employees.length, plannedMinutes, actualMinutes, completedVisits: employees.reduce((sum, item) => sum + item.completedVisits, 0), siteCoverage: new Set(employees.flatMap((item) => item.nextVisit?.site.id ? [item.nextVisit.site.id] : [])).size },
     employees, sites,
-    routeProvider: 'Estimated Dublin travel time. Open Google Maps for live traffic and turn-by-turn routing.',
+    routeProvider: 'Google Maps route planning is available when the server key is configured.',
   } })
 }

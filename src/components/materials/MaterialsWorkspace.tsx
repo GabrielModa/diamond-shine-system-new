@@ -227,7 +227,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
             </article>
             <article className="card">
               <div className="section-heading"><div><h2>Replenishment queue</h2><p className="muted">From detection to delivery.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div>
-              <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" />
+              <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} />
               <RequestList requests={visibleControlRequests} />
             </article>
           </section>
@@ -278,7 +278,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
       {!busy && tab === 'history' ? (
         <section className="card">
           <div className="section-heading"><div><h2>{canManage ? 'Replenishment requests' : 'My requests'}</h2><p className="muted">Visible ownership and progress replace chat follow-ups.</p></div><span className="section-icon" aria-hidden="true">▤</span></div>
-          <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site, status or material…" />
+          <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site, status or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} />
           <RequestList requests={visibleRequests} />
         </section>
       ) : null}

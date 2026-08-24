@@ -34,7 +34,7 @@ export default function AuditPage() {
     <main className="page-shell">
       <header className="page-header"><h1>Audit Trail</h1><p className="muted">Review who changed what and when across the operation.</p></header>
       <section className="card">
-        <div className="admin-toolbar"><ListControls query={query} onQueryChange={setQuery} from={from} to={to} onFromChange={setFrom} onToChange={setTo} placeholder="Search action, actor or target…" /><select aria-label="Filter target type" value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All target types</option>{targets.map((item) => <option key={item}>{item}</option>)}</select></div>
+        <div className="admin-toolbar"><ListControls query={query} onQueryChange={setQuery} from={from} to={to} onFromChange={setFrom} onToChange={setTo} placeholder="Search action, actor or target…" hasActiveFilters={Boolean(query.trim() || from || to || target !== 'all')} onClear={() => { setQuery(''); setFrom(''); setTo(''); setTarget('all') }} /><select aria-label="Filter target type" value={target} onChange={(event) => setTarget(event.target.value)}><option value="all">All target types</option>{targets.map((item) => <option key={item}>{item}</option>)}</select></div>
         {error ? <div className="toast error" role="alert">{error}</div> : null}
         {!error && filtered.length === 0 ? <div className="empty-state">No audit events match these filters.</div> : null}
         <div className="audit-table scroll-list" role="table" aria-label="Audit events">

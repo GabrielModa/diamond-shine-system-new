@@ -15,6 +15,7 @@ const pageMeta: Record<string, { label: string; href: string; section: 'control'
   supplies: { label: 'Supplies', href: '/supplies', section: 'control' },
   communications: { label: 'Inbox', href: '/communications', section: 'control' },
   insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics' },
+  people: { label: 'People & coverage', href: '/people', section: 'analytics' },
   quality: { label: 'Quality control', href: '/quality', section: 'analytics' },
   feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics' },
   dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics' },

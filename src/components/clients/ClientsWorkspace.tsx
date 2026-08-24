@@ -45,7 +45,7 @@ export default function ClientsWorkspace() {
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage(null)}>×</button></div> : null}
     <section className="manager-workspace manager-workspace-single">
       <div className="manager-list card">
-        <div className="manager-list-toolbar"><div><h2>All clients</h2><span className="muted">{loading ? 'Loading…' : `${clients.length} result${clients.length === 1 ? '' : 's'}`}</span></div><ListControls query={search} onQueryChange={setSearch} placeholder="Search client, company or site…" /></div>
+        <div className="manager-list-toolbar"><div><h2>All clients</h2><span className="muted">{loading ? 'Loading…' : `${clients.length} result${clients.length === 1 ? '' : 's'}`}</span></div><ListControls query={search} onQueryChange={setSearch} placeholder="Search client, company or site…" onClear={() => setSearch('')} /></div>
         <div className="manager-table scroll-list" role="table" aria-label="Clients">
           <div className="manager-table-head" role="row"><span>Client</span><span>Sites</span><span>Service records</span><span>Status</span></div>
           {clients.map((client) => <button className={selected?.id === client.id ? 'manager-row selected' : 'manager-row'} key={client.id} onClick={() => setSelectedId(client.id)}><span><b>{client.displayName}</b><small>{client.legalName || client.billingEmail || 'No billing contact yet'}</small></span><span>{client._count.sites}</span><span>{client._count.contracts}</span><span className={`status-badge ${client.status === 'active' ? 'Completed' : 'Pending'}`}>{client.status}</span></button>)}
