@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios",
     "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
     "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
@@ -33,7 +33,13 @@
     "db:deploy": "prisma migrate deploy",
     "db:push": "npx prisma db push",
     "db:seed": "npx tsx prisma/seed.ts",
-    "db:reset": "npx prisma db push --force-reset && npm run db:seed"
+    "db:reset": "npx prisma db push --force-reset && npm run db:seed",
+    "db:seed:workforce": "npx tsx prisma/seed-workforce-planning.ts",
+    "test:integration:workforce": "vitest run tests/integration/workforce.test.ts",
+    "test:e2e:workforce": "playwright test tests/e2e/workforce.spec.ts",
+    "db:seed:scenarios": "npx tsx prisma/seed-scenario-matrix.ts",
+    "db:seed:demo": "npm run db:seed && npm run db:seed:workforce && npm run db:seed:scenarios",
+    "test:integration:scenarios": "vitest run tests/integration/scenario-matrix.test.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

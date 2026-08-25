@@ -31,60 +31,64 @@ model User {
   noticeRecipients    OperationalNoticeRecipient[]
   availability        Availability[]
   preferredSites      SitePreferredAssignee[]
+  workforceProfile    WorkforceProfile?
 
   @@map("users")
 }
 
 model Organization {
-  id                   String                       @id @default(cuid())
-  name                 String
-  slug                 String                       @unique
-  timezone             String                       @default("Europe/Dublin")
-  status               OrganizationStatus           @default(active)
-  createdAt            DateTime                     @default(now())
-  updatedAt            DateTime                     @updatedAt
-  memberships          Membership[]
-  capabilityGrants     CapabilityGrant[]
-  supplyRequests       SupplyRequest[]
-  feedbackEntries      FeedbackEntry[]
-  auditLogs            AuditLog[]
-  emailTemplates       EmailTemplate[]
-  notificationSettings NotificationSetting[]
-  notificationJobs     NotificationJob[]
-  authTokens           AuthToken[]
-  mobileSessions       MobileSession[]
-  devicePushTokens     DevicePushToken[]
-  clients              Client[]
-  contracts            Contract[]
-  sites                Site[]
-  areas                Area[]
-  evidencePolicies     EvidencePolicy[]
-  servicePlans         ServicePlan[]
-  servicePlanVersions  ServicePlanVersion[]
-  taskTemplates        TaskTemplate[]
-  versionTasks         ServicePlanVersionTask[]
-  jobs                 Job[]
-  visits               Visit[]
-  visitAssignments     VisitAssignment[]
-  visitReviews         VisitReview[]
-  visitTaskResults     VisitTaskResult[]
-  timeEntries          TimeEntry[]
-  timeEntryDisputes    TimeEntryDispute[]
-  evidenceAssets       EvidenceAsset[]
-  incidents            Incident[]
-  locationEvents       LocationEvent[]
-  offlineMutations     OfflineMutation[]
-  materialCatalogItems MaterialCatalogItem[]
-  siteStockLevels      SiteStockLevel[]
-  materialStockCounts  MaterialStockCount[]
-  materialCountLines   MaterialStockCountLine[]
-  qualityInspections   QualityInspection[]
-  qualityItems         QualityInspectionItem[]
-  correctiveActions    CorrectiveAction[]
-  operationalNotices   OperationalNotice[]
-  noticeRecipients     OperationalNoticeRecipient[]
-  availability         Availability[]
+  id                     String                       @id @default(cuid())
+  name                   String
+  slug                   String                       @unique
+  timezone               String                       @default("Europe/Dublin")
+  status                 OrganizationStatus           @default(active)
+  createdAt              DateTime                     @default(now())
+  updatedAt              DateTime                     @updatedAt
+  memberships            Membership[]
+  capabilityGrants       CapabilityGrant[]
+  supplyRequests         SupplyRequest[]
+  feedbackEntries        FeedbackEntry[]
+  auditLogs              AuditLog[]
+  emailTemplates         EmailTemplate[]
+  notificationSettings   NotificationSetting[]
+  notificationJobs       NotificationJob[]
+  authTokens             AuthToken[]
+  mobileSessions         MobileSession[]
+  devicePushTokens       DevicePushToken[]
+  clients                Client[]
+  contracts              Contract[]
+  sites                  Site[]
+  areas                  Area[]
+  evidencePolicies       EvidencePolicy[]
+  servicePlans           ServicePlan[]
+  servicePlanVersions    ServicePlanVersion[]
+  taskTemplates          TaskTemplate[]
+  versionTasks           ServicePlanVersionTask[]
+  jobs                   Job[]
+  visits                 Visit[]
+  visitAssignments       VisitAssignment[]
+  visitReviews           VisitReview[]
+  visitTaskResults       VisitTaskResult[]
+  timeEntries            TimeEntry[]
+  timeEntryDisputes      TimeEntryDispute[]
+  evidenceAssets         EvidenceAsset[]
+  incidents              Incident[]
+  locationEvents         LocationEvent[]
+  offlineMutations       OfflineMutation[]
+  materialCatalogItems   MaterialCatalogItem[]
+  siteStockLevels        SiteStockLevel[]
+  materialStockCounts    MaterialStockCount[]
+  materialCountLines     MaterialStockCountLine[]
+  qualityInspections     QualityInspection[]
+  qualityItems           QualityInspectionItem[]
+  correctiveActions      CorrectiveAction[]
+  operationalNotices     OperationalNotice[]
+  noticeRecipients       OperationalNoticeRecipient[]
+  availability           Availability[]
   sitePreferredAssignees SitePreferredAssignee[]
+  workforceProfiles      WorkforceProfile[]
+  studySchedules         StudySchedule[]
+  workforceLeaves        WorkforceLeave[]
 
   @@map("organizations")
 }
@@ -190,31 +194,31 @@ model Contract {
 }
 
 model Site {
-  id                  String               @id @default(cuid())
+  id                  String                  @id @default(cuid())
   organizationId      String
   clientId            String
   name                String
-  status              CommercialStatus     @default(active)
+  status              CommercialStatus        @default(active)
   addressLine1        String
   addressLine2        String?
   city                String
   region              String?
   postalCode          String
-  countryCode         String               @default("IE")
-  timezone            String               @default("Europe/Dublin")
-  latitude            Decimal?             @db.Decimal(10, 7)
-  longitude           Decimal?             @db.Decimal(10, 7)
+  countryCode         String                  @default("IE")
+  timezone            String                  @default("Europe/Dublin")
+  latitude            Decimal?                @db.Decimal(10, 7)
+  longitude           Decimal?                @db.Decimal(10, 7)
   coordinateAccuracyM Int?
-  coordinateSource    CoordinateSource     @default(manual)
-  geofenceVerifiedM   Int                  @default(150)
-  geofenceNearM       Int                  @default(250)
-  geofenceSuspiciousM Int                  @default(700)
-  version             Int                  @default(1)
+  coordinateSource    CoordinateSource        @default(manual)
+  geofenceVerifiedM   Int                     @default(150)
+  geofenceNearM       Int                     @default(250)
+  geofenceSuspiciousM Int                     @default(700)
+  version             Int                     @default(1)
   archivedAt          DateTime?
-  createdAt           DateTime             @default(now())
-  updatedAt           DateTime             @updatedAt
-  organization        Organization         @relation(fields: [organizationId], references: [id])
-  client              Client               @relation(fields: [clientId], references: [id])
+  createdAt           DateTime                @default(now())
+  updatedAt           DateTime                @updatedAt
+  organization        Organization            @relation(fields: [organizationId], references: [id])
+  client              Client                  @relation(fields: [clientId], references: [id])
   access              SiteAccess?
   contracts           ContractSite[]
   areas               Area[]
@@ -563,6 +567,66 @@ model Availability {
   @@map("availability")
 }
 
+model WorkforceProfile {
+  id                  String           @id @default(cuid())
+  organizationId      String
+  userId              String           @unique
+  homeLabel           String           @default("Home")
+  homeAddress         String
+  homeLatitude        Decimal?         @db.Decimal(10, 7)
+  homeLongitude       Decimal?         @db.Decimal(10, 7)
+  schoolName          String?
+  schoolAddress       String?
+  schoolLatitude      Decimal?         @db.Decimal(10, 7)
+  schoolLongitude     Decimal?         @db.Decimal(10, 7)
+  weeklyTargetMinutes Int              @default(1800)
+  travelMode          String           @default("transit")
+  createdAt           DateTime         @default(now())
+  updatedAt           DateTime         @updatedAt
+  organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
+  studySchedules      StudySchedule[]
+  leaves              WorkforceLeave[]
+
+  @@index([organizationId, weeklyTargetMinutes])
+  @@map("workforce_profiles")
+}
+
+model StudySchedule {
+  id             String           @id @default(cuid())
+  organizationId String
+  profileId      String
+  dayOfWeek      Int
+  startsMinute   Int
+  endsMinute     Int
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile        WorkforceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@unique([profileId, dayOfWeek, startsMinute, endsMinute])
+  @@index([organizationId, dayOfWeek])
+  @@map("study_schedules")
+}
+
+model WorkforceLeave {
+  id             String           @id @default(cuid())
+  organizationId String
+  profileId      String
+  kind           String
+  startsAt       DateTime
+  endsAt         DateTime
+  reason         String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile        WorkforceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, kind, startsAt, endsAt])
+  @@index([profileId, startsAt, endsAt])
+  @@map("workforce_leaves")
+}
+
 model VisitTaskResult {
   id             String                 @id @default(cuid())
   organizationId String
@@ -589,35 +653,35 @@ model VisitTaskResult {
 }
 
 model TimeEntry {
-  id                 String          @id @default(cuid())
+  id                 String             @id @default(cuid())
   organizationId     String
   visitId            String?
   userId             String
   kind               TimeEntryKind
-  status             TimeEntryStatus @default(running)
+  status             TimeEntryStatus    @default(running)
   startedAt          DateTime
   endedAt            DateTime?
   durationSeconds    Int?
-  startLatitude      Decimal?        @db.Decimal(10, 7)
-  startLongitude     Decimal?        @db.Decimal(10, 7)
+  startLatitude      Decimal?           @db.Decimal(10, 7)
+  startLongitude     Decimal?           @db.Decimal(10, 7)
   startAccuracyM     Int?
   startDistanceM     Int?
   startLocationClass LocationClass?
-  endLatitude        Decimal?        @db.Decimal(10, 7)
-  endLongitude       Decimal?        @db.Decimal(10, 7)
+  endLatitude        Decimal?           @db.Decimal(10, 7)
+  endLongitude       Decimal?           @db.Decimal(10, 7)
   endAccuracyM       Int?
   endDistanceM       Int?
   endLocationClass   LocationClass?
-  source             String          @default("online")
+  source             String             @default("online")
   clientMutationId   String?
   reviewReason       String?
   approvedBy         String?
   approvedAt         DateTime?
-  createdAt          DateTime        @default(now())
-  updatedAt          DateTime        @updatedAt
-  organization       Organization    @relation(fields: [organizationId], references: [id])
-  visit              Visit?          @relation(fields: [visitId], references: [id])
-  user               User            @relation(fields: [userId], references: [id])
+  createdAt          DateTime           @default(now())
+  updatedAt          DateTime           @updatedAt
+  organization       Organization       @relation(fields: [organizationId], references: [id])
+  visit              Visit?             @relation(fields: [visitId], references: [id])
+  user               User               @relation(fields: [userId], references: [id])
   locationEvents     LocationEvent[]
   disputes           TimeEntryDispute[]
 
@@ -628,20 +692,20 @@ model TimeEntry {
 }
 
 model TimeEntryDispute {
-  id             String    @id @default(cuid())
+  id             String       @id @default(cuid())
   organizationId String
   timeEntryId    String
   userId         String
   reason         String
-  status         String    @default("open")
+  status         String       @default("open")
   resolution     String?
   resolvedBy     String?
   resolvedAt     DateTime?
-  createdAt      DateTime  @default(now())
-  updatedAt      DateTime  @updatedAt
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
   organization   Organization @relation(fields: [organizationId], references: [id])
-  timeEntry      TimeEntry @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
-  user           User      @relation(fields: [userId], references: [id])
+  timeEntry      TimeEntry    @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
 
   @@index([organizationId, status, createdAt])
   @@index([organizationId, timeEntryId])

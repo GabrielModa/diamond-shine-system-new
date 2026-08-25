@@ -10,23 +10,26 @@ type DetailDialogProps = {
   children: ReactNode
 }
 
-/**
- * Shared detail pattern for record lists. Keeping the detail in a dialog means
- * selecting a row never moves the list or forces the operator to scroll back
- * to where they were working.
- */
 export default function DetailDialog({ open, title, eyebrow, onClose, children }: DetailDialogProps) {
   const titleId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
+  const previousFocusRef = useRef<HTMLElement | null>(null)
 
   useEffect(() => {
     if (!open) return
+    previousFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape') onClose()
+      if (event.key === 'Escape') {
+        event.preventDefault()
+        onClose()
+      }
     }
     window.addEventListener('keydown', onKeyDown)
     window.setTimeout(() => closeButtonRef.current?.focus(), 0)
-    return () => window.removeEventListener('keydown', onKeyDown)
+    return () => {
+      window.removeEventListener('keydown', onKeyDown)
+      window.setTimeout(() => previousFocusRef.current?.focus(), 0)
+    }
   }, [onClose, open])
 
   useEffect(() => {
@@ -39,8 +42,19 @@ export default function DetailDialog({ open, title, eyebrow, onClose, children }
   if (!open) return null
 
   return (
-    <div className="detail-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) onClose() }}>
-      <section className="detail-dialog" role="dialog" aria-modal="true" aria-labelledby={titleId}>
+    <div
+      className="detail-dialog-backdrop"
+      role="presentation"
+      data-testid="detail-dialog-backdrop"
+      onClick={onClose}
+    >
+      <section
+        className="detail-dialog"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
+        onClick={(event) => event.stopPropagation()}
+      >
         <header className="detail-dialog-header">
           <div>
             {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}

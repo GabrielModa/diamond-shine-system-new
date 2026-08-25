@@ -19,13 +19,10 @@ export default defineConfig({
   webServer: {
     command: 'node node_modules/next/dist/bin/next start',
     url: 'http://localhost:3100',
-    // A test-owned server must shut down with the runner. Reusing it locally
-    // left the Windows process alive after a completed run and hid failures.
     reuseExistingServer: Boolean(process.env.PLAYWRIGHT_REUSE_SERVER),
     timeout: 120_000,
     env: {
       EMAIL_TRANSPORT: 'json',
-      NEXT_TEST_DIST_DIR: '.next-integration',
       SESSION_SECRET: 'playwright-only-session-secret-with-32-characters',
       PORT: '3100',
     },

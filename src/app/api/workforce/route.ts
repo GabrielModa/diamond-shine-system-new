@@ -2,83 +2,268 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireAuth } from '../../../lib/auth'
 import { prisma } from '../../../lib/prisma'
-import { haversineKm, travelEstimate, workforceProfileFor } from '../../../lib/workforce-profiles'
+import { workforceProfileFor, haversineKm } from '../../../lib/workforce-profiles'
+import { capacityBand, remainingCapacityMinutes, resolveWorkforceContext } from '../../../lib/workforce-availability'
+import { qualityBand, qualityLabel, qualityTrend } from '../../../lib/workforce-quality'
 
-const querySchema = z.object({ range: z.enum(['week', 'fortnight', 'month', 'quarter']).default('week') })
+const querySchema = z.object({
+  range: z.enum(['week', 'fortnight', 'month', 'quarter']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+})
 const rangeDays = { week: 7, fortnight: 14, month: 30, quarter: 90 } as const
 
-function minutesBetween(start: Date, end: Date) { return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60_000)) }
+function minutesBetween(start: Date, end: Date) {
+  return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000))
+}
+function dayKey(date: Date, timezone: string) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: timezone, year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date)
+}
+function addDays(date: Date, amount: number) {
+  return new Date(date.getTime() + amount * 86400000)
+}
+function weekdayCount(from: Date, to: Date, timezone: string) {
+  let count = 0
+  for (let cursor = new Date(from); cursor <= to; cursor = addDays(cursor, 1)) {
+    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(cursor)
+    if (!['Sat', 'Sun'].includes(weekday)) count += 1
+  }
+  return Math.max(1, count)
+}
+function resolvePeriod(params: z.infer<typeof querySchema>, now: Date) {
+  if (params.from && params.to) {
+    const from = new Date(`${params.from}T00:00:00.000Z`)
+    const to = new Date(`${params.to}T23:59:59.999Z`)
+    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) return null
+    return { from, to, label: 'custom' as const }
+  }
+  const range = params.range ?? 'week'
+  const days = rangeDays[range]
+  return { from: new Date(now.getTime() - days * 86400000), to: now, label: range }
+}
 
 export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
+
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
-  if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid range.' }, { status: 400 })
+  if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid workforce period.' }, { status: 400 })
 
   const now = new Date()
-  const from = new Date(now.getTime() - rangeDays[parsed.data.range] * 86_400_000)
-  const planningTo = new Date(now.getTime() + rangeDays[parsed.data.range] * 86_400_000)
+  const period = resolvePeriod(parsed.data, now)
+  if (!period) return NextResponse.json({ ok: false, error: 'Invalid date range.' }, { status: 400 })
+
   const organizationId = auth.user.organizationId
+  const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
+  const timezone = org?.timezone ?? 'Europe/Dublin'
+  const periodWeekdays = weekdayCount(period.from, period.to, timezone)
+  const visitQueryFrom = period.from < now ? period.from : now
+  const visitQueryTo = period.to > addDays(now, 90) ? period.to : addDays(now, 90)
+
   const [users, visits, entries, feedback] = await Promise.all([
     prisma.user.findMany({
-      where: { status: 'active', memberships: { some: { organizationId, status: 'active', role: { in: ['employee', 'field_supervisor', 'scheduler', 'quality_inspector'] } } } },
-      select: { id: true, name: true, email: true },
+      where: {
+        status: 'active',
+        memberships: {
+          some: {
+            organizationId,
+            status: 'active',
+            role: { in: ['employee', 'field_supervisor', 'scheduler', 'quality_inspector'] },
+          },
+        },
+      },
+      select: {
+        id: true, name: true, email: true,
+        workforceProfile: { include: { studySchedules: true, leaves: true } },
+      },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
     }),
     prisma.visit.findMany({
-      // Capacity needs the recent operational context and the upcoming window.
-      // Restricting this to the past made future service sites disappear from
-      // coverage planning exactly when a scheduler needed to allocate people.
-      where: { organizationId, scheduledStart: { gte: from, lte: planningTo } },
+      where: { organizationId, scheduledStart: { gte: visitQueryFrom, lte: visitQueryTo } },
       select: {
         id: true, status: true, scheduledStart: true, scheduledEnd: true,
-        site: { select: { id: true, name: true, city: true, addressLine1: true, latitude: true, longitude: true, client: { select: { displayName: true } } } },
+        site: {
+          select: {
+            id: true, name: true, city: true, addressLine1: true, latitude: true, longitude: true,
+            client: { select: { displayName: true } },
+          },
+        },
         assignments: { select: { userId: true, status: true } },
       },
-      orderBy: { scheduledStart: 'desc' },
-      take: 1200,
+      orderBy: { scheduledStart: 'asc' },
+      take: 1800,
     }),
     prisma.timeEntry.findMany({
-      where: { organizationId, startedAt: { gte: from, lte: now }, status: { in: ['completed', 'approved', 'needs_review'] } },
-      select: { userId: true, durationSeconds: true, status: true, startLocationClass: true, visitId: true },
-      take: 1600,
+      where: {
+        organizationId,
+        startedAt: { gte: period.from, lte: period.to },
+        status: { in: ['completed', 'approved', 'needs_review'] },
+      },
+      select: {
+        userId: true, startedAt: true, durationSeconds: true, status: true,
+        startLocationClass: true, kind: true,
+      },
+      take: 3000,
     }),
-    prisma.feedbackEntry.findMany({ where: { organizationId, createdAt: { gte: from, lte: now } }, select: { employeeId: true, overall: true } }),
+    prisma.feedbackEntry.findMany({
+      where: { organizationId, createdAt: { gte: period.from, lte: period.to } },
+      select: { employeeId: true, overall: true, cleanliness: true, punctuality: true, equipment: true, clientRelations: true, category: true, createdAt: true },
+    }),
   ])
 
   const employees = users.map((user) => {
-    const profile = workforceProfileFor(user.email)
-    const assigned = visits.filter((visit) => visit.assignments.some((assignment) => assignment.userId === user.id && assignment.status !== 'declined'))
-    const completed = assigned.filter((visit) => visit.status === 'completed')
+    const fallback = workforceProfileFor(user.email)
+    const db = user.workforceProfile
+    const home = db ? {
+      kind: 'home' as const, label: db.homeLabel, address: db.homeAddress,
+      latitude: db.homeLatitude == null ? null : Number(db.homeLatitude),
+      longitude: db.homeLongitude == null ? null : Number(db.homeLongitude),
+    } : { kind: 'home' as const, ...fallback.home }
+    const school = db?.schoolAddress ? {
+      kind: 'school' as const, label: db.schoolName ?? 'School', address: db.schoolAddress,
+      latitude: db.schoolLatitude == null ? null : Number(db.schoolLatitude),
+      longitude: db.schoolLongitude == null ? null : Number(db.schoolLongitude),
+    } : fallback.study ? { kind: 'school' as const, ...fallback.study } : null
+
+    const studySchedule = db?.studySchedules.map((r) => ({
+      dayOfWeek: r.dayOfWeek, startsMinute: r.startsMinute, endsMinute: r.endsMinute,
+    })) ?? []
+    const leaves = db?.leaves.map((l) => ({
+      kind: l.kind as 'school_holiday' | 'personal_leave',
+      startsAt: l.startsAt, endsAt: l.endsAt, reason: l.reason,
+    })) ?? []
+    const context = resolveWorkforceContext({ timezone, home, school, studySchedule, leaves }, now)
+
+    const allAssigned = visits.filter((visit) =>
+      visit.assignments.some((a) => a.userId === user.id && a.status !== 'declined'))
+    const periodAssigned = allAssigned.filter((visit) =>
+      visit.scheduledStart >= period.from && visit.scheduledStart <= period.to)
+    const completed = periodAssigned.filter((visit) => visit.status === 'completed')
     const relatedEntries = entries.filter((entry) => entry.userId === user.id)
-    const plannedMinutes = assigned.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0)
-    const actualMinutes = Math.round(relatedEntries.reduce((sum, entry) => sum + (entry.durationSeconds ?? 0), 0) / 60)
-    const siteIds = new Set(completed.map((visit) => visit.site.id))
-    const ratings = feedback.filter((item) => item.employeeId === user.id).map((item) => item.overall)
-    const locationExceptions = relatedEntries.filter((entry) => ['suspicious', 'unavailable'].includes(entry.startLocationClass ?? '') || entry.status === 'needs_review').length
-    const nextVisit = assigned.filter((visit) => visit.status !== 'completed').sort((a, b) => a.scheduledStart.getTime() - b.scheduledStart.getTime())[0] ?? assigned[0]
-    const nextDistanceKm = nextVisit?.site.latitude && nextVisit.site.longitude ? haversineKm(profile.home, { latitude: Number(nextVisit.site.latitude), longitude: Number(nextVisit.site.longitude) }) : null
+
+    const plannedMinutes = periodAssigned.reduce((sum, visit) =>
+      sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0)
+    const actualMinutes = Math.round(relatedEntries.reduce((sum, entry) =>
+      sum + (entry.durationSeconds ?? 0), 0) / 60)
+
+    const weeklyTargetMinutes = db?.weeklyTargetMinutes ?? 1800
+    const periodTargetMinutes = Math.round(weeklyTargetMinutes * periodWeekdays / 5)
+    const remaining = remainingCapacityMinutes(periodTargetMinutes, plannedMinutes)
+    const nextVisit = allAssigned.find((visit) =>
+      visit.status !== 'completed' && visit.status !== 'cancelled' && visit.scheduledStart >= now) ?? null
+
+    const employeeFeedback = feedback
+      .filter((item) => item.employeeId === user.id)
+      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    const ratings = employeeFeedback.map((item) => item.overall)
+    const lowFeedbackCount = employeeFeedback.filter((item) => item.overall < 3.5).length
+    const qualityAverage = ratings.length
+      ? Math.round(ratings.reduce((a, b) => a + b, 0) / ratings.length * 10) / 10
+      : null
+    const categoryAverage = (key: 'cleanliness'|'punctuality'|'equipment'|'clientRelations') =>
+      employeeFeedback.length
+        ? Math.round(employeeFeedback.reduce((sum, item) => sum + item[key], 0) / employeeFeedback.length * 10) / 10
+        : null
+    const origin = context.origin
+    const nextDistanceKm =
+      origin?.latitude != null && origin.longitude != null &&
+      nextVisit?.site.latitude != null && nextVisit.site.longitude != null
+        ? haversineKm(
+            { latitude: origin.latitude, longitude: origin.longitude },
+            { latitude: Number(nextVisit.site.latitude), longitude: Number(nextVisit.site.longitude) },
+          )
+        : null
+
+    const daily = new Map<string, { date: string; actualMinutes: number; plannedMinutes: number }>()
+    for (let cursor = new Date(period.from); cursor <= period.to; cursor = addDays(cursor, 1)) {
+      const date = dayKey(cursor, timezone)
+      daily.set(date, { date, actualMinutes: 0, plannedMinutes: 0 })
+    }
+    for (const entry of relatedEntries) {
+      const key = dayKey(entry.startedAt, timezone)
+      const row = daily.get(key)
+      if (row) row.actualMinutes += Math.round((entry.durationSeconds ?? 0) / 60)
+    }
+    for (const visit of periodAssigned) {
+      const key = dayKey(visit.scheduledStart, timezone)
+      const row = daily.get(key)
+      if (row) row.plannedMinutes += minutesBetween(visit.scheduledStart, visit.scheduledEnd)
+    }
+
+    const utilization = periodTargetMinutes
+      ? Math.round(plannedMinutes / periodTargetMinutes * 100)
+      : 0
+    const workedVsPlanned = plannedMinutes
+      ? Math.round(actualMinutes / plannedMinutes * 100)
+      : actualMinutes > 0 ? 100 : 0
+
     return {
-      id: user.id, name: user.name || user.email, email: user.email, profile,
-      plannedMinutes, actualMinutes, completedVisits: completed.length, scheduledVisits: assigned.length, sitesServed: siteIds.size,
-      locationExceptions, qualityAverage: ratings.length ? Math.round(ratings.reduce((sum, value) => sum + value, 0) / ratings.length * 10) / 10 : null,
+      id: user.id, name: user.name || user.email, email: user.email,
+      profile: {
+        home, school,
+        travelMode: (db?.travelMode ?? fallback.travelMode) as 'driving' | 'transit' | 'cycling',
+        weeklyTargetMinutes, studySchedule, leaves,
+      },
+      context: { ...context, origin },
+      plannedMinutes, actualMinutes, weeklyTargetMinutes, periodTargetMinutes,
+      remainingCapacityMinutes: remaining,
+      capacityBand: capacityBand(plannedMinutes),
+      capacityStatus: plannedMinutes > periodTargetMinutes
+        ? 'over'
+        : plannedMinutes >= periodTargetMinutes * .9 ? 'near' : 'available',
+      utilization,
+      workedVsPlanned,
+      completedVisits: completed.length,
+      scheduledVisits: periodAssigned.length,
+      sitesServed: new Set(completed.map((visit) => visit.site.id)).size,
+      locationExceptions: relatedEntries.filter((e) =>
+        ['suspicious', 'unavailable'].includes(e.startLocationClass ?? '') || e.status === 'needs_review').length,
+      qualityAverage,
+      qualityCount: employeeFeedback.length,
+      qualityBand: qualityBand(qualityAverage, lowFeedbackCount),
+      qualityLabel: qualityLabel(qualityAverage, lowFeedbackCount),
+      qualityTrend: qualityTrend(ratings),
+      qualityIssues: lowFeedbackCount,
+      qualityBreakdown: {
+        cleanliness: categoryAverage('cleanliness'),
+        punctuality: categoryAverage('punctuality'),
+        equipment: categoryAverage('equipment'),
+        clientRelations: categoryAverage('clientRelations'),
+      },
       nextVisit: nextVisit ? { id: nextVisit.id, startsAt: nextVisit.scheduledStart, site: nextVisit.site } : null,
       nextDistanceKm: nextDistanceKm == null ? null : Math.round(nextDistanceKm * 10) / 10,
+      dailyBreakdown: Array.from(daily.values()),
     }
-  }).sort((a, b) => b.actualMinutes - a.actualMinutes || b.completedVisits - a.completedVisits)
+  })
 
   const sites = Array.from(new Map(visits.map((visit) => [visit.site.id, visit.site])).values()).map((site) => ({
     ...site,
-    latitude: site.latitude == null ? null : Number(site.latitude), longitude: site.longitude == null ? null : Number(site.longitude),
-    assignedEmployeeIds: Array.from(new Set(visits.filter((visit) => visit.site.id === site.id).flatMap((visit) => visit.assignments.map((assignment) => assignment.userId)))),
+    latitude: site.latitude == null ? null : Number(site.latitude),
+    longitude: site.longitude == null ? null : Number(site.longitude),
+    assignedEmployeeIds: Array.from(new Set(
+      visits.filter((visit) => visit.site.id === site.id)
+        .flatMap((visit) => visit.assignments.map((a) => a.userId)),
+    )),
   }))
-  const plannedMinutes = employees.reduce((sum, item) => sum + item.plannedMinutes, 0)
-  const actualMinutes = employees.reduce((sum, item) => sum + item.actualMinutes, 0)
 
   return NextResponse.json({ ok: true, data: {
-    generatedAt: now, range: parsed.data.range, from, to: planningTo,
-    summary: { employees: employees.length, plannedMinutes, actualMinutes, completedVisits: employees.reduce((sum, item) => sum + item.completedVisits, 0), siteCoverage: new Set(employees.flatMap((item) => item.nextVisit?.site.id ? [item.nextVisit.site.id] : [])).size },
-    employees, sites,
-    routeProvider: 'Google Maps route planning is available when the server key is configured.',
-  } })
+    generatedAt: now,
+    period: { from: period.from, to: period.to, preset: period.label, weekdays: periodWeekdays },
+    summary: {
+      employees: employees.length,
+      availableEmployees: employees.filter((e) => e.context.availableForScheduling).length,
+      plannedMinutes: employees.reduce((s, e) => s + e.plannedMinutes, 0),
+      actualMinutes: employees.reduce((s, e) => s + e.actualMinutes, 0),
+      targetMinutes: employees.reduce((s, e) => s + e.periodTargetMinutes, 0),
+      remainingCapacityMinutes: employees.reduce((s, e) => s + e.remainingCapacityMinutes, 0),
+      personalLeave: employees.filter((e) => !e.context.availableForScheduling).length,
+      schoolNow: employees.filter((e) => e.context.state === 'school').length,
+      completedVisits: employees.reduce((s, e) => s + e.completedVisits, 0),
+      siteCoverage: new Set(employees.flatMap((e) => e.nextVisit?.site.id ? [e.nextVisit.site.id] : [])).size,
+    },
+    employees,
+    sites,
+  }})
 }

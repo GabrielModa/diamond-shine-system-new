@@ -2552,3 +2552,93 @@ textarea {
   .range-control{flex:0 1 470px;width:100%;overflow:visible}
   .range-control button{flex:1 1 0;min-width:0}
 }
+
+
+/* Diamond Workforce Complete */
+.wf2-toolbar{display:flex;gap:16px;align-items:center;justify-content:space-between}
+.wf2-toolbar input{min-width:360px;max-width:560px;width:42%;border:1px solid var(--border,#dde2ee);border-radius:14px;padding:13px 16px;background:#fff}
+.wf2-filter-card{display:grid;gap:12px;margin-bottom:16px}
+.wf2-filter-card>div{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.wf2-filter-card strong{min-width:72px;font-size:12px;text-transform:uppercase;letter-spacing:.08em;color:#697386}
+.wf2-filter-card button{border:1px solid #dfe3ec;background:#fff;border-radius:999px;padding:8px 12px;font-weight:700;color:#596174}
+.wf2-filter-card button.active{background:#262f49;color:#fff;border-color:#262f49}
+.wf2-list{display:grid}
+.wf2-row{display:grid;grid-template-columns:minmax(260px,1.6fr) minmax(190px,1fr) 120px minmax(210px,1fr) 120px;gap:16px;align-items:center;text-align:left;border:0;border-top:1px solid #e8ebf2;background:#fff;padding:16px;cursor:pointer}
+.wf2-row:hover{background:#fafbff}
+.wf2-row small{display:block;color:#737b8d;margin-top:4px}
+.wf2-cap i{height:7px;border-radius:999px;background:#eceff5;display:block;overflow:hidden;margin:7px 0 4px}
+.wf2-cap em{display:block;height:100%;background:#55a87b;border-radius:999px}.wf2-cap em.near{background:#dfa84c}.wf2-cap em.over{background:#d35f65}
+.wf2-status{display:inline-flex;align-items:center;justify-content:center;border-radius:999px;padding:7px 10px;font-size:12px;font-weight:800;background:#eaf7ef;color:#26734b}
+.wf2-status.school{background:#eeeafd;color:#5e4fc2}.wf2-status.personal_leave{background:#eef0f4;color:#687081}
+.wf-map-legend{position:absolute;left:14px;bottom:14px;background:rgba(255,255,255,.95);border-radius:12px;padding:9px 12px;display:flex;gap:12px;font-size:12px;box-shadow:0 8px 30px rgba(20,30,60,.12);z-index:500}
+.wf-map-legend span{display:flex;gap:6px;align-items:center}.wf-map-legend i{width:10px;height:10px;border-radius:50%;display:inline-block}.wf-map-legend .home{background:#4d9b72}.wf-map-legend .school{background:#6d5bd0}.wf-map-legend .site{background:#d39d45;border-radius:2px}
+.wf-map-pin{width:38px;height:38px;border-radius:50%;display:grid;place-items:center;font-weight:800;color:#fff;border:3px solid #fff;box-shadow:0 4px 14px rgba(20,30,60,.25)}.wf-person-pin.home{background:#4d9b72}.wf-person-pin.school{background:#6d5bd0}.wf-person-pin.selected{outline:3px solid #141a2e}.wf-site-pin{background:#d39d45;border-radius:9px}
+.wf-map-popup{display:grid;gap:4px;min-width:190px}.wf-map-popup span{font-weight:700;color:#6254c5}.wf-map-popup small{color:#6d7484}
+@media(max-width:900px){.wf2-row{grid-template-columns:1fr}.wf2-toolbar{align-items:stretch;flex-direction:column}.wf2-toolbar input{width:100%;min-width:0}}
+
+
+
+/* Diamond Workforce V4 */
+.wf4-toolbar{display:grid;grid-template-columns:minmax(0,1fr) minmax(300px,420px);gap:18px;align-items:start}
+.wf4-period{display:grid;gap:12px}.wf4-search{width:100%;border:1px solid #dfe3ec;border-radius:14px;padding:13px 16px;background:#fff}
+.wf4-date-range{display:flex;align-items:end;gap:10px;flex-wrap:wrap}.wf4-date-range label{display:grid;gap:5px;font-size:11px;font-weight:800;color:#687084;text-transform:uppercase;letter-spacing:.08em}.wf4-date-range input{border:1px solid #dfe3ec;border-radius:10px;padding:9px 10px;background:#fff}
+.wf4-kpis article strong{font-size:22px}.wf4-filters{display:grid;gap:10px;margin-bottom:18px}.wf4-filters>div{display:flex;align-items:center;gap:8px;flex-wrap:wrap}.wf4-filters>div>strong{min-width:92px;font-size:11px;text-transform:uppercase;letter-spacing:.08em;color:#6d7587}.wf4-filters button{border:1px solid #dfe3ec;background:#fff;border-radius:999px;padding:8px 11px;font-weight:700;color:#5e6678}.wf4-filters button.active{background:#28324c;color:#fff;border-color:#28324c}.wf4-filters select{margin-left:auto;border:1px solid #dfe3ec;border-radius:10px;padding:8px 10px;background:#fff;font-weight:700}
+.wf4-list{display:grid}.wf4-row{display:grid;grid-template-columns:minmax(250px,1.45fr) 105px minmax(190px,1fr) 120px minmax(180px,.9fr) 110px;gap:16px;align-items:center;text-align:left;border:0;border-top:1px solid #e8ebf2;background:#fff;padding:15px 16px;cursor:pointer}.wf4-row:hover{background:#fafbff}.wf4-row small{display:block;color:#737b8d;margin-top:4px}.wf4-load i{display:block;height:7px;background:#edf0f5;border-radius:999px;overflow:hidden;margin:6px 0}.wf4-load em{display:block;height:100%;background:#58a87d}.wf4-load em.near{background:#dca64c}.wf4-load em.over{background:#cc6268}
+.wf4-daily{border:1px solid #e4e7ef;border-radius:16px;padding:14px}.wf4-daily h3{margin:0 0 10px}.wf4-daily>div{display:grid;grid-template-columns:100px 1fr 1fr;gap:12px;padding:9px 0;border-top:1px solid #eef0f4}.wf4-daily time{font-weight:800;color:#4f5768}.wf4-dialog-actions{display:flex;justify-content:flex-end}
+.wf-map-focus-card{position:absolute;right:16px;top:16px;width:min(280px,calc(100% - 32px));background:rgba(255,255,255,.96);backdrop-filter:blur(12px);border:1px solid rgba(210,215,229,.9);border-radius:18px;padding:14px;z-index:550;box-shadow:0 18px 50px rgba(34,43,75,.18)}.wf-map-focus-top{display:flex;gap:10px;align-items:center}.wf-map-focus-top div{display:grid}.wf-map-focus-top small{color:#6f7687}.wf-origin-dot{width:12px;height:12px;border-radius:50%;background:#4d9b72;box-shadow:0 0 0 5px rgba(77,155,114,.12)}.wf-origin-dot.school{background:#6d5bd0;box-shadow:0 0 0 5px rgba(109,91,208,.12)}.wf-map-focus-card>p{margin:10px 0;color:#555d70}.wf-map-focus-stats{display:grid;grid-template-columns:1fr 1fr;gap:8px}.wf-map-focus-stats span{background:#f6f7fb;border-radius:10px;padding:8px;display:grid;font-size:11px;color:#747b8c}.wf-map-focus-stats b{font-size:14px;color:#171c2c}.wf-map-focus-next{margin-top:9px;padding-top:9px;border-top:1px solid #e8ebf2;display:grid}.wf-map-focus-next small,.wf-map-focus-next span{color:#757d8d}
+.route-modes{grid-template-columns:repeat(2,minmax(0,1fr))}
+@media(max-width:1100px){.wf4-row{grid-template-columns:1fr 100px 1fr 110px}.wf4-row>span:nth-child(5),.wf4-row>span:nth-child(6){grid-column:auto}.wf4-toolbar{grid-template-columns:1fr}}
+@media(max-width:760px){.wf4-row{grid-template-columns:1fr}.wf4-date-range{align-items:stretch}.wf4-date-range label{flex:1}.wf4-filters select{margin-left:0;width:100%}.wf-map-focus-card{position:absolute;top:auto;bottom:52px}}
+
+
+
+/* Diamond Scenario Matrix V6 */
+.route-origin-mode{display:grid;gap:8px;padding:12px;border:1px solid #e2e6ef;border-radius:14px;background:#fafbfe}
+.route-origin-mode>span{font-size:11px;text-transform:uppercase;letter-spacing:.08em;font-weight:800;color:#697286}
+.route-origin-mode>div{display:grid;grid-template-columns:repeat(3,1fr);gap:7px}
+.route-origin-mode button{border:1px solid #dfe3ec;background:#fff;border-radius:10px;padding:9px 8px;font-weight:800;color:#596174}
+.route-origin-mode button.active{background:#29334d;color:#fff;border-color:#29334d}
+.route-origin-mode button:disabled{opacity:.4;cursor:not-allowed}
+.route-origin-mode small{color:#737b8d;line-height:1.35}
+
+
+
+/* Diamond Workforce Manager V7 */
+.wf4-kpis article{position:relative;overflow:hidden}.wf4-kpis article::after{content:"";position:absolute;inset:auto 0 0;height:3px;background:#dfe5ef}.wf4-kpis article:nth-child(1)::after{background:#57a97d}.wf4-kpis article:nth-child(2)::after{background:#d7a54c}.wf4-kpis article:nth-child(3)::after{background:#7767d7}.wf4-kpis article:nth-child(4)::after{background:#d9a341}
+.wf4-filters{background:linear-gradient(180deg,#fbfcff,#f6f8fc)}.wf4-filters>div+div{padding-top:8px;border-top:1px solid #e9ecf3}
+.wf4-row{grid-template-columns:minmax(230px,1.35fr) 95px minmax(180px,1fr) 110px minmax(170px,.9fr) 130px 105px}
+.wf-quality{display:grid;align-content:center}.wf-quality b{font-size:15px}.wf-quality.excellent b{color:#26754b}.wf-quality.good b{color:#3f6d59}.wf-quality.watch b{color:#a36d14}.wf-quality.issues b{color:#b84e55}.wf-quality.none b{color:#8a91a0}
+.wf-manager-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px}.wf-manager-card{border:1px solid #e3e7ef;border-radius:16px;padding:16px;background:#fbfcfe}.wf-manager-card h3{margin:8px 0 6px}.wf-manager-card p{margin:0;color:#6e7688}.wf-manager-mini{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:12px}.wf-manager-mini span{background:#fff;border:1px solid #e8ebf1;border-radius:10px;padding:9px;display:grid;font-size:11px;color:#7a8292}.wf-manager-mini strong{font-size:13px;color:#1d2333;margin-top:3px}.wf-manager-card.quality.excellent{box-shadow:inset 3px 0 #57a97d}.wf-manager-card.quality.watch{box-shadow:inset 3px 0 #d7a54c}.wf-manager-card.quality.issues{box-shadow:inset 3px 0 #c96066}
+.wf-quality-breakdown{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-top:12px}.wf-quality-breakdown span{background:#fff;border:1px solid #e8ebf1;border-radius:10px;padding:8px;display:flex;justify-content:space-between;color:#687084;font-size:12px}.wf-quality-breakdown b{color:#1b2131}
+.wf-map-focus-stats{grid-template-columns:repeat(3,1fr)}.wf-map-focus-stats .quality.excellent b{color:#26754b}.wf-map-focus-stats .quality.watch b{color:#a36d14}.wf-map-focus-stats .quality.issues b{color:#b84e55}
+@media(max-width:1200px){.wf4-row{grid-template-columns:1fr 90px 1fr 100px}.wf4-row>span:nth-child(n+5){grid-column:auto}.wf-manager-grid{grid-template-columns:1fr}}
+
+
+
+/* Diamond Workforce Dispatch V8 */
+.route-planner{transition:border-color .18s ease,box-shadow .18s ease}.route-planner.state-available{border-top:3px solid #67a981}.route-planner.state-near{border-top:3px solid #d5a54b}.route-planner.state-over{border-top:3px solid #c86167}
+.wf-combobox{position:relative}.wf-combobox-trigger{width:100%;display:flex;align-items:center;justify-content:space-between;gap:10px;padding:11px 13px;border:1px solid #dfe3ec;border-radius:12px;background:#fff;text-align:left;font-weight:800}.wf-combobox-trigger span{display:grid}.wf-combobox-trigger small{font-weight:600;color:#7a8291;margin-top:2px}.wf-combobox-popover{position:absolute;z-index:900;left:0;right:0;top:calc(100% + 6px);background:#fff;border:1px solid #dfe3ec;border-radius:14px;box-shadow:0 20px 55px rgba(32,42,70,.18);padding:8px}.wf-combobox-popover input{width:100%;border:1px solid #dfe3ec;border-radius:10px;padding:10px 12px}.wf-combobox-popover [role=listbox]{max-height:280px;overflow:auto;margin-top:7px}.wf-combobox-popover [role=option]{width:100%;display:flex;justify-content:space-between;gap:12px;padding:10px;border:0;border-radius:10px;background:transparent;text-align:left}.wf-combobox-popover [role=option]:hover,.wf-combobox-popover [role=option][aria-selected=true]{background:#f2f4fb}.wf-combobox-popover span{display:grid;font-weight:800}.wf-combobox-popover small{color:#747c8c;font-weight:600}.wf-combobox-popover em{font-style:normal;color:#657087;font-size:12px;white-space:nowrap}
+.wf-map-focus-card{padding-top:16px}.wf-map-card-close{position:absolute;top:10px;right:10px;width:30px;height:30px;border-radius:9px;border:1px solid #dfe3ec;background:#fff;font-size:20px;line-height:1;font-weight:800;color:#495166;z-index:2}.wf-map-card-close:hover{background:#f2f4f9}
+.wf-school-strip{display:grid;gap:2px;padding:9px 10px;background:#f6f3ff;border:1px solid #e6defc;border-radius:10px;margin:9px 0}.wf-school-strip>span{text-transform:uppercase;letter-spacing:.08em;font-size:10px;font-weight:800;color:#7463c7}.wf-school-strip small{color:#716b83}
+.wf-map-origin-inline{display:grid;gap:7px;padding-top:10px;margin-top:10px;border-top:1px solid #e8ebf2}.wf-map-origin-inline>span{text-transform:uppercase;font-size:10px;letter-spacing:.08em;font-weight:800;color:#737b8d}.wf-map-origin-inline>div{display:grid;grid-template-columns:repeat(3,1fr);gap:6px}.wf-map-origin-inline button{border:1px solid #dfe3ec;border-radius:9px;background:#fff;padding:7px 5px;font-weight:800;color:#586174}.wf-map-origin-inline button.active{background:#2c3550;color:#fff;border-color:#2c3550}.wf-map-origin-inline button:disabled{opacity:.4}.wf-map-origin-inline small{color:#747c8d;line-height:1.3}
+.wf4-load em.available{background:#63a77c}.wf4-load em.near{background:#d5a54b}.wf4-load em.over{background:#c86167}
+@media(max-width:900px){.wf-combobox-popover{position:fixed;left:16px;right:16px;top:18vh}.wf-map-focus-card{width:min(330px,calc(100% - 24px));right:12px}}
+
+
+
+/* Diamond Workforce Polish V9 */
+.wf4-toolbar{align-items:center}.wf4-period{gap:8px}
+.wf4-date-range{display:grid;grid-template-columns:minmax(150px,190px) 18px minmax(150px,190px) auto;align-items:end;gap:8px;padding:10px 12px;border:1px solid #e3e7ef;border-radius:14px;background:#fafbfe;width:max-content;max-width:100%}
+.wf4-date-range label{gap:4px}.wf4-date-range input{min-height:38px;padding:7px 9px;border-radius:9px}.wf4-date-range>span{align-self:center;text-align:center;color:#9299a8}.wf4-date-range .btn-secondary{min-height:38px;padding:7px 13px}
+.wf-map-focus-card{width:min(252px,calc(100% - 28px));right:14px;top:14px;padding:12px;border-radius:15px;box-shadow:0 14px 38px rgba(34,43,75,.16)}
+.wf-map-card-close{top:8px;right:8px;width:25px;height:25px;border:0;border-radius:50%;background:#f1f3f7;font-size:16px;color:#667085;box-shadow:none}.wf-map-card-close:hover{background:#e7eaf1;color:#222a3d}
+.wf-map-focus-top{padding-right:28px;gap:8px}.wf-map-focus-top strong{font-size:15px}.wf-map-focus-top small{font-size:11px}.wf-map-focus-card>p{margin:8px 0;font-size:13px}
+.wf-school-strip{grid-template-columns:auto 1fr;column-gap:7px;row-gap:2px;padding:7px 8px;margin:7px 0;border-radius:9px}.wf-school-strip>span{grid-row:1 / span 2;align-self:center;font-size:9px}.wf-school-strip strong{font-size:12px}.wf-school-strip small{font-size:10px}
+.wf-map-focus-stats{grid-template-columns:repeat(3,1fr);gap:5px}.wf-map-focus-stats span{padding:6px;font-size:9px}.wf-map-focus-stats b{font-size:12px}
+.wf-map-origin-inline{gap:5px;padding-top:8px;margin-top:8px}.wf-map-origin-inline>span{font-size:9px}.wf-map-origin-inline>div{display:inline-flex;gap:0;padding:3px;background:#f0f2f7;border-radius:10px;width:100%}.wf-map-origin-inline button{flex:1;border:0;border-radius:7px;padding:6px 5px;background:transparent;font-size:11px;white-space:nowrap}.wf-map-origin-inline button.active{background:#fff;color:#2c3550;box-shadow:0 1px 4px rgba(31,42,70,.14)}.wf-map-origin-inline small{font-size:10px}
+.wf-map-focus-next{margin-top:7px;padding-top:7px}.wf-map-focus-next strong{font-size:13px}.wf-map-focus-next span,.wf-map-focus-next small{font-size:10px}
+.route-planner{gap:14px}.route-planner h2{margin-bottom:2px}.route-origin{padding:11px 13px}.route-origin strong{font-size:15px}.route-origin small{margin-top:3px}
+.route-modes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:7px}.route-modes button{min-width:0;padding:9px 5px;font-size:12px}.route-result{padding:14px}.route-result strong{font-size:28px}
+@media(max-width:1100px){.wf4-date-range{width:100%;grid-template-columns:1fr 18px 1fr auto}}
+@media(max-width:760px){.wf4-date-range{grid-template-columns:1fr 1fr}.wf4-date-range>span{display:none}.wf4-date-range .btn-secondary{grid-column:1/-1}.route-modes{grid-template-columns:repeat(2,1fr)}.wf-map-focus-card{width:min(270px,calc(100% - 20px));right:10px}}
+

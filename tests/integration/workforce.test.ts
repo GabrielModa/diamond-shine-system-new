@@ -1,0 +1,182 @@
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
+import request from 'supertest'
+import { createServer } from 'http'
+import { parse } from 'url'
+import next from 'next'
+import { prisma } from '../../src/lib/prisma'
+import { LEGACY_ORGANIZATION_ID } from '../../src/lib/tenancy'
+import { getAuthCookie, seedUsers } from './setup'
+
+let app: ReturnType<typeof createServer>
+let nextApp: ReturnType<typeof next>
+let adminCookie = ''
+let employeeId = ''
+let supervisorId = ''
+
+async function resetWorkforceFixtures() {
+  await prisma.workforceLeave.deleteMany()
+  await prisma.studySchedule.deleteMany()
+  await prisma.workforceProfile.deleteMany()
+  await prisma.timeEntry.deleteMany({ where: { source: 'workforce-integration-test' } })
+
+  const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+  const supervisor = await prisma.user.findUniqueOrThrow({ where: { email: 'super@ds.ie' } })
+  employeeId = employee.id
+  supervisorId = supervisor.id
+
+  const employeeProfile = await prisma.workforceProfile.create({
+    data: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      userId: employee.id,
+      homeAddress: 'Phibsborough, Dublin 7',
+      homeLatitude: 53.3597,
+      homeLongitude: -6.2735,
+      schoolName: 'Integration Test College',
+      schoolAddress: 'Dublin 2',
+      schoolLatitude: 53.3434,
+      schoolLongitude: -6.2672,
+      weeklyTargetMinutes: 1800,
+      travelMode: 'transit',
+    },
+  })
+
+  await prisma.studySchedule.createMany({
+    data: [1, 2, 3, 4, 5, 6, 7].map((dayOfWeek) => ({
+      organizationId: LEGACY_ORGANIZATION_ID,
+      profileId: employeeProfile.id,
+      dayOfWeek,
+      startsMinute: 0,
+      endsMinute: 1440,
+    })),
+  })
+
+  const supervisorProfile = await prisma.workforceProfile.create({
+    data: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      userId: supervisor.id,
+      homeAddress: 'Tallaght, Dublin 24',
+      homeLatitude: 53.2878,
+      homeLongitude: -6.3411,
+      weeklyTargetMinutes: 1800,
+      travelMode: 'driving',
+    },
+  })
+
+  const now = new Date()
+  await prisma.workforceLeave.create({
+    data: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      profileId: supervisorProfile.id,
+      kind: 'personal_leave',
+      startsAt: new Date(now.getTime() - 60_000),
+      endsAt: new Date(now.getTime() + 86_400_000),
+      reason: 'Integration leave',
+    },
+  })
+
+  const startedAt = new Date()
+  startedAt.setHours(9, 0, 0, 0)
+  await prisma.timeEntry.create({
+    data: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      userId: employee.id,
+      kind: 'general',
+      status: 'approved',
+      startedAt,
+      endedAt: new Date(startedAt.getTime() + 5 * 3_600_000),
+      durationSeconds: 5 * 3600,
+      source: 'workforce-integration-test',
+      clientMutationId: `workforce-integration-${Date.now()}`,
+    },
+  })
+}
+
+beforeAll(async () => {
+  process.env.NEXT_TEST_DIST_DIR = '.next-integration'
+  nextApp = next({ dev: true, dir: process.cwd() })
+  const handle = nextApp.getRequestHandler()
+  await nextApp.prepare()
+  app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
+  await seedUsers()
+  adminCookie = await getAuthCookie('admin@ds.ie')
+})
+
+beforeEach(async () => {
+  await resetWorkforceFixtures()
+})
+
+describe('GET /api/workforce', () => {
+  it('requires manager authentication', async () => {
+    expect((await request(app).get('/api/workforce')).status).toBe(401)
+  })
+
+  it('returns worked/planned/target/capacity and daily breakdown for a custom period', async () => {
+    const today = new Date().toISOString().slice(0, 10)
+    const response = await request(app)
+      .get(`/api/workforce?from=${today}&to=${today}`)
+      .set('Cookie', adminCookie)
+
+    expect(response.status).toBe(200)
+    expect(response.body.ok).toBe(true)
+    expect(response.body.data.period.preset).toBe('custom')
+
+    const employee = response.body.data.employees.find((item: { id: string }) => item.id === employeeId)
+    expect(employee).toBeTruthy()
+    expect(employee.actualMinutes).toBe(300)
+    expect(employee.periodTargetMinutes).toBeGreaterThan(0)
+    expect(employee.remainingCapacityMinutes).toBeGreaterThanOrEqual(0)
+    expect(employee.dailyBreakdown).toHaveLength(1)
+    expect(employee.dailyBreakdown[0].actualMinutes).toBe(300)
+  })
+
+  it('uses school as current origin when the study window is active', async () => {
+    const response = await request(app).get('/api/workforce?range=week').set('Cookie', adminCookie)
+    const employee = response.body.data.employees.find((item: { id: string }) => item.id === employeeId)
+
+    expect(employee.context.state).toBe('school')
+    expect(employee.context.origin.kind).toBe('school')
+    expect(employee.context.origin.label).toBe('Integration Test College')
+  })
+
+  it('marks personal leave as unavailable so it can be excluded from the operational map', async () => {
+    const response = await request(app).get('/api/workforce?range=week').set('Cookie', adminCookie)
+    const supervisor = response.body.data.employees.find((item: { id: string }) => item.id === supervisorId)
+
+    expect(supervisor.context.state).toBe('personal_leave')
+    expect(supervisor.context.availableForScheduling).toBe(false)
+    expect(supervisor.context.origin).toBeNull()
+  })
+
+
+  it('returns quality signals used by manager filters and map context', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    await prisma.feedbackEntry.deleteMany({ where: { employeeId: employee.id } })
+    await prisma.feedbackEntry.createMany({
+      data: [
+        { organizationId: LEGACY_ORGANIZATION_ID, employeeId: employee.id, employeeName: 'Strikerlift', clientLocation: 'Test Site', cleanliness: 5, punctuality: 4.5, equipment: 4.5, clientRelations: 5, overall: 4.8, category: 'Excellent', submittedBy: 'admin@ds.ie' },
+        { organizationId: LEGACY_ORGANIZATION_ID, employeeId: employee.id, employeeName: 'Strikerlift', clientLocation: 'Test Site', cleanliness: 4.5, punctuality: 4.5, equipment: 4, clientRelations: 4.5, overall: 4.4, category: 'Good', submittedBy: 'admin@ds.ie' },
+      ],
+    })
+    const response = await request(app).get('/api/workforce?range=week').set('Cookie', adminCookie)
+    const row = response.body.data.employees.find((item: { id: string }) => item.id === employee.id)
+    expect(row.qualityAverage).toBe(4.6)
+    expect(row.qualityCount).toBe(2)
+    expect(row.qualityBand).toBe('excellent')
+    expect(row.qualityBreakdown.cleanliness).toBe(4.8)
+  })
+
+
+  it('rejects an inverted custom date range', async () => {
+    const response = await request(app)
+      .get('/api/workforce?from=2026-08-25&to=2026-08-20')
+      .set('Cookie', adminCookie)
+
+    expect(response.status).toBe(400)
+    expect(response.body.ok).toBe(false)
+  })
+})
+
+
+afterAll(async () => {
+  await nextApp.close()
+})
