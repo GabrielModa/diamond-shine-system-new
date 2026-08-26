@@ -1,6 +1,6 @@
 # Diamond Shine — Product Behavior Registry
 
-Audit baseline: GitHub `main` at `902b607242f88ae60a56fe12e12a5b8e2439b056` plus the local Workforce V9 layer.
+Audit baseline: GitHub `main` after System Integrity V10 (`21ad9bb88db35c988eb850817c0f35c311dfec0f`).
 
 This registry is the permanent Product Behavior Gate backlog. It records **what decision each module exists to support, the domain invariants it must respect, UX/UI expectations, current gaps, and required tests**. A module is not considered finished because its happy path works.
 
@@ -517,3 +517,22 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - eliminate/rename duplicate Dashboard/Feedback IA
 
 No foundation is “done” until the full repository gate passes and the user validates the operational UX.
+
+
+---
+
+## V11 — Product Readiness checkpoint
+
+**Purpose:** move the V10 integrity foundation from technically correct to operationally coherent for real managers, supervisors and cleaners.
+
+**Acceptance gates added in V11**
+- Home, Schedule and Field Control derive operational day boundaries from the organization timezone.
+- datetime-local schedule inputs represent organization wall-clock time rather than browser-local time.
+- Europe/Dublin DST start/end preserve local service intent and produce correct 23/25-hour day boundaries.
+- Declined/removed assignment history is retained in persistence but never rendered as current Field Control crew.
+- Schedule has one create-work dialog and supports direct visit deep links from role Home.
+- Role-specific Home remains the landing experience for non-manager capabilities.
+
+**Audit outcome:** Materials, Timesheets, Quality, Communications, Clients, People & Access, Audit and Intelligence already carry the V10 lifecycle/capability/error-state work and do not require broad V11 rewrites. V11 intentionally changes only readiness gaps with an observable operational consequence.
+
+**Final V11 Definition of Done:** targeted readiness tests green, then one complete typecheck/lint/unit/integration/build/mobile/E2E gate after reseeding demo data.

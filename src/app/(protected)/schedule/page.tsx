@@ -1,6 +1,8 @@
 import ScheduleBoard from '../../../components/schedule/ScheduleBoard'
-import { currentUserCan } from '../../../lib/server-access'
+import { currentMembershipAccess } from '../../../lib/server-access'
 
 export default async function SchedulePage() {
-  return <ScheduleBoard canManage={await currentUserCan('schedule.manage')} />
+  const access = await currentMembershipAccess()
+  if (!access) return null
+  return <ScheduleBoard canManage={access.can('schedule.manage')} timezone={access.membership.organization.timezone} />
 }

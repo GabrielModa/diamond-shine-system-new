@@ -33,6 +33,24 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async () => { await cleanup() })
 test.afterAll(async () => { await prisma.$disconnect() })
 
+test('schedule exposes one create-work dialog', async ({ page }) => {
+  await page.goto('/schedule')
+  await page.getByRole('button', { name: '+ Create work', exact: true }).click()
+  await expect(page.getByRole('dialog')).toHaveCount(1)
+  await expect(page.getByRole('heading', { name: 'Schedule cleaning work' })).toBeVisible()
+})
+
+test('employee receives a role-specific home instead of manager command centre', async ({ page }) => {
+  await page.request.post('/api/auth/logout')
+  await page.goto('/login')
+  await page.fill('input[type="email"]', 'employee@ds.ie')
+  await page.fill('input[type="password"]', 'password123')
+  await page.click('button[type="submit"]')
+  await page.waitForURL(/\/home/)
+  await expect(page.getByRole('heading', { name: 'What needs your attention' })).toBeVisible()
+  await expect(page.getByText('Operations command centre')).toHaveCount(0)
+})
+
 test('cancelled visit leaves Operational schedule and remains in History with its reason', async ({ page }) => {
   const name = `${prefix} ${Date.now()}`
   const planId = await page.evaluate(async () => {

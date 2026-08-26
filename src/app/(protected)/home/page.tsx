@@ -8,6 +8,7 @@ const labels: Record<string, string> = {
 export default async function HomePage() {
   const access = await currentMembershipAccess()
   if (!access) return null
-  if (access.can('schedule.manage') || access.can('visits.review')) return <ManagerOverview />
-  return <RoleWorkspaceHome roleLabel={labels[access.membership.role] ?? access.membership.role} canSchedule={access.can('schedule.read')} canSupplies={access.can('supplies.request')} canQuality={access.can('quality.inspect')} canTimeReview={access.can('time.team.review')} canFinance={access.can('finance.read')} />
+  const timezone = access.membership.organization.timezone
+  if (access.can('schedule.manage') || access.can('visits.review')) return <ManagerOverview timezone={timezone} />
+  return <RoleWorkspaceHome roleLabel={labels[access.membership.role] ?? access.membership.role} timezone={timezone} canSchedule={access.can('schedule.read')} canSupplies={access.can('supplies.request')} canQuality={access.can('quality.inspect')} canTimeReview={access.can('time.team.review')} canFinance={access.can('finance.read')} />
 }

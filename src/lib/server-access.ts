@@ -9,7 +9,7 @@ export async function currentMembershipAccess() {
   if (!session) return null
   const membership = await prisma.membership.findFirst({
     where: { organizationId: session.organizationId, status: 'active', user: { email: session.email, status: 'active' } },
-    include: { user: { select: { id: true, email: true, name: true } }, capabilityGrants: true },
+    include: { user: { select: { id: true, email: true, name: true } }, organization: { select: { id: true, name: true, timezone: true } }, capabilityGrants: true },
   })
   if (!membership) return null
   return {

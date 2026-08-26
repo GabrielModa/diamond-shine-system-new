@@ -152,6 +152,11 @@ describe('system integrity — scheduling lifecycle', () => {
     const jobs = await request(app).get('/api/jobs').set('Cookie', adminCookie)
     const original = jobs.body.data.find((job: { id: string }) => job.id === first.body.data.id)
     expect(original.coverageGaps).toBe(1)
+
+    const field = await request(app).get('/api/field-control?from=2026-08-26&to=2026-08-27').set('Cookie', adminCookie)
+    expect(field.status).toBe(200)
+    const originalFieldVisit = field.body.data.visits.find((item: { id: string }) => item.id === visit.id)
+    expect(originalFieldVisit.assignments).toHaveLength(0)
   })
 
   it('school blocks work, school holiday removes that block, and personal leave remains unavailable', async () => {

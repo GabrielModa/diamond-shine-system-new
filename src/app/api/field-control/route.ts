@@ -2,33 +2,32 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireCapability } from '../../../lib/auth'
 import { prisma } from '../../../lib/prisma'
+import { operationalDayRange } from '../../../lib/operational-time'
+import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 })
 
-function startOfDay() {
-  const value = new Date()
-  value.setHours(0, 0, 0, 0)
-  return value
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'visits.review')
   if ('response' in auth) return auth.response
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
-  const from = parsed.data.from ?? startOfDay()
-  const to = parsed.data.to ?? new Date(from.getTime() + 86_400_000)
   const organizationId = auth.user.organizationId
+  const organization = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
+  const fallback = operationalDayRange(new Date(), organization?.timezone ?? 'Europe/Dublin')
+  const from = parsed.data.from ?? new Date(fallback.from)
+  const to = parsed.data.to ?? new Date(fallback.to)
   const [visits, reviewEntries, visitReviews, activeTimers, incidents] = await Promise.all([
     prisma.visit.findMany({
       where: { organizationId, status: { notIn: ['cancelled', 'missed'] }, scheduledStart: { gte: from, lt: to } },
       include: {
         site: { select: { id: true, name: true, city: true, client: { select: { id: true, displayName: true } } } },
         job: { select: { id: true, name: true } },
-        assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+        assignments: { where: { status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] } }, include: { user: { select: { id: true, name: true, email: true } } } },
         taskResults: { select: { status: true } },
         timeEntries: { select: { id: true, userId: true, status: true, startedAt: true, durationSeconds: true, startDistanceM: true, startLocationClass: true, reviewReason: true } },
         incidents: { where: { status: { notIn: ['resolved', 'closed'] } }, select: { id: true, category: true, severity: true, title: true, status: true, createdAt: true } },
