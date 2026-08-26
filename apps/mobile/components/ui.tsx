@@ -1,10 +1,13 @@
 import { PropsWithChildren, ReactNode } from 'react';
-import { ActivityIndicator, Pressable, SafeAreaView, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { ActivityIndicator, Pressable, ScrollView, StyleProp, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { SafeAreaView } from 'react-native-safe-area-context';
 import { colors, shadow } from '@/lib/theme';
 
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
-  const body = scroll ? <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">{children}</ScrollView> : <View style={[styles.content, styles.flex]}>{children}</View>;
-  return <SafeAreaView style={styles.safe}>{body}</SafeAreaView>;
+  const body = scroll
+    ? <ScrollView contentContainerStyle={styles.content} keyboardShouldPersistTaps="handled">{children}</ScrollView>
+    : <View style={[styles.content, styles.flex]}>{children}</View>;
+  return <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>{body}</SafeAreaView>;
 }
 
 export function PageHeader({ eyebrow, title, subtitle, right }: { eyebrow?: string; title: string; subtitle?: string; right?: ReactNode }) {

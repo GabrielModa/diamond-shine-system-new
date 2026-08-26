@@ -235,7 +235,7 @@ export async function GET(request: NextRequest) {
       site: { include: { client: true, areas: { orderBy: { sortOrder: 'asc' } } } },
       assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
       servicePlanVersion: { include: { tasks: { orderBy: { sortOrder: 'asc' } } } },
-      taskResults: { include: { evidence: true } },
+      taskResults: { include: { evidence: true, versionTask: true } },
       evidenceAssets: true,
       incidents: { orderBy: { createdAt: 'desc' } },
       timeEntries: {

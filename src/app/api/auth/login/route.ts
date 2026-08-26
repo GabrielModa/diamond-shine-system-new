@@ -31,6 +31,7 @@ export async function POST(request: NextRequest) {
         where: { status: 'active', organization: { status: 'active' } },
         orderBy: { createdAt: 'asc' },
         take: 1,
+        include: { organization: { select: { timezone: true } } },
       },
     },
   })
@@ -68,7 +69,9 @@ export async function POST(request: NextRequest) {
       email: user.email,
       name: user.name,
       role,
+      membershipRole: membership.role,
       organizationId: membership.organizationId,
+      timezone: membership.organization.timezone,
       ...(body.mobile ? {
         accessToken,
         expiresIn: tokenTtl,

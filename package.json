@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity && npm run test:integration:mobile-hardening",
     "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
     "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
@@ -49,7 +49,9 @@
     "db:migrations:status": "prisma migrate status",
     "pilot:smoke": "tsx scripts/pilot-smoke.ts",
     "release:source-check": "node scripts/release-source-check.mjs",
-    "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke"
+    "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke",
+    "mobile:source-check": "node scripts/mobile-pilot-source-check.mjs",
+    "test:integration:mobile-hardening": "vitest run --config vitest.mobile-hardening.config.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

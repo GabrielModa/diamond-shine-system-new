@@ -1,5 +1,15 @@
 export type Person = { id: string; name?: string | null; email: string };
 
+export type MembershipRole =
+  | 'organization_admin'
+  | 'field_supervisor'
+  | 'scheduler'
+  | 'employee'
+  | 'stock_controller'
+  | 'quality_inspector'
+  | 'finance'
+  | 'viewer';
+
 export type Site = {
   id: string;
   name: string;
@@ -7,6 +17,7 @@ export type Site = {
   addressLine2?: string | null;
   city: string;
   postalCode?: string | null;
+  timezone?: string;
   latitude?: number | null;
   longitude?: number | null;
   geofenceVerifiedM?: number;
@@ -15,20 +26,25 @@ export type Site = {
   client: { id: string; displayName: string };
 };
 
+export type VersionTask = {
+  id: string;
+  title: string;
+  instructions?: string | null;
+  required: boolean;
+  evidenceRequired: boolean;
+  responseType: string;
+  critical?: boolean;
+  sortOrder?: number;
+};
+
 export type TaskResult = {
   id: string;
   version: number;
+  versionTaskId?: string;
   status: 'pending' | 'done' | 'not_applicable' | 'problem';
   note?: string | null;
   response?: unknown;
-  versionTask: {
-    id: string;
-    title: string;
-    instructions?: string | null;
-    required: boolean;
-    evidenceRequired: boolean;
-    responseType: string;
-  };
+  versionTask: VersionTask;
   evidence?: Array<{ id: string; kind: string }>;
 };
 
@@ -46,10 +62,13 @@ export type Visit = {
   status: string;
   scheduledStart: string;
   scheduledEnd: string;
+  timezone?: string;
+  requiredWorkers?: number;
   dispatchNotes?: string | null;
   completionNotes?: string | null;
   site: Site;
   job?: { id: string; name: string };
+  servicePlanVersion?: { tasks: VersionTask[] };
   assignments?: Array<{
     id: string;
     status: 'assigned' | 'notified' | 'seen' | 'acknowledged' | 'declined' | 'removed';
@@ -86,7 +105,9 @@ export type Session = {
   email: string;
   name?: string | null;
   role: string;
+  membershipRole: MembershipRole;
   organizationId: string;
+  timezone: string;
   expiresAt?: string;
   baseUrl: string;
 };

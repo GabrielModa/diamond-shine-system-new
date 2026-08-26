@@ -1,22 +1,35 @@
 import Constants from 'expo-constants';
 import * as Device from 'expo-device';
-import * as Notifications from 'expo-notifications';
 import { Platform } from 'react-native';
 import { apiFetch } from './api';
 import { getDeviceId } from './device';
+import { supportsNativePush } from './runtime';
 import type { Session } from './types';
 
-Notifications.setNotificationHandler({
-  handleNotification: async () => ({
-    shouldPlaySound: true,
-    shouldSetBadge: true,
-    shouldShowBanner: true,
-    shouldShowList: true,
-  }),
-});
+let handlerConfigured = false;
+
+async function notifications() {
+  if (!supportsNativePush) return null;
+  const Notifications = await import('expo-notifications');
+  if (!handlerConfigured) {
+    Notifications.setNotificationHandler({
+      handleNotification: async () => ({
+        shouldPlaySound: true,
+        shouldSetBadge: true,
+        shouldShowBanner: true,
+        shouldShowList: true,
+      }),
+    });
+    handlerConfigured = true;
+  }
+  return Notifications;
+}
 
 export async function registerForPushNotifications(session: Session) {
-  if (Platform.OS === 'web' || !Device.isDevice) return null;
+  if (!supportsNativePush || !Device.isDevice) return null;
+  const Notifications = await notifications();
+  if (!Notifications) return null;
+
   if (Platform.OS === 'android') {
     await Promise.all([
       Notifications.setNotificationChannelAsync('operations', {
@@ -30,13 +43,16 @@ export async function registerForPushNotifications(session: Session) {
       }),
     ]);
   }
+
   const current = await Notifications.getPermissionsAsync();
   const permission = current.granted ? current : await Notifications.requestPermissionsAsync();
   if (!permission.granted) return null;
+
   const projectId = Constants.expoConfig?.extra?.eas?.projectId
     ?? Constants.easConfig?.projectId
     ?? process.env.EXPO_PUBLIC_EAS_PROJECT_ID;
   if (!projectId) return null;
+
   const token = (await Notifications.getExpoPushTokenAsync({ projectId })).data;
   await apiFetch(session, '/api/devices/push-token', {
     method: 'POST',

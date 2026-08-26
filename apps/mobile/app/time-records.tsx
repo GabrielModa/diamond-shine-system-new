@@ -1,6 +1,7 @@
 import { Button, Card, EmptyState, PageHeader, Screen } from '@/components/ui';
 import { apiFetch } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
+import { formatOperationalDate, formatOperationalTime } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
@@ -14,24 +15,47 @@ function duration(seconds?: number | null) { if (!seconds) return 'In progress';
 function label(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'GPS unavailable'; }
 
 export default function TimeRecordsScreen() {
-  const { session } = useAuth(); const [records, setRecords] = useState<Record[]>([]); const [loading, setLoading] = useState(true); const [selected, setSelected] = useState<string | null>(null); const [reason, setReason] = useState(''); const [busy, setBusy] = useState(false); const [message, setMessage] = useState<string | null>(null);
-  const load = useCallback(async () => { if (!session) return; setLoading(true); try { const to = new Date(); const from = new Date(Date.now() - 30 * 86400000); setRecords(await apiFetch<Record[]>(session, `/api/time-entries?mine=true&from=${from.toISOString()}&to=${to.toISOString()}`)); } catch { setMessage('Could not load your time records. Pull to retry when you have a connection.'); } finally { setLoading(false); } }, [session]);
+  const { session } = useAuth();
+  const timezone = session?.timezone ?? 'Europe/Dublin';
+  const [records, setRecords] = useState<Record[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [selected, setSelected] = useState<string | null>(null);
+  const [reason, setReason] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  const load = useCallback(async () => {
+    if (!session) return;
+    setLoading(true); setMessage(null);
+    try {
+      const to = new Date(); const from = new Date(Date.now() - 30 * 86400000);
+      setRecords(await apiFetch<Record[]>(session, `/api/time-entries?mine=true&from=${from.toISOString()}&to=${to.toISOString()}`));
+    } catch { setMessage('Could not load your time records. Reconnect and try again.'); }
+    finally { setLoading(false); }
+  }, [session]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const selectedRecord = useMemo(() => records.find((record) => record.id === selected), [records, selected]);
-  async function submit() { if (!session || !selected || reason.trim().length < 8) return; setBusy(true); try { await apiFetch(session, `/api/time-entries/${selected}/disputes`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) }); setReason(''); setSelected(null); setMessage('Your correction request was sent to operations.'); await load(); } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not send the correction request.'); } finally { setBusy(false); } }
+  async function submit() {
+    if (!session || !selected || reason.trim().length < 8) return;
+    setBusy(true);
+    try {
+      await apiFetch(session, `/api/time-entries/${selected}/disputes`, { method: 'POST', body: JSON.stringify({ reason: reason.trim() }) });
+      setReason(''); setSelected(null); setMessage('Your correction request was sent to operations.'); await load();
+    } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not send the correction request.'); }
+    finally { setBusy(false); }
+  }
   return <Screen><PageHeader eyebrow="Your work record" title="Location & time" subtitle="Only event-based location is recorded. Review what was saved and question anything that is wrong." right={<Button title="Done" compact variant="ghost" onPress={() => router.back()} />} />
     <Card><Text style={styles.privacyTitle}>Your privacy, clearly</Text><Text style={styles.copy}>No continuous tracking. This record shows the time, distance classification and accuracy captured when you started, stopped or updated a timer — not your raw coordinates.</Text></Card>
     {message ? <Card style={styles.message}><Text style={styles.copy}>{message}</Text></Card> : null}
     {loading ? <ActivityIndicator color={colors.primary} /> : null}
     {!loading && !records.length ? <EmptyState title="No time records yet" body="Your event-based records will appear here after you clock in or track work." /> : null}
-    {records.map((record) => <Card key={record.id}><View style={styles.top}><View><Text style={styles.title}>{record.visit ? `${record.visit.site.client.displayName} · ${record.visit.site.name}` : record.kind}</Text><Text style={styles.copy}>{new Date(record.startedAt).toLocaleString('en-IE')} · {duration(record.durationSeconds)}</Text></View><Text style={styles.status}>{record.status.replaceAll('_', ' ')}</Text></View>
+    {records.map((record) => <Card key={record.id}><View style={styles.top}><View><Text style={styles.title}>{record.visit ? `${record.visit.site.client.displayName} · ${record.visit.site.name}` : record.kind}</Text><Text style={styles.copy}>{formatOperationalDate(record.startedAt, timezone, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · {duration(record.durationSeconds)}</Text></View><Text style={styles.status}>{record.status.replaceAll('_', ' ')}</Text></View>
       <View style={styles.pills}><Text style={styles.pill}>Start: {label(record.startLocationClass)}</Text>{record.endLocationClass ? <Text style={styles.pill}>End: {label(record.endLocationClass)}</Text> : null}</View>
       {record.reviewReason ? <Text style={styles.review}>Review note: {record.reviewReason}</Text> : null}
-      {record.locationEvents.map((event) => <View style={styles.event} key={event.id}><Text style={styles.eventTitle}>{event.kind.replaceAll('_', ' ')}</Text><Text style={styles.copy}>{new Date(event.capturedAt).toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit' })} · {label(event.classification)}{event.distanceM != null ? ` · ${event.distanceM}m from site` : ''}{event.accuracyM != null ? ` · ±${event.accuracyM}m accuracy` : ''}</Text></View>)}
+      {record.locationEvents.map((event) => <View style={styles.event} key={event.id}><Text style={styles.eventTitle}>{event.kind.replaceAll('_', ' ')}</Text><Text style={styles.copy}>{formatOperationalTime(event.capturedAt, timezone)} · {label(event.classification)}{event.distanceM != null ? ` · ${event.distanceM}m from site` : ''}{event.accuracyM != null ? ` · ±${event.accuracyM}m accuracy` : ''}</Text></View>)}
       {record.disputes.map((dispute) => <View key={dispute.id} style={styles.dispute}><Text style={styles.eventTitle}>Correction request · {dispute.status}</Text><Text style={styles.copy}>{dispute.reason}</Text>{dispute.resolution ? <Text style={styles.copy}>Operations: {dispute.resolution}</Text> : <Text style={styles.copy}>Awaiting operations review</Text>}</View>)}
       {!record.disputes.some((dispute) => dispute.status === 'open') ? <Button title={selected === record.id ? 'Close correction form' : 'Question this record'} compact variant="secondary" onPress={() => setSelected(selected === record.id ? null : record.id)} /> : null}
     </Card>)}
     {selectedRecord ? <Card style={styles.form}><Text style={styles.title}>What needs correcting?</Text><Text style={styles.copy}>Explain the issue so operations can review it fairly. This does not change an approved record automatically.</Text><TextInput value={reason} onChangeText={setReason} placeholder="Example: I was at the site entrance, but GPS placed me on the road." placeholderTextColor={colors.muted} multiline style={styles.input} /><Button title="Send correction request" loading={busy} disabled={reason.trim().length < 8} onPress={() => void submit()} /></Card> : null}
   </Screen>;
 }
-const styles = StyleSheet.create({ top: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, title: { color: colors.ink, fontSize: 16, fontWeight: '900', textTransform: 'capitalize' }, copy: { color: colors.muted, fontSize: 12, lineHeight: 18 }, privacyTitle: { color: colors.ink, fontWeight: '900', fontSize: 16 }, message: { borderColor: colors.primary }, status: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'capitalize' }, pills: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' }, pill: { color: colors.ink, backgroundColor: colors.primarySoft, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' }, review: { color: colors.warning, fontSize: 12, fontWeight: '700' }, event: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 2 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '900', textTransform: 'capitalize' }, dispute: { gap: 3, backgroundColor: '#FFF8EA', borderRadius: 12, padding: 10 }, form: { gap: 10, borderColor: colors.primary }, input: { minHeight: 100, borderWidth: 1, borderColor: colors.border, borderRadius: 12, color: colors.ink, padding: 12, textAlignVertical: 'top', fontSize: 14 }, });
+const styles = StyleSheet.create({ top: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, title: { color: colors.ink, fontSize: 16, fontWeight: '900', textTransform: 'capitalize' }, copy: { color: colors.muted, fontSize: 12, lineHeight: 18 }, privacyTitle: { color: colors.ink, fontWeight: '900', fontSize: 16 }, message: { borderColor: colors.primary }, status: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'capitalize' }, pills: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' }, pill: { color: colors.ink, backgroundColor: colors.primarySoft, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' }, review: { color: colors.warning, fontSize: 12, fontWeight: '700' }, event: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 2 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '900', textTransform: 'capitalize' }, dispute: { gap: 3, backgroundColor: '#FFF8EA', borderRadius: 12, padding: 10 }, form: { gap: 10, borderColor: colors.primary }, input: { minHeight: 100, borderWidth: 1, borderColor: colors.border, borderRadius: 12, color: colors.ink, padding: 12, textAlignVertical: 'top', fontSize: 14 } });

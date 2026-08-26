@@ -572,3 +572,24 @@ No foundation is “done” until the full repository gate passes and the user v
 - Stable v1 promotion requires manual role walkthrough, real backup/restore evidence, persistent evidence durability, notification delivery/worker proof and a known rollback path.
 
 **V13 Definition of Done:** source changes pass typecheck/lint/unit/targeted integration/E2E and one final repository gate. The resulting checkpoint is a v1 release candidate. Stable `v1.0.0` is promoted only after the manual/pilot sign-off described in `docs/LAUNCH_RUNBOOK.md`; post-sign-off bugs become regression fixes rather than a new mandatory foundation version.
+
+---
+
+## Post-RC Mobile Pilot Hardening — Android / iOS
+
+**Decision:** Can a field worker execute assigned cleaning safely on Android/iOS with weak connectivity, while management roles remain review-oriented until shared Operations intelligence lands?
+
+**Invariants added:**
+- Expo Go may disable remote push, but must never block the rest of the app at bootstrap.
+- Offline HTTP 207 is partial success, not total failure; processed mutations are retained server-side and removed locally while conflicts remain actionable.
+- Offline queue causality is start/tasks/time → binary evidence → completion.
+- Durable evidence is copied into app document storage before queueing and removed only after confirmed upload.
+- A second account cannot silently inherit or delete another worker's pending offline workspace.
+- Only actively assigned executable field roles receive cleaning-execution controls in the mobile UI.
+- Operational wall-clock rendering follows authoritative organization/visit timezone rather than device timezone.
+
+**Regression coverage:**
+- tests/integration/mobile-pilot-hardening.test.ts: mobile role/timezone bootstrap, sync task metadata, binary evidence resolution by version task.
+- npm run mobile:source-check: runtime import/safe-area/offline-causality/account-isolation/source contract.
+
+**Manual pilot gate:** Android Expo Go, Android development build, iPhone development build, permissions denied/permanently denied, airplane-mode execution, reconnect conflict, app kill/reopen, account switch, session revocation, native push foreground/background/terminated.
