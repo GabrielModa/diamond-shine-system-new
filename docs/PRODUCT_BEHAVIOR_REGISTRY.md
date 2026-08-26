@@ -536,3 +536,22 @@ No foundation is “done” until the full repository gate passes and the user v
 **Audit outcome:** Materials, Timesheets, Quality, Communications, Clients, People & Access, Audit and Intelligence already carry the V10 lifecycle/capability/error-state work and do not require broad V11 rewrites. V11 intentionally changes only readiness gaps with an observable operational consequence.
 
 **Final V11 Definition of Done:** targeted readiness tests green, then one complete typecheck/lint/unit/integration/build/mobile/E2E gate after reseeding demo data.
+
+---
+
+## V12 — Production Hardening checkpoint
+
+**Purpose:** make deployment safety and runtime dependency health explicit before the pilot release.
+
+**Production invariants added in V12**
+- Production configuration fails closed instead of silently using development fallbacks.
+- Readiness and liveness are separate operational signals.
+- Evidence uploads require an explicit persistent storage root in production.
+- Session and notification-worker secrets are independent, non-placeholder and at least 32 characters.
+- Public production origin is HTTPS; SMTP, Routes API and authenticated Expo push configuration are part of launch readiness.
+- Integration tests are always followed by demo reseeding before browser tests in CI/repository verification.
+- Notification delivery has an explicit scheduler command and runbook cadence.
+- PostgreSQL backup creation, off-site copy and restore drills are documented launch responsibilities.
+- Production migrations are forward-only with expand/migrate/contract rollback discipline.
+
+**V12 Definition of Done:** production-hardening unit tests, typecheck/lint and targeted health/config checks green; one full repository gate before the V12 checkpoint. Real production credentials and infrastructure are validated in V13 Pilot & Launch Readiness, not committed to source control.

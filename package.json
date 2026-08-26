@@ -22,7 +22,7 @@
     "mobile:typecheck": "npm --prefix apps/mobile run typecheck",
     "mobile:lint": "npm --prefix apps/mobile run lint",
     "mobile:export": "npm --prefix apps/mobile run export:web",
-    "verify": "npm run typecheck && npm run lint && npm run test:unit && npm run test:integration && npm run build && npm run mobile:export && npm run test:e2e",
+    "verify": "npm run typecheck && npm run lint && npm run test:unit && npm run test:integration && npm run db:seed:demo && npm run build && npm run mobile:export && npm run test:e2e",
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
@@ -41,7 +41,12 @@
     "db:seed:demo": "npm run db:seed && npm run db:seed:workforce && npm run db:seed:scenarios",
     "test:integration:scenarios": "vitest run tests/integration/scenario-matrix.test.ts",
     "test:integration:integrity": "vitest run tests/integration/system-integrity.test.ts",
-    "test:e2e:integrity": "playwright test tests/e2e/system-integrity.spec.ts"
+    "test:e2e:integrity": "playwright test tests/e2e/system-integrity.spec.ts",
+    "production:check": "tsx scripts/production-check.ts",
+    "production:smoke": "node scripts/production-smoke.mjs",
+    "notifications:worker": "node scripts/process-notifications.mjs",
+    "db:backup": "node scripts/db-backup.mjs",
+    "verify:release": "npm run production:check && npm run verify"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

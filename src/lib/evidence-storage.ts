@@ -10,7 +10,12 @@ const MIME_EXTENSIONS = {
 export type EvidenceMimeType = keyof typeof MIME_EXTENSIONS
 
 function storageRoot() {
-  return path.resolve(/* turbopackIgnore: true */ process.env.EVIDENCE_STORAGE_ROOT || path.join(process.cwd(), '.data', 'uploads'))
+  const configured = process.env.EVIDENCE_STORAGE_ROOT?.trim()
+  if (process.env.NODE_ENV === 'production') {
+    if (!configured) throw new Error('Production evidence storage requires EVIDENCE_STORAGE_ROOT')
+    if (!path.isAbsolute(configured)) throw new Error('EVIDENCE_STORAGE_ROOT must be an absolute persistent path in production')
+  }
+  return path.resolve(/* turbopackIgnore: true */ configured || path.join(process.cwd(), '.data', 'uploads'))
 }
 
 export async function ensureEvidenceStorageReady() {
