@@ -1,6 +1,6 @@
 {
   "name": "diamond-shine-system-new",
-  "version": "0.1.0",
+  "version": "1.0.0-rc.1",
   "private": true,
   "scripts": {
     "test": "vitest run tests/unit",
@@ -46,7 +46,10 @@
     "production:smoke": "node scripts/production-smoke.mjs",
     "notifications:worker": "node scripts/process-notifications.mjs",
     "db:backup": "node scripts/db-backup.mjs",
-    "verify:release": "npm run production:check && npm run verify"
+    "db:migrations:status": "prisma migrate status",
+    "pilot:smoke": "tsx scripts/pilot-smoke.ts",
+    "release:source-check": "node scripts/release-source-check.mjs",
+    "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

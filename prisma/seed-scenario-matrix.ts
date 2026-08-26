@@ -3,7 +3,9 @@ import bcrypt from 'bcryptjs'
 import { Prisma, PrismaClient } from '@prisma/client'
 import { DEMO_EMPLOYEE_SCENARIOS, DEMO_SITE_SCENARIOS } from '../src/lib/demo-scenarios'
 import { LEGACY_ORGANIZATION_ID, legacyRoleToMembershipRole } from '../src/lib/tenancy'
+import { assertDemoSeedAllowed } from '../src/lib/demo-seed-guard'
 
+assertDemoSeedAllowed()
 const prisma = new PrismaClient()
 const TEST_PASSWORD = 'password123'
 const DAY = 86_400_000

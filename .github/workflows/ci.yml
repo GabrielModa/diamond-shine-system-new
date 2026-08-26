@@ -42,7 +42,7 @@ jobs:
       - run: npm run lint
       - run: npm run test:unit
       - run: npm run test:integration
-      - run: npm run db:seed
+      - run: npm run db:seed:demo
       - run: npm run build
       - run: npm run mobile:export
       - run: npx playwright install --with-deps chromium

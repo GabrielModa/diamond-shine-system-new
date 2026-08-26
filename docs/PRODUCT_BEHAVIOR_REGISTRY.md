@@ -555,3 +555,20 @@ No foundation is “done” until the full repository gate passes and the user v
 - Production migrations are forward-only with expand/migrate/contract rollback discipline.
 
 **V12 Definition of Done:** production-hardening unit tests, typecheck/lint and targeted health/config checks green; one full repository gate before the V12 checkpoint. Real production credentials and infrastructure are validated in V13 Pilot & Launch Readiness, not committed to source control.
+
+---
+
+## V13 — Pilot & Launch Readiness checkpoint
+
+**Purpose:** close the construction phase and produce a Diamond Shine v1 release candidate with explicit go/no-go evidence.
+
+**Launch invariants added in V13**
+- Demo seed scripts fail closed under `NODE_ENV=production` and require an explicit non-production target/override for remote production-like database names.
+- Repository verification and deployed production verification are separate: the production gate never runs destructive integration tests or demo seeding against the live database.
+- CI reseeds the complete demo scenario matrix after integration tests before browser E2E, matching the repository gate.
+- Production smoke checks liveness, readiness and required browser security headers over the public origin.
+- Dedicated pilot admin and employee credentials exercise real web authentication/capability access; the employee pilot also exercises and revokes a native bearer session.
+- Release source verification requires a clean `main` synchronized with its upstream and can require the intended release tag at HEAD.
+- Stable v1 promotion requires manual role walkthrough, real backup/restore evidence, persistent evidence durability, notification delivery/worker proof and a known rollback path.
+
+**V13 Definition of Done:** source changes pass typecheck/lint/unit/targeted integration/E2E and one final repository gate. The resulting checkpoint is a v1 release candidate. Stable `v1.0.0` is promoted only after the manual/pilot sign-off described in `docs/LAUNCH_RUNBOOK.md`; post-sign-off bugs become regression fixes rather than a new mandatory foundation version.

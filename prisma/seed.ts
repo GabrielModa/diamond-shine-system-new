@@ -3,12 +3,14 @@ import bcrypt from 'bcryptjs'
 import { calculateSupplyDueAt, getCategoryLabel } from '../src/lib/business-logic'
 import { labelToDbCategory } from '../src/lib/mappers'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL } from '../src/lib/constants'
+import { assertDemoSeedAllowed } from '../src/lib/demo-seed-guard'
 import {
   LEGACY_ORGANIZATION_ID,
   LEGACY_ORGANIZATION_SLUG,
   legacyRoleToMembershipRole,
 } from '../src/lib/tenancy'
 
+assertDemoSeedAllowed()
 const prisma = new PrismaClient()
 
 const TEST_PASSWORD = 'password123'

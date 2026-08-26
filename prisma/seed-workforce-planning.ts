@@ -1,5 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { LEGACY_ORGANIZATION_ID } from '../src/lib/tenancy'
+import { assertDemoSeedAllowed } from '../src/lib/demo-seed-guard'
+assertDemoSeedAllowed()
 const prisma=new PrismaClient();const DAY=86400000
 const scenarios=[
  {email:'employee@ds.ie',home:['Phibsborough, Dublin 7',53.3597,-6.2735],school:['TU Dublin Grangegorman','Grangegorman Lower, Dublin 7',53.3475,-6.2771],target:1800,mode:'transit',study:[1,2,3,4,5].map(dayOfWeek=>({dayOfWeek,startsMinute:480,endsMinute:780}))},
