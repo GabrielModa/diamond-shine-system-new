@@ -271,6 +271,45 @@ async function ensureScenarioSite(siteScenario: (typeof DEMO_SITE_SCENARIOS)[num
   return { client, site, contract, plan, version }
 }
 
+
+async function seedDeterministicFeedback() {
+  const scenarios: Record<string, number[]> = {
+    'aisha@ds.ie': [4.8, 4.7, 4.9],
+    'aoife@ds.ie': [4.2, 4.1, 4.3],
+    'liam@ds.ie': [3.7, 3.6, 3.8],
+    'omar@ds.ie': [3.1, 2.9, 3.2],
+    'employee@ds.ie': [4.6, 4.7, 4.5],
+  }
+  for (const [email, ratings] of Object.entries(scenarios)) {
+    const user = await prisma.user.findUnique({ where: { email } })
+    if (!user) continue
+    await prisma.feedbackEntry.deleteMany({
+      where: { organizationId: LEGACY_ORGANIZATION_ID, employeeId: user.id, comments: { startsWith: 'Scenario matrix v10:' } },
+    })
+    for (const [index, rating] of ratings.entries()) {
+      const createdAt = atDayOffset(-(index + 1) * 3, 12 * 60)
+      const category = rating >= 4.5 ? 'Excellent' : rating >= 4 ? 'VeryGood' : rating >= 3.5 ? 'Good' : rating >= 3 ? 'Fair' : 'Poor'
+      await prisma.feedbackEntry.create({
+        data: {
+          organizationId: LEGACY_ORGANIZATION_ID,
+          employeeId: user.id,
+          employeeName: user.name ?? user.email,
+          clientLocation: 'Scenario Quality Site',
+          cleanliness: rating,
+          punctuality: Math.max(1, Math.min(5, rating - (index === 1 ? 0.2 : 0))),
+          equipment: Math.max(1, Math.min(5, rating)),
+          clientRelations: Math.max(1, Math.min(5, rating + (index === 0 ? 0.1 : 0))),
+          overall: rating,
+          category,
+          comments: `Scenario matrix v10: deterministic quality band for ${email}`,
+          submittedBy: 'admin@ds.ie',
+          createdAt,
+        },
+      })
+    }
+  }
+}
+
 async function seedScheduleMatrix() {
   for (const [index, siteScenario] of DEMO_SITE_SCENARIOS.entries()) {
     const { site, contract, plan, version } = await ensureScenarioSite(siteScenario, index)
@@ -349,8 +388,9 @@ async function seedScheduleMatrix() {
 export async function seedScenarioMatrix() {
   await ensureEmployeeAccounts()
   await seedEmployeeContexts()
+  await seedDeterministicFeedback()
   await seedScheduleMatrix()
-  console.log(`Scenario matrix ready: ${DEMO_EMPLOYEE_SCENARIOS.length} employees, ${DEMO_SITE_SCENARIOS.length} additional client/site scenarios.`)
+  console.log(`Scenario matrix ready: ${DEMO_EMPLOYEE_SCENARIOS.length} employees, ${DEMO_SITE_SCENARIOS.length} additional client/site scenarios, deterministic quality bands.`)
 }
 
 async function main() {

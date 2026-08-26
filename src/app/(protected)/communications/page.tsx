@@ -1,8 +1,6 @@
-import { cookies } from 'next/headers'
-import { sessionCookie, verifySessionToken } from '../../../lib/session'
 import OperationalInbox from '../../../components/communications/OperationalInbox'
+import { currentUserCan } from '../../../lib/server-access'
 
 export default async function CommunicationsPage() {
-  const session = await verifySessionToken((await cookies()).get(sessionCookie.name)?.value)
-  return <OperationalInbox canManage={session?.role === 'admin' || session?.role === 'supervisor'} canConfigure={session?.role === 'admin'} />
+  return <OperationalInbox canManage={await currentUserCan('communications.manage')} canConfigure={await currentUserCan('organization.manage')} />
 }

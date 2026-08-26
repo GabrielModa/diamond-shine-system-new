@@ -2,34 +2,15 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 
-type SiteRisk = {
-  id: string
-  name: string
-  city: string
-  client: { displayName: string }
-  score: number
-  level: 'critical' | 'high' | 'watch' | 'healthy'
-  reasons: string[]
-  nextVisit: string | null
-}
+type SiteRisk = { id: string; name: string; city: string; client: { displayName: string }; score: number; level: 'critical' | 'high' | 'watch' | 'healthy'; reasons: string[]; nextVisit: string | null }
+type HealthComponent = { key: string; label: string; weight: number; value: number; direction: string }
 type Intelligence = {
   generatedAt: string
-  health: { score: number; grade: string }
+  health: { score: number; grade: string; components: HealthComponent[] }
   summary: {
-    historicalVisits: number
-    completedVisits: number
-    completionRate: number
-    plannedMinutes: number
-    actualMinutes: number
-    laborVariancePercent: number
-    timeAnomalies: number
-    qualityAverage: number | null
-    qualityPassRate: number | null
-    materialRisks: number
-    openSupplyRequests: number
-    openCorrectiveActions: number
-    acknowledgementGaps: number
-    unassignedUpcoming: number
+    historicalVisits: number; completedVisits: number; completionRate: number; plannedMinutes: number; actualMinutes: number; laborVariancePercent: number
+    timeAnomalies: number; qualityAverage: number | null; qualityPassRate: number | null; materialRisks: number; openSupplyRequests: number
+    openCorrectiveActions: number; acknowledgementGaps: number; unassignedUpcoming: number
   }
   siteRisks: SiteRisk[]
   actionsNow: Array<{ priority: string; title: string; detail: string; href: string }>
@@ -49,6 +30,7 @@ export default function IntelligenceWorkspace() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [riskFilter, setRiskFilter] = useState<'all' | SiteRisk['level']>('all')
+  const [showHealth, setShowHealth] = useState(false)
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
     try { setData(await loadIntelligence()) }
@@ -69,7 +51,7 @@ export default function IntelligenceWorkspace() {
       <section className="intelligence-overview">
         <article className={`health-score ${data.health.grade}`}>
           <div className="health-ring" style={{ '--health': data.health.score } as React.CSSProperties}><strong>{data.health.score}</strong><span>/100</span></div>
-          <div><span>Operational health</span><h2>{data.health.grade}</h2><p>Weighted from completion, quality, time confidence, stock, communication and critical issues.</p></div>
+          <div><span>Operational health</span><h2>{data.health.grade}</h2><p>Weighted from six operational signals. The score is explainable, not a hidden employee ranking.</p><button type="button" className="text-button" aria-expanded={showHealth} onClick={() => setShowHealth((value) => !value)}>{showHealth ? 'Hide score logic' : 'Why this score?'}</button></div>
         </article>
         <div className="intelligence-kpis">
           <article><span>Service delivery</span><strong>{data.summary.completionRate}%</strong><small>{data.summary.completedVisits}/{data.summary.historicalVisits} visits complete</small></article>
@@ -77,9 +59,11 @@ export default function IntelligenceWorkspace() {
           <article className={Math.abs(data.summary.laborVariancePercent) > 15 ? 'attention' : ''}><span>Labour variance</span><strong>{data.summary.laborVariancePercent > 0 ? '+' : ''}{data.summary.laborVariancePercent}%</strong><small>{hours(data.summary.actualMinutes)} actual · {hours(data.summary.plannedMinutes)} planned</small></article>
           <article className={data.summary.timeAnomalies ? 'attention' : ''}><span>Time exceptions</span><strong>{data.summary.timeAnomalies}</strong><small>Only anomalous entries need review</small></article>
           <article className={data.summary.materialRisks ? 'attention' : ''}><span>Material risks</span><strong>{data.summary.materialRisks}</strong><small>{data.summary.openSupplyRequests} requests in progress</small></article>
-          <article className={data.summary.acknowledgementGaps ? 'attention' : ''}><span>Unconfirmed changes</span><strong>{data.summary.acknowledgementGaps}</strong><small>{data.summary.unassignedUpcoming} upcoming visits unassigned</small></article>
+          <article className={data.summary.acknowledgementGaps || data.summary.unassignedUpcoming ? 'attention' : ''}><span>Coverage & confirmation</span><strong>{data.summary.unassignedUpcoming}</strong><small>{data.summary.acknowledgementGaps} changes awaiting acknowledgement</small></article>
         </div>
       </section>
+
+      {showHealth ? <section className="card health-explainer" aria-label="Operational health score components"><div className="section-heading"><div><h2>How operational health is calculated</h2><p className="muted">Each component is normalized to 0–100, then multiplied by its visible weight.</p></div></div><div className="health-components">{data.health.components.map((component) => <article key={component.key}><div><strong>{component.label}</strong><span>{component.weight}% weight</span></div><div className="health-component-bar"><span style={{ width: `${Math.max(0, Math.min(100, component.value))}%` }} /></div><b>{component.value}/100</b></article>)}</div><p className="muted">This score describes operational system health. It must not be used as a standalone employee performance score.</p></section> : null}
 
       <section className="intelligence-grid">
         <div className="risk-panel card">
@@ -96,7 +80,7 @@ export default function IntelligenceWorkspace() {
           <div className="section-heading"><div><h2>Act now</h2><span className="muted">Ranked, owned work — not more charts</span></div><span className="count-pill">{data.actionsNow.length}</span></div>
           {data.actionsNow.map((action, index) => <a href={action.href} key={`${action.title}-${index}`} className="action-row"><span className={`priority-dot ${action.priority}`} /><div><strong>{action.title}</strong><small>{action.detail}</small></div><span>→</span></a>)}
           {!data.actionsNow.length ? <div className="empty-state compact">No critical action is waiting.</div> : null}
-          <div className="action-links"><a href="/field-control">Open field control</a><a href="/supplies">Open materials</a><a href="/feedback">Open quality</a></div>
+          <div className="action-links"><a href="/field-control">Open field control</a><a href="/supplies">Open materials</a><a href="/quality">Open quality</a></div>
         </aside>
       </section>
 

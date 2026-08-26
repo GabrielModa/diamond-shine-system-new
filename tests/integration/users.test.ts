@@ -44,11 +44,22 @@ afterAll(async () => {
 })
 
 describe('protected page authorization', () => {
-  it('applies a role change immediately even when the session cookie is older', async () => {
-    await prisma.user.update({ where: { email: 'admin@ds.ie' }, data: { role: 'employee' } })
-    const response = await request(app).get('/dashboard').set('Cookie', adminCookie)
-    expect(response.status).toBe(307)
-    expect(response.headers.location).toBe('/forbidden')
+  it('applies a membership role change immediately even when the session cookie is older', async () => {
+    const admin = await prisma.user.findUniqueOrThrow({ where: { email: 'admin@ds.ie' } })
+    const where = {
+      organizationId_userId: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: admin.id,
+      },
+    }
+    await prisma.membership.update({ where, data: { role: 'viewer' } })
+    try {
+      const response = await request(app).get('/dashboard').set('Cookie', adminCookie)
+      expect(response.status).toBe(307)
+      expect(response.headers.location).toBe('/forbidden')
+    } finally {
+      await prisma.membership.update({ where, data: { role: 'organization_admin' } })
+    }
   })
 })
 
@@ -216,7 +227,7 @@ describe('PATCH /api/users/:id/role', () => {
       .set('Cookie', adminCookie)
       .send({ role: 'viewer' })
     expect(res.status).toBe(409)
-    expect(res.body.error).toContain('own administrator role')
+    expect(res.body.error).toContain('own organization administrator role')
   })
 })
 
@@ -289,6 +300,8 @@ describe('GET /api/audit', () => {
     const res = await request(app).get('/api/audit').set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
-    expect(res.body.data.length).toBeGreaterThan(0)
+    expect(res.body.data.items.length).toBeGreaterThan(0)
+    expect(res.body.data.total).toBeGreaterThan(0)
+    expect(res.body.data.page).toBe(1)
   })
 })

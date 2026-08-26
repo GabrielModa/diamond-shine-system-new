@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireAuth } from '../../../lib/auth'
+import { requireCapability } from '../../../lib/auth'
+import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
+import { resolveWorkforcePeriod } from '../../../lib/workforce-period'
 import { prisma } from '../../../lib/prisma'
 import { workforceProfileFor, haversineKm } from '../../../lib/workforce-profiles'
 import { capacityBand, remainingCapacityMinutes, resolveWorkforceContext } from '../../../lib/workforce-availability'
@@ -11,7 +13,6 @@ const querySchema = z.object({
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
 })
-const rangeDays = { week: 7, fortnight: 14, month: 30, quarter: 90 } as const
 
 function minutesBetween(start: Date, end: Date) {
   return Math.max(0, Math.round((end.getTime() - start.getTime()) / 60000))
@@ -24,41 +25,21 @@ function dayKey(date: Date, timezone: string) {
 function addDays(date: Date, amount: number) {
   return new Date(date.getTime() + amount * 86400000)
 }
-function weekdayCount(from: Date, to: Date, timezone: string) {
-  let count = 0
-  for (let cursor = new Date(from); cursor <= to; cursor = addDays(cursor, 1)) {
-    const weekday = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short' }).format(cursor)
-    if (!['Sat', 'Sun'].includes(weekday)) count += 1
-  }
-  return Math.max(1, count)
-}
-function resolvePeriod(params: z.infer<typeof querySchema>, now: Date) {
-  if (params.from && params.to) {
-    const from = new Date(`${params.from}T00:00:00.000Z`)
-    const to = new Date(`${params.to}T23:59:59.999Z`)
-    if (Number.isNaN(from.getTime()) || Number.isNaN(to.getTime()) || to < from) return null
-    return { from, to, label: 'custom' as const }
-  }
-  const range = params.range ?? 'week'
-  const days = rangeDays[range]
-  return { from: new Date(now.getTime() - days * 86400000), to: now, label: range }
-}
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAuth(request, ['admin', 'supervisor'])
+  const auth = await requireCapability(request, 'schedule.manage')
   if ('response' in auth) return auth.response
 
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid workforce period.' }, { status: 400 })
 
   const now = new Date()
-  const period = resolvePeriod(parsed.data, now)
-  if (!period) return NextResponse.json({ ok: false, error: 'Invalid date range.' }, { status: 400 })
-
   const organizationId = auth.user.organizationId
   const org = await prisma.organization.findUnique({ where: { id: organizationId }, select: { timezone: true } })
   const timezone = org?.timezone ?? 'Europe/Dublin'
-  const periodWeekdays = weekdayCount(period.from, period.to, timezone)
+  const period = resolveWorkforcePeriod(parsed.data, now, timezone)
+  if (!period) return NextResponse.json({ ok: false, error: 'Invalid date range.' }, { status: 400 })
+  const periodWeekdays = period.weekdays
   const visitQueryFrom = period.from < now ? period.from : now
   const visitQueryTo = period.to > addDays(now, 90) ? period.to : addDays(now, 90)
 
@@ -70,7 +51,7 @@ export async function GET(request: NextRequest) {
           some: {
             organizationId,
             status: 'active',
-            role: { in: ['employee', 'field_supervisor', 'scheduler', 'quality_inspector'] },
+            role: { in: ['employee', 'field_supervisor'] },
           },
         },
       },
@@ -98,7 +79,7 @@ export async function GET(request: NextRequest) {
     prisma.timeEntry.findMany({
       where: {
         organizationId,
-        startedAt: { gte: period.from, lte: period.to },
+        startedAt: { gte: period.from, lt: period.toExclusive },
         status: { in: ['completed', 'approved', 'needs_review'] },
       },
       select: {
@@ -108,7 +89,7 @@ export async function GET(request: NextRequest) {
       take: 3000,
     }),
     prisma.feedbackEntry.findMany({
-      where: { organizationId, createdAt: { gte: period.from, lte: period.to } },
+      where: { organizationId, createdAt: { gte: period.from, lt: period.toExclusive } },
       select: { employeeId: true, overall: true, cleanliness: true, punctuality: true, equipment: true, clientRelations: true, category: true, createdAt: true },
     }),
   ])
@@ -137,9 +118,9 @@ export async function GET(request: NextRequest) {
     const context = resolveWorkforceContext({ timezone, home, school, studySchedule, leaves }, now)
 
     const allAssigned = visits.filter((visit) =>
-      visit.assignments.some((a) => a.userId === user.id && a.status !== 'declined'))
+      visit.status !== 'cancelled' && visit.status !== 'missed' && visit.assignments.some((a) => a.userId === user.id && ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)))
     const periodAssigned = allAssigned.filter((visit) =>
-      visit.scheduledStart >= period.from && visit.scheduledStart <= period.to)
+      visit.scheduledStart >= period.from && visit.scheduledStart < period.toExclusive)
     const completed = periodAssigned.filter((visit) => visit.status === 'completed')
     const relatedEntries = entries.filter((entry) => entry.userId === user.id)
 
@@ -244,7 +225,7 @@ export async function GET(request: NextRequest) {
     longitude: site.longitude == null ? null : Number(site.longitude),
     assignedEmployeeIds: Array.from(new Set(
       visits.filter((visit) => visit.site.id === site.id)
-        .flatMap((visit) => visit.assignments.map((a) => a.userId)),
+        .flatMap((visit) => visit.status === 'cancelled' || visit.status === 'missed' ? [] : visit.assignments.filter((a) => ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)).map((a) => a.userId)),
     )),
   }))
 

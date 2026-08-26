@@ -24,7 +24,7 @@ export async function GET(request: NextRequest) {
   const organizationId = auth.user.organizationId
   const [visits, reviewEntries, visitReviews, activeTimers, incidents] = await Promise.all([
     prisma.visit.findMany({
-      where: { organizationId, scheduledStart: { gte: from, lt: to } },
+      where: { organizationId, status: { notIn: ['cancelled', 'missed'] }, scheduledStart: { gte: from, lt: to } },
       include: {
         site: { select: { id: true, name: true, city: true, client: { select: { id: true, displayName: true } } } },
         job: { select: { id: true, name: true } },

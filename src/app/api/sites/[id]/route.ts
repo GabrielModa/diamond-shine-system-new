@@ -56,8 +56,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
   if (preferredAssigneeIds) {
-    const count = await prisma.membership.count({ where: { organizationId: auth.user.organizationId, userId: { in: preferredAssigneeIds }, status: 'active' } })
-    if (count !== preferredAssigneeIds.length) return NextResponse.json({ ok: false, error: 'Every preferred team member must be active in this organization.' }, { status: 400 })
+    const count = await prisma.membership.count({ where: { organizationId: auth.user.organizationId, userId: { in: preferredAssigneeIds }, status: 'active', role: { in: ['employee', 'field_supervisor'] }, user: { status: 'active' } } })
+    if (count !== preferredAssigneeIds.length) return NextResponse.json({ ok: false, error: 'Every preferred cleaning team member must be an active cleaner or field supervisor who can execute visits.' }, { status: 400 })
   }
 
   const site = await prisma.$transaction(async (tx) => {

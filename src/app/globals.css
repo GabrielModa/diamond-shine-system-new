@@ -2642,3 +2642,31 @@ textarea {
 @media(max-width:1100px){.wf4-date-range{width:100%;grid-template-columns:1fr 18px 1fr auto}}
 @media(max-width:760px){.wf4-date-range{grid-template-columns:1fr 1fr}.wf4-date-range>span{display:none}.wf4-date-range .btn-secondary{grid-column:1/-1}.route-modes{grid-template-columns:repeat(2,1fr)}.wf-map-focus-card{width:min(270px,calc(100% - 20px));right:10px}}
 
+
+
+/* Diamond System Integrity V10 */
+
+/* Dense management surfaces: decisions first, decoration second. */
+.integrity-role-home{display:grid;gap:16px}.integrity-home-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:14px}.integrity-home-card{display:flex;flex-direction:column;gap:8px;min-height:150px}.integrity-home-card strong{font-size:1.05rem}.integrity-home-card .btn-secondary{margin-top:auto;align-self:flex-start}
+
+.access-directory-toolbar{display:flex;gap:10px;align-items:center;flex-wrap:wrap}.access-directory-toolbar input[type="search"]{min-width:min(340px,100%);flex:1}.access-role-filter{min-width:190px}.access-role-copy{display:grid;gap:2px}.access-role-copy small{max-width:48ch}.access-confirm{margin-top:12px;padding:14px;border:1px solid var(--border-color,#dfe3e8);border-radius:12px;background:var(--surface-subtle,#f8fafc);display:grid;gap:10px}.access-confirm-actions{display:flex;gap:8px;justify-content:flex-end;flex-wrap:wrap}
+
+.audit-filter-bar{display:grid;grid-template-columns:minmax(220px,1.6fr) repeat(3,minmax(145px,.7fr));gap:10px;align-items:end}.audit-pagination{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-top:14px}.audit-metadata{grid-column:1/-1;margin-top:8px;padding:10px 12px;border-radius:10px;background:var(--surface-subtle,#f8fafc);font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:.78rem;white-space:pre-wrap;overflow-wrap:anywhere}.audit-row details{grid-column:1/-1}.audit-row summary{cursor:pointer;color:var(--text-muted,#64748b);font-size:.8rem}
+
+.health-explainer{margin-top:10px;border-top:1px solid var(--border-color,#e2e8f0);padding-top:10px}.health-explainer summary{cursor:pointer;font-weight:700}.health-components{display:grid;gap:8px;margin-top:10px}.health-component{display:grid;grid-template-columns:minmax(120px,1fr) 2fr auto;gap:10px;align-items:center;font-size:.82rem}.health-component-track{height:7px;background:var(--surface-subtle,#eef2f6);border-radius:99px;overflow:hidden}.health-component-track span{display:block;height:100%;background:currentColor;border-radius:inherit}.health-component small{white-space:nowrap}.health-disclaimer{margin-top:8px;font-size:.78rem;color:var(--text-muted,#64748b)}
+
+.timesheet-period-bar{display:flex;align-items:end;gap:10px;flex-wrap:wrap;margin-bottom:14px}.timesheet-period-bar label{display:grid;gap:4px;font-size:.78rem;font-weight:700}.payroll-preview .payroll-attention{border-color:#f3c36b}.payroll-period-note{grid-column:1/-1;margin:0;color:var(--text-muted,#64748b);font-size:.82rem}
+
+.request-row{position:relative}.request-row.overdue{border-inline-start:3px solid #b45309}.request-row-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:10px}.request-row-actions button{font-size:.78rem;padding:6px 9px}.request-history{margin-top:8px}.request-history summary{cursor:pointer;font-size:.78rem;color:var(--text-muted,#64748b)}.request-history ol{margin:8px 0 0;padding-left:20px;display:grid;gap:4px;font-size:.78rem}.status-chip.Cancelled,.status-chip.cancelled{opacity:.72}.status-chip.InTransit{white-space:nowrap}
+
+.schedule-history-note{font-size:.78rem;color:var(--text-muted,#64748b)}.visit-card[data-status="cancelled"],.calendar-visit.cancelled{opacity:.62;text-decoration:none}.visit-card[data-status="missed"],.calendar-visit.missed{opacity:.72}.schedule-edit-sheet[data-terminal="true"]{border-color:var(--border-color,#dfe3e8)}.schedule-cancellation-help{font-size:.78rem;color:var(--text-muted,#64748b);margin-top:-4px}.schedule-edit-actions .btn-danger:disabled{opacity:.45;cursor:not-allowed}
+
+.quality-decision-backdrop{position:fixed;inset:0;z-index:1200;background:rgb(15 23 42 / .48);display:grid;place-items:center;padding:20px}.quality-decision-dialog{width:min(520px,100%);display:grid;gap:14px}.quality-decision-dialog header{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.quality-decision-dialog textarea{min-height:130px}.quality-decision-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}
+
+.recipient-search{display:grid!important;gap:5px!important;padding:8px 0!important;border:0!important}.recipient-search input{width:100%}.recipient-picker-toolbar{display:flex;gap:8px;align-items:center;justify-content:space-between;flex-wrap:wrap}.recipient-result-count{font-size:.78rem;color:var(--text-muted,#64748b)}
+
+.work-orders-table .coverage-warning{font-weight:700;color:#b45309}.work-orders-table .coverage-ok{color:var(--text-muted,#64748b)}
+
+@media (max-width:900px){.integrity-home-grid{grid-template-columns:1fr 1fr}.audit-filter-bar{grid-template-columns:1fr 1fr}.health-component{grid-template-columns:1fr auto}.health-component-track{grid-column:1/-1;grid-row:2}.timesheet-period-bar{align-items:stretch}}
+@media (max-width:620px){.integrity-home-grid,.audit-filter-bar{grid-template-columns:1fr}.audit-pagination{align-items:stretch;flex-direction:column}.audit-pagination>div{display:flex;gap:8px;width:100%}.audit-pagination button{flex:1}.health-component{grid-template-columns:1fr auto}.quality-decision-backdrop{padding:10px}}
+

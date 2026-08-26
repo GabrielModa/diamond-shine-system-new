@@ -46,6 +46,28 @@ describe('scenario matrix seed', () => {
     expect(hours.some((hour) => hour >= 9 && hour < 17)).toBe(true)
     expect(hours.some((hour) => hour >= 18)).toBe(true)
   })
+
+  it('seeds deterministic quality bands including excellent, good, watch, issues and no-feedback cases', async () => {
+    const users = await prisma.user.findMany({
+      where: { email: { in: ['aisha@ds.ie', 'aoife@ds.ie', 'liam@ds.ie', 'omar@ds.ie', 'daniel@ds.ie'] } },
+      select: { id: true, email: true },
+    })
+    const byEmail = new Map(users.map((user) => [user.email, user.id]))
+    const feedback = await prisma.feedbackEntry.findMany({
+      where: { organizationId: LEGACY_ORGANIZATION_ID, employeeId: { in: users.map((user) => user.id) }, comments: { startsWith: 'Scenario matrix v10:' } },
+      select: { employeeId: true, overall: true },
+    })
+    const average = (email: string) => {
+      const rows = feedback.filter((item) => item.employeeId === byEmail.get(email))
+      return rows.length ? rows.reduce((sum, item) => sum + item.overall, 0) / rows.length : null
+    }
+    expect(average('aisha@ds.ie')).toBeGreaterThanOrEqual(4.5)
+    expect(average('aoife@ds.ie')).toBeGreaterThanOrEqual(4)
+    expect(average('liam@ds.ie')).toBeGreaterThanOrEqual(3.5)
+    expect(average('omar@ds.ie')).toBeLessThan(3.5)
+    expect(average('daniel@ds.ie')).toBeNull()
+  })
+
 })
 
 afterAll(async () => {

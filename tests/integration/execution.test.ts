@@ -174,6 +174,7 @@ describe('field execution', () => {
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({
       latitude: 53.45,
       longitude: -6.45,
+      capturedAt: '2026-08-24T08:00:00.000Z',
     })
     expect(started.status).toBe(201)
     expect(started.body.location.classification).toBe('suspicious')
@@ -483,8 +484,9 @@ describe('field execution', () => {
 
     const inbox = await request(app).get('/api/operational-notices?scope=mine').set('Cookie', employeeCookie)
     expect(inbox.status).toBe(200)
-    expect(inbox.body.data.summary).toEqual(expect.objectContaining({ unread: 1, awaitingAcknowledgement: 1 }))
-    expect(inbox.body.data.items[0]).toEqual(expect.objectContaining({
+    expect(inbox.body.data.summary).toEqual(expect.objectContaining({ total: 2, unread: 2, awaitingAcknowledgement: 2 }))
+    const publishedInboxItem = inbox.body.data.items.find((item: { id: string }) => item.id === published.body.data.id)
+    expect(publishedInboxItem).toEqual(expect.objectContaining({
       title: 'Visit moved to the morning',
       priority: 'high',
       requiresAcknowledgement: true,
@@ -500,8 +502,9 @@ describe('field execution', () => {
 
     const tracking = await request(app).get('/api/operational-notices?scope=all').set('Cookie', adminCookie)
     expect(tracking.status).toBe(200)
-    expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 1, seen: 1, acknowledged: 1 }))
-    expect(tracking.body.data.items[0].recipients[0].acknowledgement).toBe('Seen and confirmed.')
+    expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 2, seen: 1, acknowledged: 1 }))
+    const publishedTrackingItem = tracking.body.data.items.find((item: { id: string }) => item.id === published.body.data.id)
+    expect(publishedTrackingItem?.recipients[0].acknowledgement).toBe('Seen and confirmed.')
   })
 
   it('supports secure bearer authentication for the native field app', async () => {

@@ -1,8 +1,7 @@
-import { cookies } from 'next/headers'
-import { sessionCookie, verifySessionToken } from '../../../lib/session'
 import OperationsHub from '../../../components/operations/OperationsHub'
+import { currentUserCan } from '../../../lib/server-access'
 
 export default async function OperationsPage() {
-  const session = await verifySessionToken((await cookies()).get(sessionCookie.name)?.value)
-  return <OperationsHub canManage={session?.role === 'admin' || session?.role === 'supervisor'} />
+  const canManage = await currentUserCan('service_plans.manage') || await currentUserCan('sites.manage')
+  return <OperationsHub canManage={canManage} />
 }

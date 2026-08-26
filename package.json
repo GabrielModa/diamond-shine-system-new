@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:scheduling && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity",
     "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
     "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
@@ -39,7 +39,9 @@
     "test:e2e:workforce": "playwright test tests/e2e/workforce.spec.ts",
     "db:seed:scenarios": "npx tsx prisma/seed-scenario-matrix.ts",
     "db:seed:demo": "npm run db:seed && npm run db:seed:workforce && npm run db:seed:scenarios",
-    "test:integration:scenarios": "vitest run tests/integration/scenario-matrix.test.ts"
+    "test:integration:scenarios": "vitest run tests/integration/scenario-matrix.test.ts",
+    "test:integration:integrity": "vitest run tests/integration/system-integrity.test.ts",
+    "test:e2e:integrity": "playwright test tests/e2e/system-integrity.spec.ts"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

@@ -13,6 +13,12 @@ let adminCookie = ''
 let employeeId = ''
 let supervisorId = ''
 
+function dublinDateKey(date = new Date()) {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: 'Europe/Dublin', year: 'numeric', month: '2-digit', day: '2-digit',
+  }).format(date)
+}
+
 async function resetWorkforceFixtures() {
   await prisma.workforceLeave.deleteMany()
   await prisma.studySchedule.deleteMany()
@@ -74,8 +80,8 @@ async function resetWorkforceFixtures() {
     },
   })
 
-  const startedAt = new Date()
-  startedAt.setHours(9, 0, 0, 0)
+  const fixtureDate = dublinDateKey()
+  const startedAt = new Date(`${fixtureDate}T12:00:00.000Z`)
   await prisma.timeEntry.create({
     data: {
       organizationId: LEGACY_ORGANIZATION_ID,
@@ -111,7 +117,7 @@ describe('GET /api/workforce', () => {
   })
 
   it('returns worked/planned/target/capacity and daily breakdown for a custom period', async () => {
-    const today = new Date().toISOString().slice(0, 10)
+    const today = dublinDateKey()
     const response = await request(app)
       .get(`/api/workforce?from=${today}&to=${today}`)
       .set('Cookie', adminCookie)

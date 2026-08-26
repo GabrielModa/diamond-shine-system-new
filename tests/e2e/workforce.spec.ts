@@ -3,11 +3,11 @@ import { expect, test, type Page } from '@playwright/test'
 async function openCoverage(page: Page) {
   await page.getByRole('button', { name: /Coverage & routing/ }).click()
   await expect(page.getByRole('heading', { name: 'Match person to place' })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('button', { name: 'Choose team member' })).toBeVisible()
+  await expect(page.getByRole('combobox', { name: 'Choose team member' })).toBeVisible()
 }
 
 async function chooseEmployee(page: Page, name: string) {
-  await page.getByRole('button', { name: 'Choose team member' }).click()
+  await page.getByRole('combobox', { name: 'Choose team member' }).click()
   const search = page.getByLabel('Search team member')
   await search.fill(name)
   const option = page.getByRole('listbox').getByRole('option', { name: new RegExp(name, 'i') })
@@ -75,7 +75,7 @@ test('map and route planner stay synchronized and expose walking', async ({ page
 test('scenario matrix exposes many employees and route-origin overrides', async ({ page }) => {
   await openCoverage(page)
 
-  await page.getByRole('button', { name: 'Choose team member' }).click()
+  await page.getByRole('combobox', { name: 'Choose team member' }).click()
   const options = page.getByRole('listbox').getByRole('option')
   await expect(options.first()).toBeVisible()
   expect(await options.count()).toBeGreaterThanOrEqual(12)
@@ -114,7 +114,7 @@ test('employee detail closes by Escape and backdrop and does not leak between ta
   await expect(dialog).toBeHidden()
 
   await openCoverage(page)
-  await page.getByRole('button', { name: 'Choose team member' }).click()
+  await page.getByRole('combobox', { name: 'Choose team member' }).click()
   await page.getByRole('listbox').getByRole('option').first().click()
   await page.getByRole('button', { name: /Team performance/ }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)

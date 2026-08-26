@@ -93,6 +93,7 @@ export default function QualityWorkspace() {
   const [notice, setNotice] = useState('')
   const [error, setError] = useState('')
   const [clientReport, setClientReport] = useState<{ client: string; site: string; service: string; serviceDate: string; score: number; grade: string; summary?: string | null; completedStandards: Array<{ category: string; title: string }>; followUps: Array<{ title: string; severity: string; status: string; dueAt: string }>; status: string } | null>(null)
+  const [actionDecision, setActionDecision] = useState<{ action: Action; status: Action['status']; note: string } | null>(null)
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -113,6 +114,12 @@ export default function QualityWorkspace() {
   }, [])
 
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!actionDecision) return
+    const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setActionDecision(null) }
+    window.addEventListener('keydown', close)
+    return () => window.removeEventListener('keydown', close)
+  }, [actionDecision])
   useEffect(() => {
     if (!siteId) { setVisits([]); setVisitId(''); return }
     api<Visit[]>(`/api/visits?siteId=${encodeURIComponent(siteId)}`)
@@ -160,15 +167,7 @@ export default function QualityWorkspace() {
     }
   }
 
-  async function moveAction(action: Action, status: Action['status']) {
-    const resolutionNote = status === 'resolved'
-      ? window.prompt('Describe the fix and evidence available:')
-      : status === 'verified'
-        ? window.prompt('Record the verification performed:')
-        : status === 'waived'
-          ? window.prompt('Record why this action is waived:')
-          : null
-    if (['resolved', 'verified', 'waived'].includes(status) && !resolutionNote?.trim()) return
+  async function commitAction(action: Action, status: Action['status'], resolutionNote?: string) {
     setBusy(true); setError(''); setNotice('')
     try {
       await api(`/api/quality/actions/${action.id}`, {
@@ -178,11 +177,21 @@ export default function QualityWorkspace() {
       })
       setNotice(`Corrective action moved to ${status.replace('_', ' ')}.`)
       await refresh()
+      return true
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update corrective action.')
+      return false
     } finally {
       setBusy(false)
     }
+  }
+
+  async function moveAction(action: Action, status: Action['status']) {
+    if (['resolved', 'verified', 'waived'].includes(status)) {
+      setActionDecision({ action, status, note: '' })
+      return
+    }
+    await commitAction(action, status)
   }
 
   async function previewClientReport(inspectionId: string) {
@@ -280,6 +289,7 @@ export default function QualityWorkspace() {
         <span className={`quality-score ${inspection.passed ? 'pass' : 'fail'}`}>{inspection.score}</span><div><strong>{inspection.site.client.displayName} · {inspection.site.name}</strong><small>{inspection.inspector.name ?? inspection.inspector.email} · {formatDate(inspection.inspectedAt)}</small></div><span>{inspection._count?.actions ?? 0} actions</span>{inspection.clientVisible ? <button type="button" className="btn-secondary compact" disabled={busy} onClick={() => void previewClientReport(inspection.id)}>Client report</button> : null}
       </article>)}{control.inspections.length === 0 ? <p className="empty-copy">No inspections yet.</p> : null}</div></section> : null}
       {clientReport ? <section className="client-report-card card" aria-live="polite"><div className="section-heading"><div><span className="eyebrow">Client-safe service report</span><h2>{clientReport.client} · {clientReport.site}</h2><p className="muted">No employee identities, internal notes, GPS or internal evidence.</p></div><button type="button" className="btn-ghost" onClick={() => setClientReport(null)}>Close</button></div><div className="client-report-summary"><strong>{clientReport.score}/100 · {clientReport.grade}</strong><span>{formatDate(clientReport.serviceDate)} · {clientReport.service}</span><span className="status-pill">{clientReport.status.replaceAll('_', ' ')}</span></div>{clientReport.summary ? <p>{clientReport.summary}</p> : null}<div className="client-report-columns"><div><h3>Completed standards</h3>{clientReport.completedStandards.length ? <ul>{clientReport.completedStandards.map((item) => <li key={`${item.category}-${item.title}`}>{item.title}</li>)}</ul> : <p className="muted">Verified during inspection.</p>}</div><div><h3>Follow-up</h3>{clientReport.followUps.length ? <ul>{clientReport.followUps.map((item) => <li key={`${item.title}-${item.dueAt}`}>{item.title} · {item.status.replaceAll('_', ' ')}</li>)}</ul> : <p className="muted">No client-facing follow-up is open.</p>}</div></div></section> : null}
+      {actionDecision ? <div className="quality-decision-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setActionDecision(null) }}><form className="card quality-decision-dialog" role="dialog" aria-modal="true" aria-labelledby="quality-decision-title" onSubmit={async (event) => { event.preventDefault(); if (!actionDecision.note.trim()) return; const ok = await commitAction(actionDecision.action, actionDecision.status, actionDecision.note); if (ok) setActionDecision(null) }}><header><div><span className="eyebrow">Corrective action decision</span><h2 id="quality-decision-title">{actionDecision.status === 'resolved' ? 'Resolve action' : actionDecision.status === 'verified' ? 'Verify fix' : 'Waive action'}</h2><p className="muted">{actionDecision.action.site.client.displayName} · {actionDecision.action.site.name}</p></div><button type="button" className="btn-ghost" onClick={() => setActionDecision(null)} aria-label="Close corrective action decision">×</button></header><label><span>{actionDecision.status === 'resolved' ? 'Fix and evidence available' : actionDecision.status === 'verified' ? 'Verification performed' : 'Reason for waiver'}</span><textarea autoFocus required value={actionDecision.note} onChange={(event) => setActionDecision((current) => current ? { ...current, note: event.target.value } : current)} placeholder="Record enough context for the next manager and the audit trail…" /></label><div className="quality-decision-actions"><button type="button" className="btn-secondary" onClick={() => setActionDecision(null)}>Cancel</button><button type="submit" disabled={busy || !actionDecision.note.trim()}>Confirm {actionDecision.status.replace('_', ' ')}</button></div></form></div> : null}
     </main>
   )
 }

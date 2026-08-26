@@ -227,6 +227,7 @@ export async function GET(request: NextRequest) {
   const visits = await prisma.visit.findMany({
     where: {
       organizationId: auth.user.organizationId,
+      status: { notIn: ['cancelled', 'missed'] },
       scheduledStart: { gte: from, lte: to },
       ...assignedVisitFilter(auth.user),
     },

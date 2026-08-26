@@ -8,6 +8,7 @@ type TimeEntry = { id: string; status: string; disputes: Array<{ status: string 
 type SupplyResponse = { total: number; items: Array<{ id: string; status: string; priority: string; dueAt?: string | null }> }
 type FieldSummary = { summary: { openIncidents: number; criticalIncidents: number; needsReview: number; blocked: number } }
 type QualitySummary = { summary: { openActions: number; overdueActions: number; criticalActions: number } }
+const ACTIVE_HOME_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged'])
 
 async function read<T>(url: string): Promise<T | null> { const response = await fetch(url, { credentials: 'include', cache: 'no-store' }); const body = await response.json().catch(() => null); return response.ok && body?.ok ? body.data as T : null }
 
@@ -16,7 +17,7 @@ export default function ManagerOverview() {
   const range = useMemo(() => { const start = new Date(); start.setHours(0, 0, 0, 0); const end = new Date(start); end.setDate(end.getDate() + 1); return { from: start.toISOString(), to: end.toISOString() } }, [])
   const refresh = useCallback(async () => { setLoading(true); const [visitData, clientData, entryData, supplyData, fieldData, qualityData] = await Promise.all([read<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`), read<Client[]>('/api/clients'), read<TimeEntry[]>('/api/time-entries'), read<SupplyResponse>('/api/supplies?limit=200'), read<FieldSummary>('/api/field-control'), read<QualitySummary>('/api/quality/control')]); setVisits(visitData ?? []); setClients(clientData ?? []); setEntries(entryData ?? []); setSupplies(supplyData); setField(fieldData); setQuality(qualityData); setLoading(false) }, [range])
   useEffect(() => { void refresh() }, [refresh])
-  const unassigned = visits.filter((visit) => !visit.assignments.some((assignment) => assignment.status !== 'removed')).length
+  const unassigned = visits.filter((visit) => !visit.assignments.some((assignment) => ACTIVE_HOME_ASSIGNMENTS.has(assignment.status))).length
   const active = visits.filter((visit) => visit.status === 'in_progress').length
   const review = entries.filter((entry) => entry.status === 'needs_review' || entry.disputes.some((dispute) => dispute.status === 'open')).length
   const now = new Date()

@@ -2,7 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
-import { requireAuth } from '../../../lib/auth'
+import { requireCapability, type AuthUser } from '../../../lib/auth'
+import { hasCapability } from '../../../lib/permissions'
 import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbStatusToLabel } from '../../../lib/mappers'
 import { parseStringArray } from '../../../lib/json'
@@ -36,15 +37,20 @@ const querySchema = z.object({
   limit: z.coerce.number().int().min(1).max(200).default(20),
 })
 
+function canManageSupplies(user: AuthUser) {
+  return hasCapability({
+    role: user.membershipRole,
+    capability: 'supplies.manage',
+    grants: user.capabilityGrants,
+  })
+}
+
 export async function POST(request: NextRequest) {
-  console.log('[API /api/supplies POST]')
-  const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
+  const auth = await requireCapability(request, 'supplies.request')
   if ('response' in auth) return auth.response
 
   const parsed = createSchema.safeParse(await request.json().catch(() => null))
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
-  }
+  if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
 
   const requestedItems: Array<{ catalogItemId?: string; product?: string; quantity: number }> =
     parsed.data.items ?? parsed.data.products!.map((product) => ({ product, quantity: 1 }))
@@ -52,9 +58,7 @@ export async function POST(request: NextRequest) {
   const catalog = catalogIds.length ? await prisma.materialCatalogItem.findMany({
     where: { organizationId: auth.user.organizationId, active: true, id: { in: catalogIds } },
   }) : []
-  if (catalog.length !== new Set(catalogIds).size) {
-    return NextResponse.json({ ok: false, error: 'One or more materials are unavailable' }, { status: 400 })
-  }
+  if (catalog.length !== new Set(catalogIds).size) return NextResponse.json({ ok: false, error: 'One or more materials are unavailable' }, { status: 400 })
   const catalogById = new Map(catalog.map((item) => [item.id, item]))
   const items = requestedItems.map((item) => ({
     catalogItemId: item.catalogItemId,
@@ -64,6 +68,7 @@ export async function POST(request: NextRequest) {
   if (new Set(items.map((item) => item.catalogItemId ?? item.product)).size !== items.length) {
     return NextResponse.json({ ok: false, error: 'Duplicate products are not allowed' }, { status: 400 })
   }
+
   let site = parsed.data.siteId ? await prisma.site.findFirst({
     where: { id: parsed.data.siteId, organizationId: auth.user.organizationId, archivedAt: null },
   }) : null
@@ -88,9 +93,7 @@ export async function POST(request: NextRequest) {
       priority: parsed.data.priority,
       products: JSON.stringify(items.map((item) => item.product)),
       items: { create: items },
-      statusEvents: {
-        create: { toStatus: 'Requested', actorEmail: auth.user.email, note: 'Request submitted' },
-      },
+      statusEvents: { create: { toStatus: 'Requested', actorEmail: auth.user.email, note: 'Request submitted' } },
       notes: parsed.data.notes,
       submittedBy: auth.user.email,
       status: 'Requested',
@@ -99,6 +102,7 @@ export async function POST(request: NextRequest) {
       visitId: parsed.data.visitId,
       source: parsed.data.visitId ? 'visit' : 'manual',
     },
+    include: { items: true },
   })
 
   const notification = await enqueueNotification({
@@ -108,21 +112,23 @@ export async function POST(request: NextRequest) {
     entityType: 'supply',
     entityId: created.id,
     payload: {
-    id: created.id,
-    employeeName: created.employeeName,
-    clientLocation: created.clientLocation,
-    priority: created.priority,
-    products: items.map((item) => item.product),
-    items,
-    notes: created.notes ?? undefined,
-    submittedBy: created.submittedBy,
-    createdAt: created.createdAt.toISOString(),
+      id: created.id,
+      employeeName: created.employeeName,
+      clientLocation: created.clientLocation,
+      priority: created.priority,
+      products: items.map((item) => item.product),
+      items,
+      notes: created.notes ?? undefined,
+      submittedBy: created.submittedBy,
+      createdAt: created.createdAt.toISOString(),
     },
   })
 
   await logAudit(auth.user.email, 'create_supply', 'supply', created.id, {
     employeeName: created.employeeName,
     priority: created.priority,
+    siteId: created.siteId,
+    visitId: created.visitId,
     notificationJobId: notification.id,
   }, auth.user.organizationId)
 
@@ -130,33 +136,25 @@ export async function POST(request: NextRequest) {
 }
 
 export async function GET(request: NextRequest) {
-  console.log('[API /api/supplies GET]')
-  const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
+  const auth = await requireCapability(request, 'supplies.request')
   if ('response' in auth) return auth.response
-
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
-  if (!parsed.success) {
-    return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
-  }
+  if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
 
-  const where: Prisma.SupplyRequestWhereInput = {
-    organizationId: auth.user.organizationId,
-  }
-
-  if (auth.user.role === 'employee' || parsed.data.mine === 'true') {
-    where.submittedBy = auth.user.email
-  }
-
+  const manager = canManageSupplies(auth.user)
+  const where: Prisma.SupplyRequestWhereInput = { organizationId: auth.user.organizationId }
+  if (!manager || parsed.data.mine === 'true') where.submittedBy = auth.user.email
   if (parsed.data.status) {
     where.status = parsed.data.status === 'in-transit'
       ? 'InTransit'
       : parsed.data.status.charAt(0).toUpperCase() + parsed.data.status.slice(1)
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
-  if (parsed.data.search) {
+  if (parsed.data.search?.trim()) {
     where.OR = [
-      { employeeName: { contains: parsed.data.search } },
-      { clientLocation: { contains: parsed.data.search } },
+      { employeeName: { contains: parsed.data.search, mode: 'insensitive' } },
+      { clientLocation: { contains: parsed.data.search, mode: 'insensitive' } },
+      { items: { some: { product: { contains: parsed.data.search, mode: 'insensitive' } } } },
     ]
   }
 
@@ -166,31 +164,32 @@ export async function GET(request: NextRequest) {
     prisma.supplyRequest.findMany({
       where,
       include: { items: true, statusEvents: { orderBy: { createdAt: 'asc' } } },
-      orderBy: { createdAt: 'desc' },
+      orderBy: [{ dueAt: 'asc' }, { createdAt: 'desc' }],
       skip,
       take: parsed.data.limit,
     }),
   ])
-
   const mappedItems = items.map((item) => {
     const products = parseStringArray(item.products)
     return {
       ...item,
       status: dbStatusToLabel(item.status as import('../../../lib/mappers').DbSupplyStatus),
       products,
-      items: item.items.length ? item.items.map(({ product, quantity }) => ({ product, quantity })) : products.map((product) => ({ product, quantity: 1 })),
+      items: item.items.length
+        ? item.items.map(({ product, quantity, catalogItemId, currentQuantity, targetQuantity }) => ({ product, quantity, catalogItemId, currentQuantity, targetQuantity }))
+        : products.map((product) => ({ product, quantity: 1 })),
       history: item.statusEvents.map((event) => ({
         ...event,
         toStatus: dbStatusToLabel(event.toStatus as import('../../../lib/mappers').DbSupplyStatus),
-        fromStatus: event.fromStatus
-          ? dbStatusToLabel(event.fromStatus as import('../../../lib/mappers').DbSupplyStatus)
-          : null,
+        fromStatus: event.fromStatus ? dbStatusToLabel(event.fromStatus as import('../../../lib/mappers').DbSupplyStatus) : null,
       })),
     }
   })
-
-  return NextResponse.json({
-    ok: true,
-    data: { total, page: parsed.data.page, limit: parsed.data.limit, items: mappedItems },
-  })
+  return NextResponse.json({ ok: true, data: {
+    total,
+    page: parsed.data.page,
+    limit: parsed.data.limit,
+    totalPages: Math.max(1, Math.ceil(total / parsed.data.limit)),
+    items: mappedItems,
+  } })
 }
