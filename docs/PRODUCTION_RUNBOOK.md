@@ -100,3 +100,13 @@ git diff --check
 ## Incident minimum
 
 Record release/tag, UTC start time, affected organization/users, observed symptom, last known good release, mitigation, data correction (if any), and the regression test added afterwards. Do not delete audit/history rows to make an incident disappear.
+
+## Schedule continuity worker
+
+Recurring obligations need an advancing generation horizon in addition to notification delivery. Schedule the following command hourly in production using the same protected internal-worker secret:
+
+```sh
+npm run schedule:continuity
+```
+
+The default horizon is 120 days and can be changed with `SCHEDULE_CONTINUITY_HORIZON_DAYS` (30–365). Failure must alert operations: the Schedule Health UI will expose missing expected occurrences, but the worker is the proactive continuity mechanism.

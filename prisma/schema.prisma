@@ -31,6 +31,9 @@ model User {
   noticeRecipients    OperationalNoticeRecipient[]
   availability        Availability[]
   preferredSites      SitePreferredAssignee[]
+  jobDefaultAssignments JobDefaultAssignee[]
+  servicePausesCreated ServicePause[]                 @relation("ServicePauseCreatedBy")
+  servicePausesEnded   ServicePause[]                 @relation("ServicePauseEndedBy")
   workforceProfile    WorkforceProfile?
 
   @@map("users")
@@ -89,6 +92,8 @@ model Organization {
   workforceProfiles      WorkforceProfile[]
   studySchedules         StudySchedule[]
   workforceLeaves        WorkforceLeave[]
+  jobDefaultAssignees   JobDefaultAssignee[]
+  servicePauses         ServicePause[]
 
   @@map("organizations")
 }
@@ -145,6 +150,7 @@ model Client {
   contacts       Contact[]
   contracts      Contract[]
   sites          Site[]
+  servicePauses  ServicePause[]
 
   @@unique([organizationId, externalId])
   @@index([organizationId, status, displayName])
@@ -232,6 +238,7 @@ model Site {
   correctiveActions   CorrectiveAction[]
   operationalNotices  OperationalNotice[]
   preferredAssignees  SitePreferredAssignee[]
+  servicePauses       ServicePause[]
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
@@ -444,6 +451,7 @@ model Job {
   recurrence           Json?
   startDate            DateTime
   endDate              DateTime?
+  generatedThrough     DateTime?
   defaultStartMinutes  Int?
   defaultDurationMin   Int
   timezone             String             @default("Europe/Dublin")
@@ -458,6 +466,8 @@ model Job {
   site                 Site               @relation(fields: [siteId], references: [id])
   servicePlan          ServicePlan        @relation(fields: [servicePlanId], references: [id])
   servicePlanVersion   ServicePlanVersion @relation(fields: [servicePlanVersionId], references: [id])
+  defaultAssignees     JobDefaultAssignee[]
+  servicePauses        ServicePause[]
   visits               Visit[]
 
   @@index([organizationId, status, startDate])
@@ -465,10 +475,61 @@ model Job {
   @@map("jobs")
 }
 
+model JobDefaultAssignee {
+  id             String       @id @default(cuid())
+  organizationId String
+  jobId          String
+  userId         String
+  priority       Int          @default(0)
+  createdAt      DateTime     @default(now())
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  job            Job          @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  user           User         @relation(fields: [userId], references: [id])
+
+  @@unique([jobId, userId])
+  @@index([organizationId, jobId, priority])
+  @@index([organizationId, userId])
+  @@map("job_default_assignees")
+}
+
+model ServicePause {
+  id               String            @id @default(cuid())
+  organizationId   String
+  scope            ServicePauseScope
+  clientId         String?
+  siteId           String?
+  jobId            String?
+  timezone         String            @default("Europe/Dublin")
+  startsAt         DateTime
+  endsAt           DateTime
+  reason           String
+  note             String?
+  createdById      String
+  endedEarlyAt     DateTime?
+  endedEarlyById   String?
+  version          Int               @default(1)
+  createdAt        DateTime          @default(now())
+  updatedAt        DateTime          @updatedAt
+  organization     Organization      @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  client           Client?           @relation(fields: [clientId], references: [id], onDelete: Restrict)
+  site             Site?             @relation(fields: [siteId], references: [id], onDelete: Restrict)
+  job              Job?              @relation(fields: [jobId], references: [id], onDelete: Restrict)
+  createdBy        User              @relation("ServicePauseCreatedBy", fields: [createdById], references: [id])
+  endedEarlyBy     User?             @relation("ServicePauseEndedBy", fields: [endedEarlyById], references: [id], onDelete: SetNull)
+  cancelledVisits Visit[]
+
+  @@index([organizationId, startsAt, endsAt])
+  @@index([organizationId, clientId, startsAt])
+  @@index([organizationId, siteId, startsAt])
+  @@index([organizationId, jobId, startsAt])
+  @@map("service_pauses")
+}
+
 model Visit {
   id                   String               @id @default(cuid())
   organizationId       String
   jobId                String
+  servicePauseId       String?
   siteId               String
   servicePlanVersionId String
   scheduledStart       DateTime
@@ -490,6 +551,7 @@ model Visit {
   updatedAt            DateTime             @updatedAt
   organization         Organization         @relation(fields: [organizationId], references: [id])
   job                  Job                  @relation(fields: [jobId], references: [id], onDelete: Cascade)
+  servicePause         ServicePause?        @relation(fields: [servicePauseId], references: [id], onDelete: SetNull)
   site                 Site                 @relation(fields: [siteId], references: [id])
   servicePlanVersion   ServicePlanVersion   @relation(fields: [servicePlanVersionId], references: [id])
   assignments          VisitAssignment[]
@@ -508,6 +570,8 @@ model Visit {
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
   @@index([organizationId, siteId, scheduledStart])
+  @@index([organizationId, servicePauseId, scheduledStart])
+  @@index([organizationId, generationKey])
   @@map("visits")
 }
 
@@ -1363,6 +1427,12 @@ enum JobStatus {
   completed
   cancelled
   archived
+}
+
+enum ServicePauseScope {
+  client
+  site
+  job
 }
 
 enum VisitStatus {

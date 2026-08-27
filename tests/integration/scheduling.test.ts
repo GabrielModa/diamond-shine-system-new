@@ -65,12 +65,14 @@ describe('jobs and visits', () => {
     expect((await prisma.visit.findUniqueOrThrow({ where: { id: visit.id } })).status).toBe('acknowledged')
   })
 
-  it('rejects overlapping assignments and stale schedule edits', async () => {
+  it('creates service obligations around staffing conflicts but still rejects conflicting manual assignment', async () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const first = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'First', startAt: '2026-08-24T08:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id] })
     const duplicateAssignment = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'Double booked', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 60, recurrence: { frequency: 'once' }, assigneeIds: [employee.id] })
-    expect(duplicateAssignment.status).toBe(409); expect(duplicateAssignment.body.code).toBe('ASSIGNEE_OVERLAP')
+    expect(duplicateAssignment.status).toBe(201)
+    const duplicateVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: duplicateAssignment.body.data.id }, include: { assignments: true } })
+    expect(duplicateVisit.assignments).toHaveLength(0)
     const second = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'Second', startAt: '2026-08-24T13:00:00.000Z', durationMinutes: 60, recurrence: { frequency: 'once' } })
     const firstVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: first.body.data.id } })
     const secondVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: second.body.data.id } })
@@ -86,7 +88,7 @@ describe('jobs and visits', () => {
     expect(firstVisit.scheduledStart.toISOString()).toBe('2026-08-24T08:00:00.000Z')
   })
 
-  it('turns employee unavailability into a schedule guard instead of a message', async () => {
+  it('turns employee unavailability into a staffing gap without deleting the service obligation', async () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const declared = await request(app).post('/api/availability').set('Cookie', employeeCookie).send({
@@ -98,12 +100,16 @@ describe('jobs and visits', () => {
     const blocked = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id, name: 'Unavailable worker', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id],
     })
-    expect(blocked.status).toBe(409); expect(blocked.body.code).toBe('ASSIGNEE_UNAVAILABLE')
+    expect(blocked.status).toBe(201)
+    const blockedVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: blocked.body.data.id }, include: { assignments: true } })
+    expect(blockedVisit.assignments).toHaveLength(0)
     const cancelled = await request(app).delete(`/api/availability/${declared.body.data.id}`).set('Cookie', employeeCookie)
     expect(cancelled.status).toBe(200)
     const scheduled = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id, name: 'Available again', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id],
     })
     expect(scheduled.status).toBe(201)
+    const scheduledVisit = await prisma.visit.findFirstOrThrow({ where: { jobId: scheduled.body.data.id }, include: { assignments: true } })
+    expect(scheduledVisit.assignments).toHaveLength(1)
   })
 })

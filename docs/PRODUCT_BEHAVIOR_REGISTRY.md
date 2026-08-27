@@ -593,3 +593,21 @@ No foundation is “done” until the full repository gate passes and the user v
 - npm run mobile:source-check: runtime import/safe-area/offline-causality/account-isolation/source contract.
 
 **Manual pilot gate:** Android Expo Go, Android development build, iPhone development build, permissions denied/permanently denied, airplane-mode execution, reconnect conflict, app kill/reopen, account switch, session revocation, native push foreground/background/terminated.
+
+---
+
+## Pre-v1 — Schedule Intelligence & Service Continuity
+
+**Purpose:** make recurring customer service obligations continuously visible before stable `v1.0.0`, independent from staffing availability.
+
+**Invariants added**
+- Service obligation, Visit, staffing, worker availability and acknowledgement are separate states.
+- Recurring Jobs extend idempotently through a maintained horizon; missing occurrences are observable instead of silently absent.
+- Default recurring team is persisted, but unavailable cleaners are skipped per occurrence and the Visit still exists as a coverage gap.
+- Published Service Plans with no active schedule are explicit `UNSCHEDULED SERVICE`.
+- Bounded Service Pause is scoped to client/site/job, previewed before mutation, preserves cancellation/audit history and never silently cancels `in_progress` work.
+- Desktop Schedule, Manager Home, Field Control and manager/supervisor mobile consume the same server schedule-health API; `summary.attention` is the shared actionable issue count.
+- Same-time visits for different cleaners are valid; only same-cleaner overlap is a conflict.
+- Travel risk is not emitted until authoritative server route-duration data exists.
+
+**Definition of Done:** migration + shared engine + APIs + desktop/mobile consumers + regression coverage green, followed by the complete repository `npm run verify` gate before commit/promotion.

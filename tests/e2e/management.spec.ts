@@ -40,7 +40,7 @@ test('manager can move through the operational control centre', async ({ page })
   await page.getByRole('button', { name: 'Month' }).click()
   await page.locator('.calendar-cell').nth(10).click()
   await expect(page.getByRole('heading', { name: 'Schedule cleaning work', exact: true })).toBeVisible()
-  await expect(page.getByRole('dialog', { name: 'Schedule cleaning work' }).getByText('Choose one or more people')).toBeVisible()
+  await expect(page.getByRole('dialog', { name: 'Schedule cleaning work' }).getByText('Used on each occurrence where the person is available')).toBeVisible()
   await page.getByRole('dialog', { name: 'Schedule cleaning work' }).getByRole('button', { name: 'Close', exact: true }).click()
 
   await page.goto('/quality', { waitUntil: 'domcontentloaded' })

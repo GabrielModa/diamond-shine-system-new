@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { operationalDayRange } from '../../lib/operational-time'
 
 type Person = { id: string; name: string | null; email: string }
 type LocationEvent = { id: string; kind: string; capturedAt: string; distanceM: number | null; classification: string | null }
@@ -43,6 +44,7 @@ type Visit = {
   incidents: Array<Pick<Incident, 'id' | 'category' | 'severity' | 'title' | 'status' | 'createdAt'>>
   _count: { evidenceAssets: number }
 }
+type ScheduleHealth = { summary: { visits: number; attention: number } }
 type ControlData = {
   summary: { visits: number; completed: number; inProgress: number; blocked: number; activeTimers: number; needsReview: number; openIncidents: number; criticalIncidents: number }
   visits: Visit[]
@@ -76,6 +78,7 @@ function personName(person: Person) {
 
 export default function FieldControlBoard({ timezone }: { timezone: string }) {
   const [data, setData] = useState<ControlData | null>(null)
+  const [health, setHealth] = useState<ScheduleHealth | null>(null)
   const [tab, setTab] = useState<'live' | 'review' | 'incidents'>('live')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
@@ -85,13 +88,19 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
   const refresh = useCallback(async (quiet = false) => {
     if (!quiet) setLoading(true)
     try {
-      setData(await api<ControlData>('/api/field-control'))
+      const range = operationalDayRange(new Date(), timezone)
+      const [controlData, healthData] = await Promise.all([
+        api<ControlData>('/api/field-control'),
+        api<ScheduleHealth>(`/api/schedule-health?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
+      ])
+      setData(controlData)
+      setHealth(healthData)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load field control.' })
     } finally {
       if (!quiet) setLoading(false)
     }
-  }, [])
+  }, [timezone])
 
   useEffect(() => {
     void refresh()
@@ -170,7 +179,7 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
 
     {data ? <>
       <section className="field-metrics" aria-label="Operational summary">
-        <button onClick={() => setTab('live')}><span>Visits today</span><strong>{data.summary.visits}</strong><small>{data.summary.completed} complete</small></button>
+        <button onClick={() => setTab('live')}><span>Visits today</span><strong>{health?.summary.visits ?? data.summary.visits}</strong><small>{health?.summary.attention ?? 0} scheduling issues · {data.summary.completed} complete</small></button>
         <button onClick={() => setTab('live')} className={data.summary.activeTimers ? 'active-metric' : ''}><span>Live now</span><strong>{data.summary.activeTimers}</strong><small>{data.summary.inProgress} in progress</small></button>
         <button onClick={() => setTab('review')} className={data.summary.needsReview ? 'attention-metric' : ''}><span>Needs review</span><strong>{data.summary.needsReview}</strong><small>GPS or duration flags</small></button>
         <button onClick={() => setTab('incidents')} className={data.summary.criticalIncidents ? 'critical-metric' : ''}><span>Open incidents</span><strong>{data.summary.openIncidents}</strong><small>{data.summary.criticalIncidents} critical</small></button>
@@ -201,7 +210,7 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
           })}
           {!data.visits.length ? <div className="card empty-state">No visits scheduled today.</div> : null}
         </div>
-        <aside className="field-attention card"><div className="section-heading"><h2>Attention now</h2><span className="count-pill">{attentionVisits.length}</span></div>{attentionVisits.map((visit) => <a key={visit.id} href={`/schedule?visit=${visit.id}`}><strong>{visit.site.client.displayName}</strong><span>{visit.site.name}</span><small>{visit.status.replaceAll('_', ' ')} · {visit.incidents.length} incidents</small></a>)}{!attentionVisits.length ? <div className="empty-state compact">No critical blockers.</div> : null}</aside>
+        <aside className="field-attention card"><div className="section-heading"><h2>Attention now</h2><span className="count-pill">{attentionVisits.length + (health?.summary.attention ? 1 : 0)}</span></div>{health?.summary.attention ? <a href="/schedule"><strong>Schedule health</strong><span>{health.summary.attention} scheduling issue{health.summary.attention === 1 ? '' : 's'}</span><small>Coverage, recurrence, conflicts or acknowledgements need attention</small></a> : null}{attentionVisits.map((visit) => <a key={visit.id} href={`/schedule?visit=${visit.id}`}><strong>{visit.site.client.displayName}</strong><span>{visit.site.name}</span><small>{visit.status.replaceAll('_', ' ')} · {visit.incidents.length} incidents</small></a>)}{!attentionVisits.length ? <div className="empty-state compact">No critical blockers.</div> : null}</aside>
       </section> : null}
 
       {tab === 'review' ? <section className="review-list">

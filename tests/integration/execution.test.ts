@@ -30,7 +30,7 @@ beforeAll(async () => {
 beforeEach(() => cleanOperations())
 afterAll(async () => { await cleanOperations(); await nextApp.close() })
 
-async function executionVisit(options: { evidence?: boolean; assigned?: boolean } = {}) {
+async function executionVisit(options: { evidence?: boolean; assigned?: boolean; startAt?: string } = {}) {
   const client = (await request(app).post('/api/clients').set('Cookie', adminCookie).send({ displayName: 'Execution Client' })).body.data
   const site = (await request(app).post('/api/sites').set('Cookie', adminCookie).send({
     clientId: client.id,
@@ -73,7 +73,7 @@ async function executionVisit(options: { evidence?: boolean; assigned?: boolean 
   const job = (await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
     servicePlanId: plan.id,
     name: 'Execution job',
-    startAt: '2026-08-24T08:00:00.000Z',
+    startAt: options.startAt ?? '2026-08-24T08:00:00.000Z',
     recurrence: { frequency: 'once' },
     assigneeIds: options.assigned === false ? [] : [employee.id],
   })).body.data
@@ -156,7 +156,7 @@ describe('field execution', () => {
     expect(duplicate.status).toBe(200)
     expect(duplicate.body.duplicate).toBe(true)
 
-    const second = await executionVisit()
+    const second = await executionVisit({ startAt: '2026-08-24T10:00:00.000Z' })
     const conflict = await request(app).post(`/api/visits/${second.visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
     expect(conflict.status).toBe(409)
     expect(conflict.body.code).toBe('ACTIVE_TIMER')

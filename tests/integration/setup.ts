@@ -100,6 +100,8 @@ export async function cleanOperations() {
   await prisma.offlineMutation.deleteMany()
   await prisma.visitAssignment.deleteMany()
   await prisma.visit.deleteMany()
+  await prisma.servicePause.deleteMany()
+  await prisma.jobDefaultAssignee.deleteMany()
   await prisma.job.deleteMany()
   await prisma.servicePlanVersionTask.deleteMany()
   await prisma.servicePlanVersion.deleteMany()

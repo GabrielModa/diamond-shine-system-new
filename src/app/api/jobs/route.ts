@@ -5,8 +5,8 @@ import { logAudit } from '../../../lib/audit'
 import { enqueueNotification } from '../../../lib/notification-queue'
 import { jobCreateSchema } from '../../../modules/scheduling/schemas'
 import { generateOccurrences, generationKey } from '../../../modules/scheduling/recurrence'
+import { buildDefaultTeamAllocator } from '../../../modules/scheduling/default-team'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
-import { workforceConstraintForWindow } from '../../../modules/scheduling/workforce-constraints'
 import { asInputJson } from '../../../modules/operations/json'
 
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
@@ -79,7 +79,9 @@ export async function POST(request: NextRequest) {
   }
 
   const duration = parsed.data.durationMinutes ?? planVersion.expectedDurationMinutes
-  const until = parsed.data.generateUntil ?? parsed.data.endDate ?? new Date(parsed.data.startAt.getTime() + 90 * 86_400_000)
+  const initialHorizon = new Date(parsed.data.startAt.getTime() + 90 * 86_400_000)
+  const requestedUntil = parsed.data.generateUntil ?? initialHorizon
+  const until = parsed.data.endDate && parsed.data.endDate < requestedUntil ? parsed.data.endDate : requestedUntil
   if (until < parsed.data.startAt) return NextResponse.json({ ok: false, error: 'Generation end must be after the start.' }, { status: 400 })
   const occurrences = generateOccurrences({
     startAt: parsed.data.startAt,
@@ -89,104 +91,17 @@ export async function POST(request: NextRequest) {
   })
   if (!occurrences.length) return NextResponse.json({ ok: false, error: 'Recurrence did not generate any visits.' }, { status: 400 })
 
-  if (assigneeIds.length) {
-    const firstStart = occurrences[0]
-    const finish = new Date(Math.max(...occurrences.map((start) => start.getTime() + duration * 60_000)))
-    const [availability, assignedVisits] = await Promise.all([
-      prisma.availability.findMany({
-        where: {
-          organizationId: auth.user.organizationId,
-          userId: { in: assigneeIds },
-          cancelledAt: null,
-          startsAt: { lt: finish },
-          endsAt: { gt: firstStart },
-        },
-        include: { user: { select: { name: true, email: true } } },
-      }),
-      prisma.visitAssignment.findMany({
-        where: {
-          organizationId: auth.user.organizationId,
-          userId: { in: assigneeIds },
-          status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] },
-          visit: {
-            status: { notIn: ['cancelled', 'completed', 'missed'] },
-            scheduledStart: { lt: finish },
-            scheduledEnd: { gt: firstStart },
-          },
-        },
-        include: {
-          user: { select: { name: true, email: true } },
-          visit: {
-            select: {
-              scheduledStart: true, scheduledEnd: true,
-              site: { select: { name: true, client: { select: { displayName: true } } } },
-            },
-          },
-        },
-      }),
-    ])
 
-    const manualConflicts = availability.filter((entry) => occurrences.some((start) => {
-      const end = new Date(start.getTime() + duration * 60_000)
-      return start < entry.endsAt && end > entry.startsAt
-    }))
-    if (manualConflicts.length) return NextResponse.json({
-      ok: false,
-      error: 'An assigned worker is unavailable for one or more generated visits.',
-      code: 'ASSIGNEE_UNAVAILABLE',
-      data: manualConflicts.map((entry) => ({
-        user: entry.user.name ?? entry.user.email,
-        startsAt: entry.startsAt,
-        endsAt: entry.endsAt,
-        reason: entry.reason,
-      })),
-    }, { status: 409 })
-
-    const workforceConflicts = eligible.flatMap((membership) => occurrences.flatMap((start) => {
-      const end = new Date(start.getTime() + duration * 60_000)
-      const profile = membership.user.workforceProfile
-      const conflict = workforceConstraintForWindow(profile ? {
-        studySchedules: profile.studySchedules,
-        leaves: profile.leaves.map((leave) => ({
-          kind: leave.kind as 'school_holiday' | 'personal_leave',
-          startsAt: leave.startsAt,
-          endsAt: leave.endsAt,
-          reason: leave.reason,
-        })),
-      } : null, start, end, parsed.data.timezone)
-      return conflict ? [{
-        userId: membership.user.id,
-        user: membership.user.name ?? membership.user.email,
-        ...conflict,
-      }] : []
-    }))
-    if (workforceConflicts.length) return NextResponse.json({
-      ok: false,
-      error: workforceConflicts.some((item) => item.kind === 'personal_leave')
-        ? 'An assigned worker is on personal leave during this work.'
-        : 'An assigned worker is in school during this work.',
-      code: 'ASSIGNEE_WORKFORCE_CONSTRAINT',
-      data: workforceConflicts,
-    }, { status: 409 })
-
-    const assignmentConflicts = assignedVisits.filter((assignment) => occurrences.some((start) => {
-      const end = new Date(start.getTime() + duration * 60_000)
-      return start < assignment.visit.scheduledEnd && end > assignment.visit.scheduledStart
-    }))
-    if (assignmentConflicts.length) return NextResponse.json({
-      ok: false,
-      error: 'An assigned worker already has work during one or more generated visits.',
-      code: 'ASSIGNEE_OVERLAP',
-      data: assignmentConflicts.map((assignment) => ({
-        user: assignment.user.name ?? assignment.user.email,
-        startsAt: assignment.visit.scheduledStart,
-        endsAt: assignment.visit.scheduledEnd,
-        site: `${assignment.visit.site.client.displayName} · ${assignment.visit.site.name}`,
-      })),
-    }, { status: 409 })
-  }
-
+  const requiredWorkers = parsed.data.requiredWorkers ?? planVersion.requiredWorkers
   const result = await prisma.$transaction(async (tx) => {
+    const allocationEnd = new Date(Math.max(...occurrences.map((start) => start.getTime() + duration * 60_000)))
+    const allocator = await buildDefaultTeamAllocator(tx, {
+      organizationId: auth.user.organizationId,
+      userIds: assigneeIds,
+      from: occurrences[0],
+      to: allocationEnd,
+      timezone: parsed.data.timezone,
+    })
     const created = await tx.job.create({ data: {
       organizationId: auth.user.organizationId,
       contractId: plan.contractId,
@@ -198,28 +113,36 @@ export async function POST(request: NextRequest) {
       recurrence: asInputJson(parsed.data.recurrence),
       startDate: parsed.data.startAt,
       endDate: parsed.data.endDate,
+      generatedThrough: until,
       defaultDurationMin: duration,
       timezone: parsed.data.timezone,
-      requiredWorkers: parsed.data.requiredWorkers ?? planVersion.requiredWorkers,
+      requiredWorkers,
       instructions: parsed.data.instructions,
+      defaultAssignees: assigneeIds.length ? {
+        create: assigneeIds.map((userId, priority) => ({ organizationId: auth.user.organizationId, userId, priority })),
+      } : undefined,
     } })
     const visitIds: string[] = []
+    const assignedUserIds = new Set<string>()
     for (let index = 0; index < occurrences.length; index += 1) {
       const start = occurrences[index]
+      const end = new Date(start.getTime() + duration * 60_000)
+      const visitAssigneeIds = allocator.select(start, end, requiredWorkers)
+      for (const userId of visitAssigneeIds) assignedUserIds.add(userId)
       const visit = await tx.visit.create({ data: {
         organizationId: auth.user.organizationId,
         jobId: created.id,
         siteId: plan.siteId,
         servicePlanVersionId: planVersion.id,
         scheduledStart: start,
-        scheduledEnd: new Date(start.getTime() + duration * 60_000),
+        scheduledEnd: end,
         timezone: parsed.data.timezone,
         sequenceNumber: index + 1,
         generationKey: generationKey(start),
-        requiredWorkers: parsed.data.requiredWorkers ?? planVersion.requiredWorkers,
-        status: assigneeIds.length ? 'dispatched' : 'scheduled',
+        requiredWorkers,
+        status: visitAssigneeIds.length ? 'dispatched' : 'scheduled',
         assignments: {
-          create: assigneeIds.map((userId) => ({
+          create: visitAssigneeIds.map((userId) => ({
             organizationId: auth.user.organizationId,
             userId,
             status: 'assigned',
@@ -228,10 +151,10 @@ export async function POST(request: NextRequest) {
       }, select: { id: true } })
       visitIds.push(visit.id)
     }
-    return { job: created, visitIds }
+    return { job: created, visitIds, assignedUserIds: [...assignedUserIds] }
   })
 
-  if (assigneeIds.length) {
+  if (result.assignedUserIds.length) {
     const firstVisitId = result.visitIds[0]
     const first = occurrences[0]
     const notice = await prisma.operationalNotice.create({
@@ -244,10 +167,10 @@ export async function POST(request: NextRequest) {
         title: occurrences.length === 1 ? 'New cleaning visit assigned' : 'New recurring cleaning work assigned',
         body: occurrences.length === 1
           ? `${plan.site.client.displayName} · ${plan.site.name} on ${first.toLocaleString('en-IE', { timeZone: parsed.data.timezone })}. Open the schedule for details.`
-          : `${occurrences.length} visits for ${plan.site.client.displayName} · ${plan.site.name} were added to your schedule. First visit: ${first.toLocaleString('en-IE', { timeZone: parsed.data.timezone })}.`,
+          : `${occurrences.length} recurring visits for ${plan.site.client.displayName} · ${plan.site.name} were created. Open your schedule for the occurrences assigned to you. First visit: ${first.toLocaleString('en-IE', { timeZone: parsed.data.timezone })}.`,
         requiresAcknowledgement: true,
         createdById: auth.user.id,
-        recipients: { create: assigneeIds.map((userId) => ({ organizationId: auth.user.organizationId, userId })) },
+        recipients: { create: result.assignedUserIds.map((userId) => ({ organizationId: auth.user.organizationId, userId })) },
       },
     })
     await enqueueNotification({
@@ -256,14 +179,15 @@ export async function POST(request: NextRequest) {
       createdBy: auth.user.email,
       entityType: 'operational_notice',
       entityId: notice.id,
-      payload: { userIds: assigneeIds, title: notice.title, body: notice.body, noticeId: notice.id, priority: notice.priority },
+      payload: { userIds: result.assignedUserIds, title: notice.title, body: notice.body, noticeId: notice.id, priority: notice.priority },
     })
   }
 
   await logAudit(auth.user.email, 'create_job', 'job', result.job.id, {
     visitCount: occurrences.length,
     siteId: plan.siteId,
-    assigneeIds,
+    defaultAssigneeIds: assigneeIds,
+    assignedUserIds: result.assignedUserIds,
     timezone: parsed.data.timezone,
   }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: { ...result.job, generatedVisits: occurrences.length } }, { status: 201 })

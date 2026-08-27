@@ -47,3 +47,16 @@ export const availabilityQuerySchema = z.object({
   to: z.coerce.date().optional(),
   userId: z.string().min(1).optional(),
 })
+
+export const servicePauseCreateSchema = z.object({
+  scope: z.enum(['client', 'site', 'job']),
+  targetId: z.string().min(1),
+  fromDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  untilDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  reason: z.string().trim().min(1).max(500),
+  note: z.string().trim().max(2000).optional().nullable(),
+}).refine((value) => value.untilDate >= value.fromDate, { message: 'Until date must be on or after from date.', path: ['untilDate'] })
+
+export const servicePauseEndSchema = z.object({
+  version: z.number().int().min(1),
+})

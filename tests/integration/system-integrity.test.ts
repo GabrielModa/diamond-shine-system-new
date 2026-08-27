@@ -159,7 +159,7 @@ describe('system integrity — scheduling lifecycle', () => {
     expect(originalFieldVisit.assignments).toHaveLength(0)
   })
 
-  it('school blocks work, school holiday removes that block, and personal leave remains unavailable', async () => {
+  it('keeps service obligations while school and personal leave create staffing gaps, and school holiday restores assignment', async () => {
     const plan = await publishedPlan('School')
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const profile = await prisma.workforceProfile.create({
@@ -175,7 +175,7 @@ describe('system integrity — scheduling lifecycle', () => {
       data: { organizationId: 'org_legacy_diamond_shine', profileId: profile.id, dayOfWeek: 1, startsMinute: 9 * 60, endsMinute: 14 * 60 },
     })
 
-    const schoolBlocked = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+    const schoolGap = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id,
       name: 'School conflict',
       startAt: '2026-08-24T09:00:00.000Z',
@@ -184,8 +184,15 @@ describe('system integrity — scheduling lifecycle', () => {
       recurrence: { frequency: 'once' },
       assigneeIds: [employee.id],
     })
-    expect(schoolBlocked.status).toBe(409)
-    expect(schoolBlocked.body.code).toBe('ASSIGNEE_WORKFORCE_CONSTRAINT')
+    expect(schoolGap.status).toBe(201)
+    const schoolVisit = await prisma.visit.findFirstOrThrow({
+      where: { jobId: schoolGap.body.data.id },
+      include: { assignments: true },
+    })
+    expect(schoolVisit.assignments).toHaveLength(0)
+    expect(await prisma.jobDefaultAssignee.count({
+      where: { jobId: schoolGap.body.data.id, userId: employee.id },
+    })).toBe(1)
 
     await prisma.workforceLeave.create({
       data: {
@@ -203,6 +210,12 @@ describe('system integrity — scheduling lifecycle', () => {
       assigneeIds: [employee.id],
     })
     expect(holidayAllows.status).toBe(201)
+    const holidayVisit = await prisma.visit.findFirstOrThrow({
+      where: { jobId: holidayAllows.body.data.id },
+      include: { assignments: true },
+    })
+    expect(holidayVisit.assignments).toHaveLength(1)
+    expect(holidayVisit.assignments[0].userId).toBe(employee.id)
 
     await prisma.workforceLeave.create({
       data: {
@@ -210,7 +223,7 @@ describe('system integrity — scheduling lifecycle', () => {
         startsAt: new Date('2026-08-25T00:00:00.000Z'), endsAt: new Date('2026-08-27T00:00:00.000Z'), reason: 'Personal holiday',
       },
     })
-    const leaveBlocked = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+    const leaveGap = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id,
       name: 'Personal leave conflict',
       startAt: '2026-08-26T09:00:00.000Z',
@@ -219,8 +232,15 @@ describe('system integrity — scheduling lifecycle', () => {
       recurrence: { frequency: 'once' },
       assigneeIds: [employee.id],
     })
-    expect(leaveBlocked.status).toBe(409)
-    expect(leaveBlocked.body.data[0].kind).toBe('personal_leave')
+    expect(leaveGap.status).toBe(201)
+    const leaveVisit = await prisma.visit.findFirstOrThrow({
+      where: { jobId: leaveGap.body.data.id },
+      include: { assignments: true },
+    })
+    expect(leaveVisit.assignments).toHaveLength(0)
+    expect(await prisma.jobDefaultAssignee.count({
+      where: { jobId: leaveGap.body.data.id, userId: employee.id },
+    })).toBe(1)
   })
 
   it('scheduler can plan but cannot be assigned as an executable cleaner', async () => {
