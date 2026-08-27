@@ -30,7 +30,8 @@ type EnqueueInput = {
 }
 
 export async function enqueueNotification(input: EnqueueInput) {
-  return prisma.notificationJob.create({ data: input })
+  const queuedAt = new Date()
+  return prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
 }
 
 async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: string) {
