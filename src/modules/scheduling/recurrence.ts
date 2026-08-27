@@ -63,37 +63,49 @@ function localPartsForCalendarDay(day: Date, wall: Pick<LocalParts, 'hour'|'minu
   }
 }
 
-export function generateOccurrences(input: { startAt: Date; until: Date; recurrence: Rule; timezone?: string; limit?: number }) {
+export function generateOccurrences(input: { startAt: Date; until: Date; recurrence: Rule; timezone?: string; limit?: number; from?: Date }) {
   const limit = input.limit ?? 240
   const timezone = input.timezone ?? 'UTC'
-  if (input.recurrence.frequency === 'once') return input.startAt <= input.until ? [input.startAt] : []
+  const lowerBound = input.from && input.from > input.startAt ? input.from : input.startAt
+  if (lowerBound > input.until) return []
+  if (input.recurrence.frequency === 'once') {
+    return input.startAt >= lowerBound && input.startAt <= input.until ? [input.startAt] : []
+  }
 
   const startLocal = zonedParts(input.startAt, timezone)
+  const lowerLocal = zonedParts(lowerBound, timezone)
   const wall = { hour: startLocal.hour, minute: startLocal.minute, second: startLocal.second }
   const anchorDay = calendarDate(startLocal)
+  const lowerDay = calendarDate(lowerLocal)
+  const dayDistance = Math.max(0, Math.floor((lowerDay.getTime() - anchorDay.getTime()) / 86_400_000))
   const starts: Date[] = []
 
   if (input.recurrence.frequency === 'daily') {
-    for (let dayOffset = 0; starts.length < limit; dayOffset += input.recurrence.interval) {
+    const interval = input.recurrence.interval
+    const firstDayOffset = Math.floor(dayDistance / interval) * interval
+    for (let dayOffset = firstDayOffset; starts.length < limit; dayOffset += interval) {
       const day = new Date(anchorDay)
       day.setUTCDate(day.getUTCDate() + dayOffset)
       const occurrence = localDateTimeToUtc(localPartsForCalendarDay(day, wall), timezone)
       if (occurrence > input.until) break
-      if (occurrence >= input.startAt) starts.push(occurrence)
+      if (occurrence >= lowerBound) starts.push(occurrence)
     }
     return starts
   }
 
   const weekdays = new Set(input.recurrence.weekdays)
   // Weekly interval is measured in 7-day blocks anchored on the start date, matching legacy behaviour.
-  for (let dayOffset = 0; starts.length < limit; dayOffset += 1) {
+  const intervalWeeks = input.recurrence.interval
+  const lowerWeek = Math.floor(dayDistance / 7)
+  const firstEligibleWeek = lowerWeek - (lowerWeek % intervalWeeks)
+  for (let dayOffset = Math.max(0, firstEligibleWeek * 7); starts.length < limit; dayOffset += 1) {
     const day = new Date(anchorDay)
     day.setUTCDate(day.getUTCDate() + dayOffset)
-    const elapsedWeeks = Math.floor(dayOffset / 7)
-    if (elapsedWeeks % input.recurrence.interval !== 0 || !weekdays.has(day.getUTCDay())) continue
     const occurrence = localDateTimeToUtc(localPartsForCalendarDay(day, wall), timezone)
     if (occurrence > input.until) break
-    if (occurrence >= input.startAt) starts.push(occurrence)
+    const elapsedWeeks = Math.floor(dayOffset / 7)
+    if (elapsedWeeks % intervalWeeks !== 0 || !weekdays.has(day.getUTCDay())) continue
+    if (occurrence >= lowerBound) starts.push(occurrence)
   }
   return starts
 }

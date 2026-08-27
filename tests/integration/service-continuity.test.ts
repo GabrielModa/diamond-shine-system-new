@@ -144,4 +144,156 @@ describe('schedule intelligence and service continuity', () => {
     expect(resumedHealth.body.data.summary.missingSchedule).toBe(3)
     expect(resumedHealth.body.data.items.filter((item: { state: string; visitId?: string }) => item.state === 'expected_not_scheduled' && item.visitId).length).toBe(3)
   })
+
+  it('keeps long-lived recurring obligations visible and repairable beyond the old scan limit', async () => {
+    const { plan } = await publishedPlan('Long Lived Client')
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Long lived daily service',
+      startAt: '2027-01-01T08:00:00.000Z',
+      recurrence: { frequency: 'daily', interval: 1 },
+    })
+    expect(created.status).toBe(201)
+
+    const before = await request(app)
+      .get('/api/schedule-health?from=2030-09-01T00:00:00.000Z&to=2030-09-04T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(before.status).toBe(200)
+    expect(before.body.data.summary.missingSchedule).toBe(3)
+
+    const repaired = await request(app).post('/api/schedule-health').set('Cookie', adminCookie).send({
+      from: '2030-09-01T00:00:00.000Z',
+      to: '2030-09-04T00:00:00.000Z',
+      jobIds: [created.body.data.id],
+    })
+    expect(repaired.status).toBe(200)
+    expect(repaired.body.data.result.generatedVisits).toBe(3)
+
+    const after = await request(app)
+      .get('/api/schedule-health?from=2030-09-01T00:00:00.000Z&to=2030-09-04T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(after.body.data.summary.missingSchedule).toBe(0)
+  })
+
+  it('keeps a paused one-off obligation visible and requires explicit review after early resume', async () => {
+    const { plan } = await publishedPlan('One Off Pause Client')
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'One off paused service',
+      startAt: '2030-09-10T08:00:00.000Z',
+      recurrence: { frequency: 'once' },
+      assigneeIds: [employee.id],
+    })
+    expect(created.status).toBe(201)
+
+    const pauseBody = {
+      scope: 'job',
+      targetId: created.body.data.id,
+      fromDate: '2030-09-10',
+      untilDate: '2030-09-10',
+      reason: 'Client closure',
+    }
+    const applied = await request(app).post('/api/service-pauses').set('Cookie', adminCookie).send(pauseBody)
+    expect(applied.status).toBe(201)
+    expect(applied.body.data.consequence.affectedVisits).toBe(1)
+
+    const pausedHealth = await request(app)
+      .get('/api/schedule-health?from=2030-09-09T00:00:00.000Z&to=2030-09-12T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(pausedHealth.status).toBe(200)
+    expect(pausedHealth.body.data.summary.paused).toBe(1)
+    expect(pausedHealth.body.data.items.some((item: { state: string; jobId?: string }) =>
+      item.state === 'service_paused' && item.jobId === created.body.data.id)).toBe(true)
+
+    const ended = await request(app)
+      .patch(`/api/service-pauses/${applied.body.data.pause.id}`)
+      .set('Cookie', adminCookie)
+      .send({ version: applied.body.data.pause.version })
+    expect(ended.status).toBe(200)
+    expect(ended.body.data.affectedFutureVisits).toBe(1)
+
+    const resumedHealth = await request(app)
+      .get('/api/schedule-health?from=2030-09-09T00:00:00.000Z&to=2030-09-12T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(resumedHealth.body.data.summary.missingSchedule).toBe(1)
+    expect(resumedHealth.body.data.items.some((item: { state: string; visitId?: string; jobId?: string }) =>
+      item.state === 'expected_not_scheduled'
+      && item.jobId === created.body.data.id
+      && Boolean(item.visitId))).toBe(true)
+  })
+
+  it('previews the full pause obligation beyond materialized visits and uses required labour', async () => {
+    const { plan } = await publishedPlan('Pause Preview Client')
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Daily two person service',
+      startAt: '2030-09-01T08:00:00.000Z',
+      generateUntil: '2030-09-03T23:00:00.000Z',
+      durationMinutes: 120,
+      requiredWorkers: 2,
+      recurrence: { frequency: 'daily', interval: 1 },
+      assigneeIds: [employee.id],
+    })
+    expect(created.status).toBe(201)
+    expect(created.body.data.generatedVisits).toBe(3)
+
+    const preview = await request(app).post('/api/service-pauses?preview=true').set('Cookie', adminCookie).send({
+      scope: 'job',
+      targetId: created.body.data.id,
+      fromDate: '2030-09-01',
+      untilDate: '2030-09-10',
+      reason: 'Ten day closure',
+    })
+    expect(preview.status).toBe(200)
+    expect(preview.body.data.consequence.affectedVisits).toBe(10)
+    expect(preview.body.data.consequence.materializedVisits).toBe(3)
+    expect(preview.body.data.consequence.expectedOccurrences).toBe(7)
+    expect(preview.body.data.consequence.assignedCleaners).toBe(1)
+    expect(preview.body.data.consequence.plannedLabourHours).toBe(40)
+  })
+
+  it('never lets a visit start and a service pause both win the same race', async () => {
+    const { plan } = await publishedPlan('Pause Race Client')
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Pause race service',
+      startAt: '2030-09-10T08:00:00.000Z',
+      recurrence: { frequency: 'once' },
+      assigneeIds: [employee.id],
+    })
+    expect(created.status).toBe(201)
+    const visit = await prisma.visit.findFirstOrThrow({ where: { jobId: created.body.data.id } })
+
+    const [started, paused] = await Promise.all([
+      request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({}),
+      request(app).post('/api/service-pauses').set('Cookie', adminCookie).send({
+        scope: 'job',
+        targetId: created.body.data.id,
+        fromDate: '2030-09-10',
+        untilDate: '2030-09-10',
+        reason: 'Concurrent closure',
+      }),
+    ])
+
+    expect([started.status, paused.status].filter((status) => status === 201)).toHaveLength(1)
+    expect([201, 404, 409]).toContain(started.status)
+    expect([201, 409]).toContain(paused.status)
+
+    const finalVisit = await prisma.visit.findUniqueOrThrow({ where: { id: visit.id } })
+    const runningEntries = await prisma.timeEntry.count({ where: { visitId: visit.id, status: 'running' } })
+    const pauses = await prisma.servicePause.count({ where: { jobId: created.body.data.id } })
+    if (started.status === 201) {
+      expect(finalVisit.status).toBe('in_progress')
+      expect(runningEntries).toBe(1)
+      expect(pauses).toBe(0)
+    } else {
+      expect(finalVisit.status).toBe('cancelled')
+      expect(runningEntries).toBe(0)
+      expect(pauses).toBe(1)
+    }
+  })
+
 })

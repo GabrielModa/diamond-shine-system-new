@@ -234,7 +234,7 @@ export async function buildScheduleHealth(input: {
 
   for (const job of jobs) {
     const parsed = recurrenceSchema.safeParse(job.recurrence ?? { frequency: 'once' })
-    if (!parsed.success || parsed.data.frequency === 'once') continue
+    if (!parsed.success) continue
     const contractualEnd = job.endDate && job.endDate < input.to ? job.endDate : input.to
     if (contractualEnd <= input.from) continue
     const occurrences = generateOccurrences({
@@ -242,6 +242,7 @@ export async function buildScheduleHealth(input: {
       until: contractualEnd,
       recurrence: parsed.data,
       timezone: job.timezone,
+      from: input.from,
       limit: 720,
     }).filter((occurrence) => occurrence >= input.from && occurrence < contractualEnd)
     if (!occurrences.length) continue

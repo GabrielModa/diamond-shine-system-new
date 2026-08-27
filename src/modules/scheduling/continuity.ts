@@ -42,6 +42,7 @@ async function ensureJobContinuity(
     until: contractualEnd,
     recurrence: parsedRule.data,
     timezone: job.timezone,
+    from: start,
     limit: 720,
   }).filter((occurrence) => occurrence >= start && occurrence < contractualEnd)
 
