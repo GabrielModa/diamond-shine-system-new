@@ -41,8 +41,22 @@ export default function AvailabilityScreen() {
     }
     setBusy(true); setMessage('');
     try {
-      await apiFetch(session, '/api/availability', { method: 'POST', body: JSON.stringify({ startsAt: start.toISOString(), endsAt: end.toISOString(), reason: reason.trim() || null }) });
-      setReason(''); setMessage('Operations will avoid assigning visits in this time window.'); await refresh();
+      const saved = await apiFetch<Availability & { noticeLevel: 'planned' | 'late' | 'urgent'; affectedAssignments: number; managementNotified: boolean }>(
+        session,
+        '/api/availability',
+        { method: 'POST', body: JSON.stringify({ startsAt: start.toISOString(), endsAt: end.toISOString(), reason: reason.trim() || null }) },
+      );
+      setReason('');
+      if (saved.noticeLevel === 'urgent') {
+        setMessage(`Urgent availability change saved. Operations was notified. ${saved.affectedAssignments} existing assignment(s) require review.`);
+      } else if (saved.noticeLevel === 'late') {
+        setMessage(`Late notice saved. Operations was notified. ${saved.affectedAssignments} existing assignment(s) require review.`);
+      } else if (saved.affectedAssignments > 0) {
+        setMessage(`Planned unavailability saved. Operations was notified because ${saved.affectedAssignments} existing assignment(s) require review.`);
+      } else {
+        setMessage('Availability saved. Thanks for giving at least 7 days notice where possible.');
+      }
+      await refresh();
     } catch (error) { setMessage(error instanceof Error ? error.message : 'Could not save availability.'); }
     finally { setBusy(false); }
   }
@@ -64,9 +78,9 @@ export default function AvailabilityScreen() {
     setEndsAt(operationalDateTimeInput(endUtc, timezone));
   }
 
-  return <Screen><PageHeader eyebrow="Schedule protection" title="My availability" subtitle={`Declare time you cannot work in ${timezone}. This prevents avoidable assignments; it does not alter your past timesheet.`} />
+  return <Screen><PageHeader eyebrow="Schedule protection" title="My availability" subtitle={`For planned time off, give at least 7 days notice where possible. Late and urgent changes are still accepted in ${timezone}; existing visits are never cancelled automatically.`} />
     {message ? <Text style={styles.message}>{message}</Text> : null}
-    <Card><Text style={styles.title}>I cannot work</Text><Text style={styles.help}>Start with a quick option, then adjust the organization-local time if needed.</Text><View style={styles.presets}><Pressable style={styles.preset} onPress={() => preset(1, 8)}><Text style={styles.presetText}>Tomorrow · full day</Text></Pressable><Pressable style={styles.preset} onPress={() => preset(1, 4)}><Text style={styles.presetText}>Tomorrow · morning</Text></Pressable><Pressable style={styles.preset} onPress={() => preset(7, 8)}><Text style={styles.presetText}>Next week · full day</Text></Pressable></View><Text style={styles.label}>From</Text><TextInput value={startsAt} onChangeText={setStartsAt} autoCapitalize="none" style={styles.input} placeholder="2026-08-24T08:00" /><Text style={styles.label}>Until</Text><TextInput value={endsAt} onChangeText={setEndsAt} autoCapitalize="none" style={styles.input} placeholder="2026-08-24T17:00" /><Text style={styles.label}>Reason (optional)</Text><TextInput value={reason} onChangeText={setReason} style={[styles.input, styles.reason]} placeholder="Appointment, leave or availability detail" multiline /><Button title="Save unavailability" loading={busy} onPress={() => void save()} /></Card>
+    <Card><Text style={styles.title}>I cannot work</Text><Text style={styles.help}>Planned: 7+ days. Late: under 7 days. Urgent: under 24 hours. Operations is notified for late/urgent changes and any existing assignment conflict.</Text><View style={styles.presets}><Pressable style={styles.preset} onPress={() => preset(1, 8)}><Text style={styles.presetText}>Tomorrow · full day</Text></Pressable><Pressable style={styles.preset} onPress={() => preset(1, 4)}><Text style={styles.presetText}>Tomorrow · morning</Text></Pressable><Pressable style={styles.preset} onPress={() => preset(7, 8)}><Text style={styles.presetText}>Next week · full day</Text></Pressable></View><Text style={styles.label}>From</Text><TextInput value={startsAt} onChangeText={setStartsAt} autoCapitalize="none" style={styles.input} placeholder="2026-08-24T08:00" /><Text style={styles.label}>Until</Text><TextInput value={endsAt} onChangeText={setEndsAt} autoCapitalize="none" style={styles.input} placeholder="2026-08-24T17:00" /><Text style={styles.label}>Reason (optional)</Text><TextInput value={reason} onChangeText={setReason} style={[styles.input, styles.reason]} placeholder="Appointment, leave or availability detail" multiline /><Button title="Save unavailability" loading={busy} onPress={() => void save()} /></Card>
     <View style={styles.section}><Text style={styles.title}>Upcoming unavailable time</Text>{loading ? <ActivityIndicator color={colors.primary} /> : entries.length ? entries.map((entry) => <Card key={entry.id}><View style={styles.entryHead}><View style={styles.entryCopy}><Text style={styles.entryTitle}>{formatOperationalDate(entry.startsAt, timezone, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} → {formatOperationalDate(entry.endsAt, timezone, { weekday: 'short', day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text>{entry.reason ? <Text style={styles.help}>{entry.reason}</Text> : null}</View><Pressable accessibilityRole="button" onPress={() => void cancel(entry.id)} disabled={busy}><Text style={styles.remove}>Remove</Text></Pressable></View></Card>) : <EmptyState title="Nothing declared" body="Add time away before the schedule is created or changed." />}</View>
   </Screen>;
 }

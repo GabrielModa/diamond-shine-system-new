@@ -639,11 +639,16 @@ model WorkforceProfile {
   homeAddress         String
   homeLatitude        Decimal?         @db.Decimal(10, 7)
   homeLongitude       Decimal?         @db.Decimal(10, 7)
+  phone                   String?
+  emergencyContactName    String?
+  emergencyContactPhone   String?
+  employmentStartDate     DateTime?
   schoolName          String?
   schoolAddress       String?
   schoolLatitude      Decimal?         @db.Decimal(10, 7)
   schoolLongitude     Decimal?         @db.Decimal(10, 7)
   weeklyTargetMinutes Int              @default(1800)
+  weeklyTargetConfigured  Boolean          @default(false)
   travelMode          String           @default("transit")
   createdAt           DateTime         @default(now())
   updatedAt           DateTime         @updatedAt

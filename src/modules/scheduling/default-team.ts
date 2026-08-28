@@ -13,6 +13,7 @@ type Member = {
   user: {
     id: string
     workforceProfile: null | {
+      weeklyTargetConfigured: boolean
       studySchedules: Array<{ dayOfWeek: number; startsMinute: number; endsMinute: number }>
       leaves: Array<{ kind: string; startsAt: Date; endsAt: Date; reason: string | null }>
     }
@@ -93,7 +94,8 @@ export async function buildDefaultTeamAllocator(
     if (!membership) return false
     if (availability.some((entry) => entry.userId === userId && intervalsOverlap(start, end, entry.startsAt, entry.endsAt))) return false
     const profile = membership.user.workforceProfile
-    const workforceConflict = workforceConstraintForWindow(profile ? {
+    if (!profile?.weeklyTargetConfigured) return false
+    const workforceConflict = workforceConstraintForWindow({
       studySchedules: profile.studySchedules,
       leaves: profile.leaves.map((leave) => ({
         kind: leave.kind as 'school_holiday' | 'personal_leave',
@@ -101,13 +103,13 @@ export async function buildDefaultTeamAllocator(
         endsAt: leave.endsAt,
         reason: leave.reason,
       })),
-    } : null, start, end, input.timezone)
+    }, start, end, input.timezone)
     if (workforceConflict) return false
     return !(occupied.get(userId) ?? []).some((window) => intervalsOverlap(start, end, window.start, window.end))
   }
 
   return {
-    executableIds: orderedIds.filter((id) => byUser.has(id)),
+    executableIds: orderedIds.filter((id) => Boolean(byUser.get(id)?.user.workforceProfile?.weeklyTargetConfigured)),
     select(start: Date, end: Date, maximum: number) {
       const selected: string[] = []
       for (const userId of orderedIds) {

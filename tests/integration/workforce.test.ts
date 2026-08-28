@@ -10,6 +10,7 @@ import { getAuthCookie, seedUsers } from './setup'
 let app: ReturnType<typeof createServer>
 let nextApp: ReturnType<typeof next>
 let adminCookie = ''
+let employeeCookie = ''
 let employeeId = ''
 let supervisorId = ''
 
@@ -42,6 +43,7 @@ async function resetWorkforceFixtures() {
       schoolLatitude: 53.3434,
       schoolLongitude: -6.2672,
       weeklyTargetMinutes: 1800,
+      weeklyTargetConfigured: true,
       travelMode: 'transit',
     },
   })
@@ -64,6 +66,7 @@ async function resetWorkforceFixtures() {
       homeLatitude: 53.2878,
       homeLongitude: -6.3411,
       weeklyTargetMinutes: 1800,
+      weeklyTargetConfigured: true,
       travelMode: 'driving',
     },
   })
@@ -105,6 +108,7 @@ beforeAll(async () => {
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
   await seedUsers()
   adminCookie = await getAuthCookie('admin@ds.ie')
+  employeeCookie = await getAuthCookie('employee@ds.ie')
 })
 
 beforeEach(async () => {
@@ -153,6 +157,56 @@ describe('GET /api/workforce', () => {
     expect(supervisor.context.origin).toBeNull()
   })
 
+
+  it('never invents a home or school location when profile setup is missing', async () => {
+    await prisma.workforceProfile.delete({ where: { userId: employeeId } })
+    const response = await request(app).get('/api/workforce?range=week').set('Cookie', adminCookie)
+    const employee = response.body.data.employees.find((item: { id: string }) => item.id === employeeId)
+    expect(employee.profile.setupRequired).toBe(true)
+    expect(employee.profile.home.address).toBe('Not configured')
+    expect(employee.profile.school).toBeNull()
+    expect(employee.context.availableForScheduling).toBe(false)
+    expect(employee.context.origin).toBeNull()
+  })
+
+  it('updates only self-service profile fields and preserves manager-owned capacity', async () => {
+    const before = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
+    const response = await request(app)
+      .put('/api/workforce/profile')
+      .set('Cookie', employeeCookie)
+      .send({
+        phone: '+353871234567',
+        home: { address: 'New operational base, Dublin' },
+        travelMode: 'cycling',
+        emergencyContact: { name: 'Emergency Person', phone: '+353879876543' },
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.body.data.managerSetupRequired).toBe(false)
+    const saved = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
+    expect(saved.phone).toBe('+353871234567')
+    expect(saved.homeAddress).toBe('New operational base, Dublin')
+    expect(saved.homeLatitude).toBeNull()
+    expect(saved.homeLongitude).toBeNull()
+    expect(saved.travelMode).toBe('cycling')
+    expect(saved.emergencyContactName).toBe('Emergency Person')
+    expect(saved.weeklyTargetMinutes).toBe(before.weeklyTargetMinutes)
+    expect(saved.weeklyTargetConfigured).toBe(true)
+
+    const forbidden = await request(app)
+      .put(`/api/workforce/profiles/${employeeId}`)
+      .set('Cookie', employeeCookie)
+      .send({
+        home: { address: 'Attempted managed edit' },
+        school: null,
+        weeklyTargetMinutes: 600,
+        travelMode: 'transit',
+        studySchedule: [],
+        schoolHolidays: [],
+        personalLeaves: [],
+      })
+    expect(forbidden.status).toBe(403)
+  })
 
   it('returns quality signals used by manager filters and map context', async () => {
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })

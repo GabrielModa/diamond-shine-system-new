@@ -38,6 +38,7 @@ const pageMeta: Record<string, PageMeta> = {
   operations: { label: 'Service setup', href: '/operations', section: 'admin', any: ['service_plans.read', 'sites.read'] },
   users: { label: 'People & access', href: '/users', section: 'admin', any: ['memberships.manage'] },
   audit: { label: 'Audit trail', href: '/audit', section: 'admin', any: ['audit.read'] },
+  profile: { label: 'My profile', href: '/profile', section: 'workspace', always: true },
   'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', any: ['supplies.request'] },
 }
 

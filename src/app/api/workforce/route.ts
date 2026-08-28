@@ -4,7 +4,7 @@ import { requireCapability } from '../../../lib/auth'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 import { resolveWorkforcePeriod } from '../../../lib/workforce-period'
 import { prisma } from '../../../lib/prisma'
-import { workforceProfileFor, haversineKm } from '../../../lib/workforce-profiles'
+import { haversineKm } from '../../../lib/workforce-profiles'
 import { capacityBand, remainingCapacityMinutes, resolveWorkforceContext } from '../../../lib/workforce-availability'
 import { qualityBand, qualityLabel, qualityTrend } from '../../../lib/workforce-quality'
 
@@ -95,18 +95,21 @@ export async function GET(request: NextRequest) {
   ])
 
   const employees = users.map((user) => {
-    const fallback = workforceProfileFor(user.email)
     const db = user.workforceProfile
+    const setupRequired = !db || !db.weeklyTargetConfigured
     const home = db ? {
       kind: 'home' as const, label: db.homeLabel, address: db.homeAddress,
       latitude: db.homeLatitude == null ? null : Number(db.homeLatitude),
       longitude: db.homeLongitude == null ? null : Number(db.homeLongitude),
-    } : { kind: 'home' as const, ...fallback.home }
+    } : {
+      kind: 'home' as const, label: 'Home', address: 'Not configured',
+      latitude: null, longitude: null,
+    }
     const school = db?.schoolAddress ? {
       kind: 'school' as const, label: db.schoolName ?? 'School', address: db.schoolAddress,
       latitude: db.schoolLatitude == null ? null : Number(db.schoolLatitude),
       longitude: db.schoolLongitude == null ? null : Number(db.schoolLongitude),
-    } : fallback.study ? { kind: 'school' as const, ...fallback.study } : null
+    } : null
 
     const studySchedule = db?.studySchedules.map((r) => ({
       dayOfWeek: r.dayOfWeek, startsMinute: r.startsMinute, endsMinute: r.endsMinute,
@@ -115,7 +118,16 @@ export async function GET(request: NextRequest) {
       kind: l.kind as 'school_holiday' | 'personal_leave',
       startsAt: l.startsAt, endsAt: l.endsAt, reason: l.reason,
     })) ?? []
-    const context = resolveWorkforceContext({ timezone, home, school, studySchedule, leaves }, now)
+    const context = setupRequired
+      ? {
+          state: 'home' as const,
+          availableForScheduling: false,
+          origin: null,
+          personalLeave: null,
+          schoolHolidayActive: false,
+          activeStudyRule: null,
+        }
+      : resolveWorkforceContext({ timezone, home, school, studySchedule, leaves }, now)
 
     const allAssigned = visits.filter((visit) =>
       visit.status !== 'cancelled' && visit.status !== 'missed' && visit.assignments.some((a) => a.userId === user.id && ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)))
@@ -129,7 +141,7 @@ export async function GET(request: NextRequest) {
     const actualMinutes = Math.round(relatedEntries.reduce((sum, entry) =>
       sum + (entry.durationSeconds ?? 0), 0) / 60)
 
-    const weeklyTargetMinutes = db?.weeklyTargetMinutes ?? 1800
+    const weeklyTargetMinutes = setupRequired ? 0 : db!.weeklyTargetMinutes
     const periodTargetMinutes = Math.round(weeklyTargetMinutes * periodWeekdays / 5)
     const remaining = remainingCapacityMinutes(periodTargetMinutes, plannedMinutes)
     const nextVisit = allAssigned.find((visit) =>
@@ -183,17 +195,20 @@ export async function GET(request: NextRequest) {
     return {
       id: user.id, name: user.name || user.email, email: user.email,
       profile: {
+        setupRequired,
         home, school,
-        travelMode: (db?.travelMode ?? fallback.travelMode) as 'driving' | 'transit' | 'cycling',
+        travelMode: db ? db.travelMode as 'driving' | 'transit' | 'cycling' : null,
         weeklyTargetMinutes, studySchedule, leaves,
       },
       context: { ...context, origin },
       plannedMinutes, actualMinutes, weeklyTargetMinutes, periodTargetMinutes,
       remainingCapacityMinutes: remaining,
       capacityBand: capacityBand(plannedMinutes),
-      capacityStatus: plannedMinutes > periodTargetMinutes
-        ? 'over'
-        : plannedMinutes >= periodTargetMinutes * .9 ? 'near' : 'available',
+      capacityStatus: setupRequired
+        ? 'available'
+        : plannedMinutes > periodTargetMinutes
+          ? 'over'
+          : plannedMinutes >= periodTargetMinutes * .9 ? 'near' : 'available',
       utilization,
       workedVsPlanned,
       completedVisits: completed.length,
@@ -239,7 +254,7 @@ export async function GET(request: NextRequest) {
       actualMinutes: employees.reduce((s, e) => s + e.actualMinutes, 0),
       targetMinutes: employees.reduce((s, e) => s + e.periodTargetMinutes, 0),
       remainingCapacityMinutes: employees.reduce((s, e) => s + e.remainingCapacityMinutes, 0),
-      personalLeave: employees.filter((e) => !e.context.availableForScheduling).length,
+      personalLeave: employees.filter((e) => e.context.state === 'personal_leave').length,
       schoolNow: employees.filter((e) => e.context.state === 'school').length,
       completedVisits: employees.reduce((s, e) => s + e.completedVisits, 0),
       siteCoverage: new Set(employees.flatMap((e) => e.nextVisit?.site.id ? [e.nextVisit.site.id] : [])).size,

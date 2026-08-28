@@ -52,6 +52,18 @@ export async function seedUsers() {
         status: 'active',
       },
     })
+    if (user.role === 'employee' || user.role === 'supervisor') {
+      await prisma.workforceProfile.create({
+        data: {
+          organizationId: LEGACY_ORGANIZATION_ID,
+          userId: savedUser.id,
+          homeAddress: 'Integration test workforce base',
+          weeklyTargetMinutes: 1800,
+          weeklyTargetConfigured: true,
+          travelMode: 'transit',
+        },
+      })
+    }
   }
 }
 

@@ -33,8 +33,8 @@ async function main(){
   const school=x.school
   const p=await prisma.workforceProfile.upsert({
    where:{userId:u.id},
-   update:{homeAddress:x.home[0],homeLatitude:x.home[1],homeLongitude:x.home[2],schoolName:school?.[0]??null,schoolAddress:school?.[1]??null,schoolLatitude:school?.[2]??null,schoolLongitude:school?.[3]??null,weeklyTargetMinutes:x.target,travelMode:x.mode},
-   create:{organizationId:LEGACY_ORGANIZATION_ID,userId:u.id,homeAddress:x.home[0],homeLatitude:x.home[1],homeLongitude:x.home[2],schoolName:school?.[0]??null,schoolAddress:school?.[1]??null,schoolLatitude:school?.[2]??null,schoolLongitude:school?.[3]??null,weeklyTargetMinutes:x.target,travelMode:x.mode},
+   update:{homeAddress:x.home[0],homeLatitude:x.home[1],homeLongitude:x.home[2],schoolName:school?.[0]??null,schoolAddress:school?.[1]??null,schoolLatitude:school?.[2]??null,schoolLongitude:school?.[3]??null,weeklyTargetMinutes:x.target,weeklyTargetConfigured:true,travelMode:x.mode},
+   create:{organizationId:LEGACY_ORGANIZATION_ID,userId:u.id,homeAddress:x.home[0],homeLatitude:x.home[1],homeLongitude:x.home[2],schoolName:school?.[0]??null,schoolAddress:school?.[1]??null,schoolLatitude:school?.[2]??null,schoolLongitude:school?.[3]??null,weeklyTargetMinutes:x.target,weeklyTargetConfigured:true,travelMode:x.mode},
   })
   await prisma.studySchedule.deleteMany({where:{profileId:p.id}})
   await prisma.workforceLeave.deleteMany({where:{profileId:p.id}})
