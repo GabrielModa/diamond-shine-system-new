@@ -78,6 +78,60 @@ describe('POST /api/users invite', () => {
     const token = await prisma.authToken.findFirst({ where: { userId: user?.id, type: 'invite' } })
     expect(token?.tokenHash).toHaveLength(64)
   })
+
+  it('falls back to a secure manual link and only activates after password creation', async () => {
+    const previousTransport = process.env.EMAIL_TRANSPORT
+    const previousSmtpPort = process.env.SMTP_PORT
+    const invited = await (async () => {
+      try {
+        process.env.EMAIL_TRANSPORT = 'smtp'
+        process.env.SMTP_PORT = '0'
+        return await request(app)
+          .post('/api/users')
+          .set('Cookie', adminCookie)
+          .send({ email: 'onboarding@test.io', name: 'Onboarding User', membershipRole: 'employee' })
+      } finally {
+        if (previousTransport === undefined) delete process.env.EMAIL_TRANSPORT
+        else process.env.EMAIL_TRANSPORT = previousTransport
+        if (previousSmtpPort === undefined) delete process.env.SMTP_PORT
+        else process.env.SMTP_PORT = previousSmtpPort
+      }
+    })()
+
+    expect(invited.status).toBe(201)
+    expect(invited.body.data.emailSent).toBe(false)
+    expect(invited.body.data.manualInviteUrl).toContain('/set-password?token=')
+
+    const user = await prisma.user.findUniqueOrThrow({ where: { email: 'onboarding@test.io' } })
+    const blocked = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(blocked.status).toBe(409)
+    expect(blocked.body.error).toContain('create a password')
+
+    const token = new URL(invited.body.data.manualInviteUrl).searchParams.get('token')
+    expect(token).toBeTruthy()
+    const password = 'DiamondShine123!'
+    const activated = await request(app)
+      .post('/api/auth/set-password')
+      .send({ token, password })
+    expect(activated.status).toBe(200)
+
+    const [savedUser, membership] = await Promise.all([
+      prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+      prisma.membership.findFirstOrThrow({ where: { userId: user.id, organizationId: LEGACY_ORGANIZATION_ID } }),
+    ])
+    expect(savedUser.status).toBe('active')
+    expect(savedUser.password).toBeTruthy()
+    expect(membership.status).toBe('active')
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.44')
+      .send({ email: 'onboarding@test.io', password })
+    expect(login.status).toBe(200)
+  })
 })
 
 describe('GET /api/users', () => {
@@ -86,6 +140,7 @@ describe('GET /api/users', () => {
     expect(res.status).toBe(200)
     expect(res.body.data.length).toBeGreaterThan(0)
     expect(res.body.data.every((user: Record<string, unknown>) => !('password' in user))).toBe(true)
+    expect(res.body.data.every((user: Record<string, unknown>) => typeof user.hasPassword === 'boolean')).toBe(true)
   })
 })
 

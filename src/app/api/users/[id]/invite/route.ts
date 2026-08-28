@@ -20,5 +20,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const inviteUrl = `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(token)}`
   const sent = await sendUserInvite({ to: membership.user.email, name: membership.user.name ?? membership.user.email, inviteUrl })
   await logAudit(auth.user.email, 'resend_user_invite', 'user', membership.user.id, { email: membership.user.email, sent: sent.ok }, auth.user.organizationId)
-  return NextResponse.json({ ok: true, data: { emailSent: sent.ok, inviteExpiresAt: expiresAt } })
+  return NextResponse.json({ ok: true, data: {
+    emailSent: sent.ok,
+    inviteExpiresAt: expiresAt,
+    manualInviteUrl: sent.ok ? null : inviteUrl,
+    deliveryError: sent.ok ? null : sent.error ?? 'Email delivery failed',
+  } })
 }

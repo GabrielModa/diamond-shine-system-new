@@ -25,13 +25,18 @@ export async function GET(request: NextRequest) {
   const memberships = await prisma.membership.findMany({
     where: { organizationId: auth.user.organizationId, status: { not: 'removed' } },
     orderBy: { createdAt: 'desc' },
-    include: { user: { select: { id: true, email: true, name: true, status: true, createdAt: true, updatedAt: true } } },
+    include: { user: { select: { id: true, email: true, name: true, password: true, status: true, createdAt: true, updatedAt: true } } },
   })
   const users = memberships.map((membership) => ({
-    ...membership.user,
+    id: membership.user.id,
+    email: membership.user.email,
+    name: membership.user.name,
+    createdAt: membership.user.createdAt,
+    updatedAt: membership.user.updatedAt,
     role: membershipRoleToLegacyUserRole(membership.role),
     membershipRole: membership.role,
     membershipId: membership.id,
+    hasPassword: Boolean(membership.user.password),
     status: membership.status === 'invited'
       ? 'pending'
       : membership.status === 'active' && membership.user.status === 'active'
@@ -50,6 +55,7 @@ export async function POST(request: NextRequest) {
   const email = parsed.data.email.trim().toLowerCase()
   const membershipRole = parsed.data.membershipRole ?? legacyRoleToMembershipRole(parsed.data.role ?? 'employee')
   const legacyRole = membershipRoleToLegacyUserRole(membershipRole)
+  const baseUrl = getApplicationUrl()
   const existing = await prisma.user.findUnique({
     where: { email },
     include: { memberships: { where: { organizationId: auth.user.organizationId, status: { not: 'removed' } }, take: 1 } },
@@ -73,7 +79,6 @@ export async function POST(request: NextRequest) {
     membershipRole,
   }, auth.user.organizationId)
 
-  const baseUrl = getApplicationUrl()
   const authToken = existing?.status === 'active' ? null : await issueAuthToken(created.id, 'invite', auth.user.organizationId)
   const inviteUrl = authToken
     ? `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(authToken.token)}`
@@ -87,5 +92,7 @@ export async function POST(request: NextRequest) {
     membershipRole,
     emailSent: inviteResult.ok,
     inviteExpiresAt: authToken?.expiresAt ?? null,
+    manualInviteUrl: authToken && !inviteResult.ok ? inviteUrl : null,
+    deliveryError: inviteResult.ok ? null : inviteResult.error ?? 'Email delivery failed',
   } }, { status: 201 })
 }

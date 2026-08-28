@@ -17,6 +17,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     include: { user: true },
   })
   if (!membership) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  if (parsed.data.status === 'active' && !membership.user.password) {
+    return NextResponse.json({
+      ok: false,
+      error: 'This person must create a password from the invitation before activation.',
+    }, { status: 409 })
+  }
   if (membership.user.email === auth.user.email && parsed.data.status !== 'active') {
     return NextResponse.json({ ok: false, error: 'You cannot deactivate your own account.' }, { status: 409 })
   }

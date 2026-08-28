@@ -5,7 +5,8 @@ import type { ApiResponse, UserRole } from '../../../types'
 import ListControls from '../../../components/ui/ListControls'
 
 type MembershipRole = 'organization_admin' | 'field_supervisor' | 'scheduler' | 'employee' | 'stock_controller' | 'quality_inspector' | 'finance' | 'viewer'
-type User = { id: string; email: string; name: string | null; role: UserRole; membershipRole: MembershipRole; status: 'pending' | 'active' | 'inactive'; createdAt: string }
+type User = { id: string; email: string; name: string | null; role: UserRole; membershipRole: MembershipRole; status: 'pending' | 'active' | 'inactive'; hasPassword: boolean; createdAt: string }
+type InviteResult = { emailSent: boolean; manualInviteUrl: string | null; deliveryError: string | null }
 
 const ROLE_OPTIONS: Array<{ value: MembershipRole; label: string; detail: string }> = [
   { value: 'organization_admin', label: 'Organization admin', detail: 'Full organization, access and audit control' },
@@ -34,6 +35,7 @@ export default function UsersPage() {
   const [toast, setToast] = useState<{ type: 'success' | 'error'; message: string } | null>(null)
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
+  const [manualInvite, setManualInvite] = useState<{ email: string; url: string } | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -46,10 +48,15 @@ export default function UsersPage() {
   async function inviteUser() {
     setBusyId('invite')
     try {
-      const result = await fetchJson<{ emailSent: boolean }>('/api/users', {
+      const result = await fetchJson<InviteResult>('/api/users', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(invite),
       })
-      setToast({ type: result.emailSent ? 'success' : 'error', message: result.emailSent ? 'Invitation sent.' : 'User created, but the invitation email failed.' })
+      if (result.emailSent) {
+        setToast({ type: 'success', message: 'Invitation sent. The person will create their password from the secure link.' })
+      } else {
+        if (result.manualInviteUrl) setManualInvite({ email: invite.email.trim().toLowerCase(), url: result.manualInviteUrl })
+        setToast({ type: 'error', message: 'User created, but email delivery failed. Use the secure fallback link below.' })
+      }
       setInvite({ email: '', name: '', membershipRole: 'employee' })
       await refresh()
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to invite user.' }) }
@@ -79,11 +86,27 @@ export default function UsersPage() {
 
   async function resendInvite(user: User) {
     setBusyId(user.id)
+    setManualInvite(null)
     try {
-      const result = await fetchJson<{ emailSent: boolean }>(`/api/users/${user.id}/invite`, { method: 'POST' })
-      setToast({ type: result.emailSent ? 'success' : 'error', message: result.emailSent ? `Invitation resent to ${user.email}.` : 'A new link was created, but the email failed.' })
+      const result = await fetchJson<InviteResult>(`/api/users/${user.id}/invite`, { method: 'POST' })
+      if (result.emailSent) {
+        setToast({ type: 'success', message: `Invitation resent to ${user.email}.` })
+      } else {
+        if (result.manualInviteUrl) setManualInvite({ email: user.email, url: result.manualInviteUrl })
+        setToast({ type: 'error', message: 'Email delivery failed again. Use the new secure fallback link below.' })
+      }
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to resend invitation.' }) }
     finally { setBusyId(null) }
+  }
+
+  async function copyInviteLink() {
+    if (!manualInvite) return
+    try {
+      await navigator.clipboard.writeText(manualInvite.url)
+      setToast({ type: 'success', message: `Secure invitation link copied for ${manualInvite.email}.` })
+    } catch {
+      window.prompt('Copy this secure invitation link:', manualInvite.url)
+    }
   }
 
   const filtered = useMemo(() => {
@@ -105,6 +128,7 @@ export default function UsersPage() {
         <label><span>Operational role</span><select value={invite.membershipRole} onChange={(event) => setInvite((current) => ({ ...current, membershipRole: event.target.value as MembershipRole }))}>{ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{ROLE_OPTIONS.find((item) => item.value === invite.membershipRole)?.detail}</small></label>
         <button className="btn-primary" type="button" disabled={busyId === 'invite' || !invite.name.trim() || !invite.email.trim()} onClick={() => void inviteUser()}>{busyId === 'invite' ? 'Sending…' : 'Send invitation'}</button>
       </div>
+      {manualInvite ? <div className="toast error" role="status"><strong>Email not delivered.</strong> The account is still pending. Share this one-time 24-hour link with {manualInvite.email}. <button className="btn-secondary" type="button" onClick={() => void copyInviteLink()}>Copy secure invitation link</button></div> : null}
     </section>
 
     <section className="card" aria-labelledby="directory-title">
@@ -118,12 +142,12 @@ export default function UsersPage() {
       {!loading && !filtered.length ? <div className="empty-state">No people match these filters.</div> : null}
       <div className="admin-list access-list">
         {filtered.map((user) => <article key={user.id} className="admin-user-row access-user-row">
-          <div><strong>{user.name ?? user.email}</strong><div className="muted">{user.email}</div></div>
+          <div><strong>{user.name ?? user.email}</strong><div className="muted">{user.email}</div>{!user.hasPassword ? <small className="muted">Invitation pending · password not created</small> : null}</div>
           <label className="access-role-control"><span className="sr-only">Role for {user.name ?? user.email}</span><select aria-label={`Role for ${user.name ?? user.email}`} disabled={busyId === user.id} value={user.membershipRole} onChange={(event) => void changeRole(user, event.target.value as MembershipRole)}>{ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{ROLE_OPTIONS.find((item) => item.value === user.membershipRole)?.detail}</small></label>
           <span className={`status-badge ${user.status === 'active' ? 'Completed' : user.status === 'pending' ? 'Pending' : 'Cancelled'}`}>{user.status}</span>
           <div className="row tight">
-            {user.status === 'pending' ? <button className="btn-secondary" type="button" disabled={busyId === user.id} onClick={() => void resendInvite(user)}>Resend invite</button> : null}
-            {user.status !== 'active' ? <button className="btn-success" type="button" disabled={busyId === user.id} onClick={() => void patchStatus(user.id, 'active')}>Activate</button> : null}
+            {!user.hasPassword ? <button className="btn-secondary" type="button" disabled={busyId === user.id} onClick={() => void resendInvite(user)}>Resend invite</button> : null}
+            {user.status !== 'active' && user.hasPassword ? <button className="btn-success" type="button" disabled={busyId === user.id} onClick={() => void patchStatus(user.id, 'active')}>Activate</button> : null}
             {user.status === 'active' ? <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { if (window.confirm(`Deactivate ${user.name ?? user.email}? They will lose organization access immediately.`)) void patchStatus(user.id, 'inactive') }}>Deactivate</button> : null}
           </div>
         </article>)}

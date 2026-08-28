@@ -1,9 +1,11 @@
 'use client'
 
-import { FormEvent, useState } from 'react'
+import { FormEvent, Suspense, useState } from 'react'
+import { useSearchParams } from 'next/navigation'
 
-export default function SetPasswordPage({ searchParams }: { searchParams: { token?: string } }) {
-  const token = searchParams.token ?? ''
+function SetPasswordForm() {
+  const searchParams = useSearchParams()
+  const token = searchParams.get('token') ?? ''
   const [password, setPassword] = useState('')
   const [confirm, setConfirm] = useState('')
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
@@ -28,7 +30,7 @@ export default function SetPasswordPage({ searchParams }: { searchParams: { toke
       setMessage({ type: 'error', text: body?.error ?? 'Could not create your password.' })
       return
     }
-    setMessage({ type: 'success', text: 'Password created. Your account may still require administrator approval.' })
+    setMessage({ type: 'success', text: 'Password created. Your account is active — you can now sign in.' })
   }
 
   return (
@@ -41,17 +43,25 @@ export default function SetPasswordPage({ searchParams }: { searchParams: { toke
         </div>
         <form onSubmit={submit} className="auth-form">
           <label htmlFor="password">Password</label>
-          <input id="password" type="password" autoComplete="new-password" value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <input id="password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required />
           <label htmlFor="confirmPassword">Confirm password</label>
-          <input id="confirmPassword" type="password" autoComplete="new-password" value={confirm} onChange={(event) => setConfirm(event.target.value)} required />
+          <input id="confirmPassword" type="password" autoComplete="new-password" minLength={12} value={confirm} onChange={(event) => setConfirm(event.target.value)} required />
           <button type="submit" className="btn-primary" disabled={submitting || !token}>
             {submitting ? 'Creating password…' : 'Create password'}
           </button>
         </form>
         {!token ? <p className="toast error">Invitation token is missing.</p> : null}
         {message ? <p className={`toast ${message.type}`} role="status">{message.text}</p> : null}
-        {message?.type === 'success' ? <a href="/login">Continue to sign in</a> : null}
+        {message?.type === 'success' ? <div className="auth-form"><p className="muted">Use the same work email and password on the web or in the Diamond Shine mobile app.</p><a href="/login">Continue to sign in</a></div> : null}
       </section>
     </main>
+  )
+}
+
+export default function SetPasswordPage() {
+  return (
+    <Suspense fallback={<main className="auth-shell auth-shell-single"><section className="auth-card">Loading secure invitation…</section></main>}>
+      <SetPasswordForm />
+    </Suspense>
   )
 }
