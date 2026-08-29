@@ -2726,3 +2726,4 @@ textarea {
 @media (max-width:900px){.integrity-home-grid{grid-template-columns:1fr 1fr}.audit-filter-bar{grid-template-columns:1fr 1fr}.health-component{grid-template-columns:1fr auto}.health-component-track{grid-column:1/-1;grid-row:2}.timesheet-period-bar{align-items:stretch}}
 @media (max-width:620px){.integrity-home-grid,.audit-filter-bar{grid-template-columns:1fr}.audit-pagination{align-items:stretch;flex-direction:column}.audit-pagination>div{display:flex;gap:8px;width:100%}.audit-pagination button{flex:1}.health-component{grid-template-columns:1fr auto}.quality-decision-backdrop{padding:10px}}
 
+.filter-pills button.selected { color: #fff !important; background: #5145c6 !important; border-color: #5145c6 !important; box-shadow: 0 6px 14px rgb(81 69 198 / 20%); }
