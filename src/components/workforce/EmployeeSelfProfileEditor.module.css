@@ -359,6 +359,16 @@
   }
 }
 
+@media (max-width: 1300px) and (min-width: 981px) {
+  .tempDate {
+    grid-column: span 6;
+  }
+
+  .tempDate :global(input[type='date']) {
+    min-width: 0;
+  }
+}
+
 @media (max-width: 760px) {
   .tempForm {
     grid-template-columns: 1fr;
