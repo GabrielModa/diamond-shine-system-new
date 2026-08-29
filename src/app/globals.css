@@ -201,7 +201,8 @@ button:focus-visible {
 .delete-confirm-field input { width: 100%; min-width: 0; }
 .communication-card { display: grid; gap: 12px; }
 .communication-card .email-preview { width: 100%; margin-top: 8px; }
-.access-invite .admin-form-grid { grid-template-columns: minmax(190px, 1fr) minmax(230px, 1.15fr) minmax(220px, 1fr) auto; align-items: end; }
+.access-invite .admin-form-grid { grid-template-columns: minmax(190px, 1fr) minmax(230px, 1.15fr) minmax(220px, 1fr) auto; column-gap: 18px; row-gap: 9px; align-items: end; }
+.access-invite .admin-form-grid > label { min-width: 0; }
 .access-toolbar { grid-template-columns: minmax(0, 1fr) 180px 220px; align-items: end; }
 .access-list { max-height: 680px; overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
 .access-user-row { grid-template-columns: minmax(220px, 1.25fr) minmax(210px, 1fr) auto minmax(250px, auto); gap: 18px; align-items: center; padding: 18px 4px; }
