@@ -182,7 +182,7 @@ describe('templated authentication emails', () => {
       inviteUrl: 'https://diamondshine.ie/set-password?token=safe',
     })
     const html: string = sendMail.mock.calls[0]?.[0]?.html ?? ''
-    expect(html).toContain('<a href="https://diamondshine.ie/set-password?token=safe">')
+    expect(html).toContain('<a href="https://diamondshine.ie/set-password?token=safe"')
     expect(html).toContain('&lt;img src=x onerror=alert(1)&gt;')
   })
 })

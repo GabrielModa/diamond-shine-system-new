@@ -352,7 +352,12 @@ async function getTemplate(key: string) {
 export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boolean; error?: string }> {
   try {
     const transport = getTransport()
-    const template = (await getTemplate('user_invite')) ?? INVITE_TEMPLATE_FALLBACK
+    const storedTemplate = await getTemplate('user_invite')
+    // Older seeded templates were plain paragraphs. Keep them compatible, but
+    // always upgrade invite delivery to the current branded layout.
+    const template = storedTemplate?.body.includes('Diamond Shine') && storedTemplate.body.includes('linear-gradient')
+      ? storedTemplate
+      : INVITE_TEMPLATE_FALLBACK
     const rendered = renderTemplate(template, {
       name: data.name,
       email: data.to,
