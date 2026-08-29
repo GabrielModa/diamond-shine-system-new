@@ -1,6 +1,5 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
-import { createPortal } from 'react-dom'
 import { schoolScheduleSummary } from '../../lib/workforce-schedule-ui'
 
 type Point = { kind:'home'|'school'; label:string; address:string; latitude:number|null; longitude:number|null }
@@ -29,6 +28,7 @@ const hours=(m:number)=>`${Math.floor(m/60)}h ${m%60}m`
 
 export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onOriginModeChange}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
+  const shellRef=useRef<HTMLDivElement>(null)
   const mapRef=useRef<import('leaflet').Map|null>(null)
   const closeEmployeeRef=useRef(onCloseEmployee)
   const layersRef=useRef<import('leaflet').LayerGroup|null>(null)
@@ -37,14 +37,15 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
-  useEffect(()=>{if(!expanded)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous}},[expanded])
+  useEffect(()=>{const onFullscreenChange=()=>setExpanded(document.fullscreenElement===shellRef.current);document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[])
+  const toggleFullscreen=()=>{if(document.fullscreenElement===shellRef.current){void document.exitFullscreen()}else{void shellRef.current?.requestFullscreen?.()}}
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
     const L=m.default
     const map=L.map(hostRef.current,{zoomControl:true,scrollWheelZoom:true,preferCanvas:true}).setView([53.3498,-6.2603],12)
-    map.on('click',()=>{closeEmployeeRef.current?.();setExpanded(true)})
+    map.on('click',()=>closeEmployeeRef.current?.())
     const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19})
     tiles.on('load',()=>!cancelled&&setStatus('ready'));tiles.on('tileerror',()=>!cancelled&&setStatus('unavailable'));tiles.addTo(map)
     layersRef.current=L.layerGroup().addTo(map);mapRef.current=map;setTimeout(()=>map.invalidateSize(),0)
@@ -81,11 +82,11 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
-  const mapSurface = <div className={`coverage-map-shell${expanded?' expanded':''}`}>
+  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded?' expanded':''}`}>
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
-    <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={()=>setExpanded((value)=>!value)}>{expanded?'×':'⤢'}</button>
+    <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
     <div className="wf-map-legend"><span><i className="home"/>Home origin</span><span><i className="school"/>School origin</span><span><i className="site"/>Service site</span></div>
     {selectedEmployee?.context.origin?<aside className="wf-map-focus-card" data-testid="map-employee-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected employee" onClick={()=>onCloseEmployee?.()}>×</button>
@@ -105,5 +106,5 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       {selectedEmployee.nextVisit?<div className="wf-map-focus-next"><small>Next</small><strong>{selectedEmployee.nextVisit.site.name}</strong><span>{new Date(selectedEmployee.nextVisit.startsAt).toLocaleString('en-IE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</span></div>:<div className="wf-map-focus-next"><small>Next</small><strong>Open capacity</strong></div>}
     </aside>:null}
   </div>
-  return expanded && typeof document !== 'undefined' ? createPortal(mapSurface, document.body) : mapSurface
+  return mapSurface
 }
