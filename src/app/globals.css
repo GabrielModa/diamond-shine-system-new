@@ -206,7 +206,7 @@ button:focus-visible {
 .access-invite .admin-form-grid > .btn-primary { align-self: start; margin-top: 29px; }
 .access-toolbar { grid-template-columns: minmax(0, 1fr) 180px 220px; align-items: end; }
 .access-list { max-height: 680px; overflow-y: auto; padding-right: 4px; scrollbar-gutter: stable; }
-.access-user-row { grid-template-columns: minmax(220px, 1.25fr) minmax(210px, 1fr) auto minmax(250px, auto); gap: 18px; align-items: center; padding: 18px 4px; }
+.access-user-row { grid-template-columns: minmax(260px, 1.1fr) minmax(300px, 1.35fr) 90px 320px; gap: 18px; align-items: center; padding: 18px 4px; }
 .access-person, .access-role-control { min-width: 0; }
 .access-person { display: grid; gap: 4px; align-content: center; }
 .access-person strong { font-size: 1rem; }
@@ -216,6 +216,10 @@ button:focus-visible {
 .access-status { justify-self: start; min-width: 76px; justify-content: center; }
 .access-actions { justify-content: flex-end; flex-wrap: wrap; }
 .access-actions button, .access-actions a { white-space: nowrap; }
+@media (max-width: 1200px) and (min-width: 701px) {
+  .access-user-row { grid-template-columns: minmax(220px, 1fr) minmax(260px, 1fr) 86px; }
+  .access-user-row > .access-actions { grid-column: 2 / -1; justify-content: flex-start; }
+}
 .detail-dialog, .detail-dialog-body, .detail-dialog-body > *, .detail-dialog .communication-grid { min-width: 0; }
 .detail-dialog .muted, .detail-dialog .toast { overflow-wrap: anywhere; }
 @media (max-width: 1000px) {
