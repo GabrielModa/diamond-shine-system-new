@@ -167,7 +167,7 @@ export default function WeeklyWindowEditor({
           {DAYS.map(([value, label]) => <button key={value} type="button" className={draft.days.includes(value) ? 'btn-primary' : 'btn-secondary'} onClick={() => toggleDay(value)}>{label}</button>)}
         </div>
 
-        <div className="admin-form-grid" style={{ gridTemplateColumns: reasonEnabled ? 'minmax(190px, .8fr) minmax(190px, .8fr) minmax(220px, 1.2fr)' : 'repeat(2, minmax(190px, 1fr))' }}>
+        <div className="admin-form-grid weekly-window-grid" data-with-reason={reasonEnabled ? 'true' : 'false'}>
           <div><span style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', color: '#4b5563' }}>From</span><TimeField12h value={draft.startsMinute} onChange={(minutes) => { setDraft((current) => ({ ...current, startsMinute: minutes })); setError('') }} ariaLabel="From time" /></div>
           <div><span style={{ display: 'block', marginBottom: 6, fontSize: '0.85rem', color: '#4b5563' }}>Until</span><TimeField12h value={draft.endsMinute} onChange={(minutes) => { setDraft((current) => ({ ...current, endsMinute: minutes })); setError('') }} ariaLabel="Until time" /></div>
           {reasonEnabled ? <label><span>Reason (optional)</span><input value={draft.reason} maxLength={160} onChange={(event) => setDraft((current) => ({ ...current, reason: event.target.value }))} placeholder="Other job, family care…" /></label> : null}

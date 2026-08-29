@@ -188,6 +188,9 @@ button:focus-visible {
 .admin-form-grid { display: grid; grid-template-columns: repeat(3, minmax(180px, 1fr)) auto; gap: 12px; align-items: end; }
 .admin-form-grid.two-columns { grid-template-columns: repeat(2, minmax(240px, 1fr)); }
 .admin-form-grid label, .communication-card label { display: grid; gap: 6px; font-size: 0.85rem; color: #4b5563; }
+.weekly-window-grid { grid-template-columns: repeat(2, minmax(250px, 1fr)); align-items: end; }
+.weekly-window-grid[data-with-reason="true"] { grid-template-columns: minmax(250px, .8fr) minmax(250px, .8fr) minmax(240px, 1.2fr); }
+.weekly-window-grid > div, .weekly-window-grid > label { min-width: 0; }
 .admin-toolbar { display: grid; grid-template-columns: 1fr minmax(180px, 260px); gap: 10px; margin-bottom: 14px; }
 .admin-list { display: grid; }
 .admin-user-row { display: grid; grid-template-columns: minmax(220px, 1fr) 170px 100px auto; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
