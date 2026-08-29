@@ -2741,3 +2741,4 @@ textarea {
 .timesheet-period-control .list-controls { justify-content: flex-end; }
 @media (max-width: 900px) { .timesheet-period-control { grid-template-columns: 1fr; align-items: stretch; } .timesheet-period-control .list-controls { justify-content: stretch; } }
 .coverage-layout:fullscreen .wf-map-focus-card{left:24px;right:auto}
+.coverage-layout:fullscreen .route-planner .route-origin{display:none}.coverage-layout:fullscreen .wf-map-focus-card>p{display:none}
