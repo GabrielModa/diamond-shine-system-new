@@ -200,7 +200,7 @@ export default function UsersPage() {
           ? 'This permanently deletes the pending invitation and its setup token. The person will need a brand-new invitation to join.'
           : 'This removes organization access immediately. Diamond Shine keeps historical visits, time, audit and service records instead of erasing operational history.'}</p>
         <div className="toast error"><strong>{deleteTarget.status === 'pending' ? 'Permanent deletion' : 'Access removal'}</strong><br />Type <strong>{deleteTarget.email}</strong> to confirm.</div>
-        <label><span>Confirm work email</span><input autoFocus value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} placeholder={deleteTarget.email} /></label>
+        <label className="delete-confirm-field"><span>Confirm work email</span><input autoFocus value={deleteConfirm} onChange={(event) => setDeleteConfirm(event.target.value)} placeholder={deleteTarget.email} /></label>
         <div className="row tight" style={{ justifyContent: 'flex-end' }}>
           <button className="btn-secondary" type="button" disabled={busyId === deleteTarget.id} onClick={() => { setDeleteTarget(null); setDeleteConfirm('') }}>Cancel</button>
           <button className="btn-ghost danger" type="button" disabled={busyId === deleteTarget.id || deleteConfirm.trim().toLowerCase() !== deleteTarget.email.toLowerCase()} onClick={() => void deletePerson()}>
