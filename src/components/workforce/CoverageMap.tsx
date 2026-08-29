@@ -1,5 +1,5 @@
 'use client'
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, type RefObject } from 'react'
 import { schoolScheduleSummary } from '../../lib/workforce-schedule-ui'
 
 type Point = { kind:'home'|'school'; label:string; address:string; latitude:number|null; longitude:number|null }
@@ -22,11 +22,12 @@ type Props = {
   originMode?:'auto'|'home'|'school'
   onCloseEmployee?:()=>void
   onOriginModeChange?:(mode:'auto'|'home'|'school')=>void
+  fullscreenTarget?:RefObject<HTMLElement|null>
 }
 const initials=(name:string)=>name.split(' ').map(p=>p[0]).join('').slice(0,2)
 const hours=(m:number)=>`${Math.floor(m/60)}h ${m%60}m`
 
-export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onOriginModeChange}:Props){
+export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onOriginModeChange,fullscreenTarget}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
   const shellRef=useRef<HTMLDivElement>(null)
   const mapRef=useRef<import('leaflet').Map|null>(null)
@@ -37,8 +38,8 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
-  useEffect(()=>{const onFullscreenChange=()=>setExpanded(document.fullscreenElement===shellRef.current);document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[])
-  const toggleFullscreen=()=>{if(document.fullscreenElement===shellRef.current){void document.exitFullscreen()}else{void shellRef.current?.requestFullscreen?.()}}
+  useEffect(()=>{const onFullscreenChange=()=>setExpanded(document.fullscreenElement===((fullscreenTarget?.current??shellRef.current)));document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget])
+  const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen()}else{void target?.requestFullscreen?.()}}
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
@@ -82,7 +83,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
-  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded?' expanded':''}`}>
+  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded&&!fullscreenTarget?' expanded':''}`}>
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
