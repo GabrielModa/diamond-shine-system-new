@@ -41,7 +41,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
-  useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;const active=document.fullscreenElement===target;setExpanded(active);if(!active&&escapeRef.current){escapeRef.current=false;if(selectedEmployee)onCloseEmployee?.()}};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget,selectedEmployee,onCloseEmployee])
+  useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;const active=document.fullscreenElement===target;if(!active&&escapeRef.current&&selectedEmployee){escapeRef.current=false;onCloseEmployee?.();setExpanded(true);return}setExpanded(active)};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget,selectedEmployee,onCloseEmployee])
   const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen()}else{void target?.requestFullscreen?.().catch(()=>setExpanded(false))}}
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'){escapeRef.current=true;event.preventDefault();event.stopPropagation();onCloseEmployee?.()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[selectedEmployee,onCloseEmployee])
 
@@ -86,7 +86,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
-  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded&&!fullscreenTarget?' expanded':''}`}>
+  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded?' expanded':''}`}>
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
