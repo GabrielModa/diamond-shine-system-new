@@ -120,6 +120,20 @@
   align-items: start;
 }
 
+.profileFormGrid {
+  align-items: start;
+}
+
+.profileFormGrid > label {
+  align-self: start;
+  min-width: 0;
+}
+
+.profileFormGrid select {
+  width: 100%;
+  min-width: 0;
+}
+
 .contactEditGrid label {
   min-width: 0;
 }
@@ -251,6 +265,10 @@
   align-items: end;
 }
 
+.tempForm > * {
+  min-width: 0;
+}
+
 .tempDate {
   grid-column: span 6;
   min-width: 0;
@@ -338,6 +356,18 @@
     width: auto;
     justify-self: end;
     min-width: 210px;
+  }
+}
+
+@media (max-width: 760px) {
+  .tempForm {
+    grid-template-columns: 1fr;
+  }
+
+  .tempDate,
+  .tempReason,
+  .tempAction {
+    grid-column: 1 / -1;
   }
 }
 

@@ -8,9 +8,13 @@
 
 .control {
   display: grid;
-  grid-template-columns: minmax(145px, .9fr) minmax(245px, 1.1fr);
+  grid-template-columns: minmax(170px, .9fr) minmax(260px, 1.1fr);
   gap: 8px;
   align-items: center;
+  min-width: 0;
+}
+
+.control > * {
   min-width: 0;
 }
 

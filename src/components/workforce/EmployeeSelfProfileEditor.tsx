@@ -432,7 +432,7 @@ export default function EmployeeSelfProfileEditor({ mode = 'profile', setupToken
 
       {step === 1 ? <section className="card">
         <div className="section-heading"><div><h2>Home & travel</h2><p className="muted">Start typing your home address or Eircode, then choose the correct Google Maps result.</p></div></div>
-        <div className="admin-form-grid two-columns">
+        <div className={`admin-form-grid two-columns ${styles.profileFormGrid}`}>
           <GooglePlaceAutocomplete
             kind="home"
             label="Home address"
@@ -566,7 +566,7 @@ export default function EmployeeSelfProfileEditor({ mode = 'profile', setupToken
       </div>
 
       {editing.home ? <div className={styles.editPanel}>
-        <div className="admin-form-grid two-columns">
+        <div className={`admin-form-grid two-columns ${styles.profileFormGrid}`}>
           <GooglePlaceAutocomplete
             kind="home"
             label="Home address"
