@@ -32,15 +32,17 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   const closeEmployeeRef=useRef(onCloseEmployee)
   const layersRef=useRef<import('leaflet').LayerGroup|null>(null)
   const [status,setStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
+  const [expanded,setExpanded]=useState(false)
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
+  useEffect(()=>{const map=mapRef.current;if(!map)return;const timer=window.setTimeout(()=>map.invalidateSize(),120);return()=>window.clearTimeout(timer)},[expanded])
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
     const L=m.default
     const map=L.map(hostRef.current,{zoomControl:true,scrollWheelZoom:true,preferCanvas:true}).setView([53.3498,-6.2603],12)
-    map.on('click',()=>closeEmployeeRef.current?.())
+    map.on('click',()=>{closeEmployeeRef.current?.();setExpanded(true)})
     const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19})
     tiles.on('load',()=>!cancelled&&setStatus('ready'));tiles.on('tileerror',()=>!cancelled&&setStatus('unavailable'));tiles.addTo(map)
     layersRef.current=L.layerGroup().addTo(map);mapRef.current=map;setTimeout(()=>map.invalidateSize(),0)
@@ -59,7 +61,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     })
     if(showEmployees)employees.filter(e=>e.context.availableForScheduling&&e.context.origin?.latitude!=null&&e.context.origin.longitude!=null).forEach(e=>{
       const o=e.context.origin!,lat=o.latitude!,lng=o.longitude!;bounds.push([lat,lng])
-      const cls=e.context.state==='school'?'school':'home',selected=e.id===selectedEmployee?.id
+      const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home',selected=e.id===selectedEmployee?.id
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls}${selected?' selected':''}">${initials(e.name)}</span>`,iconSize:[40,40],iconAnchor:[20,20]})})
         .bindTooltip(`${e.name} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`} · ${e.context.state==='school'?'School':'Home'}`,{direction:'top'})
       marker.on('click',()=>{onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
@@ -74,16 +76,18 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     }else if(o?.latitude!=null&&o.longitude!=null){
       map.setView([o.latitude,o.longitude],13,{animate:true})
     }else if(bounds.length)map.fitBounds(bounds,{padding:[38,38],maxZoom:13})
-  });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin])
+  });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
-  return <div className="coverage-map-shell">
+  const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
+  return <div className={`coverage-map-shell${expanded?' expanded':''}`}>
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
+    <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={()=>setExpanded((value)=>!value)}>{expanded?'×':'⤢'}</button>
     <div className="wf-map-legend"><span><i className="home"/>Home origin</span><span><i className="school"/>School origin</span><span><i className="site"/>Service site</span></div>
     {selectedEmployee?.context.origin?<aside className="wf-map-focus-card" data-testid="map-employee-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected employee" onClick={()=>onCloseEmployee?.()}>×</button>
-      <div className="wf-map-focus-top"><span className={`wf-origin-dot ${selectedEmployee.context.state}`}/><div><strong>{selectedEmployee.name}</strong><small>{originMode==='auto'?(selectedEmployee.context.state==='school'?'At school now':'Using home base'):`Route preview · ${originMode}`}</small></div></div>
+      <div className="wf-map-focus-top"><span className={`wf-origin-dot ${activeOriginMode}`}/><div><strong>{selectedEmployee.name}</strong><small>{originMode==='auto'?(selectedEmployee.context.state==='school'?'At school now':'Using home base'):`Route preview · ${originMode}`}</small></div></div>
       <p>{(routeOrigin ?? selectedEmployee.context.origin).address}</p>
       {selectedEmployee.profile.school?<div className="wf-school-strip"><span>School</span><strong>{selectedEmployee.profile.school.label}</strong><small>{schoolScheduleSummary(selectedEmployee.profile.studySchedule)}</small></div>:null}
       <div className="wf-map-focus-stats"><span><b>{hours(selectedEmployee.actualMinutes)}</b> worked</span><span><b>{hours(selectedEmployee.remainingCapacityMinutes)}</b> capacity</span><span className={`quality ${selectedEmployee.qualityBand}`}><b>{selectedEmployee.qualityAverage==null?'—':`★ ${selectedEmployee.qualityAverage.toFixed(1)}`}</b>{selectedEmployee.qualityCount?`${selectedEmployee.qualityCount} feedbacks`:'no feedback'}</span></div>
