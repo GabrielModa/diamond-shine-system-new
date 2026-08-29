@@ -2751,4 +2751,3 @@ textarea {
 .wf-map-inline-route{display:none}.coverage-layout:fullscreen .wf-map-inline-route{display:grid}.coverage-layout:fullscreen .wf-map-focus-card{background:rgba(255,255,255,.68)!important;border-color:rgba(255,255,255,.5)!important;backdrop-filter:blur(12px) saturate(120%)}
 .coverage-layout:not(:fullscreen) .coverage-map-shell .wf-map-focus-card{top:58px;right:14px;background:rgba(255,255,255,.72);border-color:rgba(210,215,229,.72);backdrop-filter:blur(10px) saturate(115%)}
 .coverage-layout:fullscreen .wf-map-focus-card{position:absolute!important;top:auto!important;left:24px!important;right:auto!important;bottom:76px!important;width:min(430px,calc(100vw - 48px))!important;max-height:calc(100vh - 100px)!important}
-.map-fallback-expanded .route-planner{display:none!important}

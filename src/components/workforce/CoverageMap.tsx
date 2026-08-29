@@ -37,14 +37,14 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   const layersRef=useRef<import('leaflet').LayerGroup|null>(null)
   const [status,setStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [expanded,setExpanded]=useState(false)
-  const escapeRef=useRef(false)
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
+  const selectedEmployeeRef=useRef(selectedEmployee)
+  useEffect(()=>{selectedEmployeeRef.current=selectedEmployee},[selectedEmployee])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
-  useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;const active=document.fullscreenElement===target;if(!active&&escapeRef.current){escapeRef.current=false;onCloseEmployee?.();document.body.classList.add('map-fallback-expanded');setExpanded(true);return}document.body.classList.remove('map-fallback-expanded');setExpanded(active)};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>{document.removeEventListener('fullscreenchange',onFullscreenChange);document.body.classList.remove('map-fallback-expanded') }},[fullscreenTarget,onCloseEmployee])
-  useEffect(()=>{if(!expanded||document.fullscreenElement)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();setExpanded(false);document.body.classList.remove('map-fallback-expanded')}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[expanded])
-  const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen()}else{void target?.requestFullscreen?.().catch(()=>setExpanded(false))}}
-  useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'){escapeRef.current=true;event.preventDefault();event.stopPropagation();onCloseEmployee?.()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[selectedEmployee,onCloseEmployee])
+  useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;setExpanded(document.fullscreenElement===target)};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget])
+  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key!=='Escape')return;const isFullscreen=Boolean(document.fullscreenElement);if(selectedEmployeeRef.current){event.preventDefault();event.stopPropagation();closeEmployeeRef.current?.();return}if(isFullscreen){event.preventDefault();event.stopPropagation();void document.exitFullscreen()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[])
+  const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen();return}const request=target?.requestFullscreen as ((options?:{keyboardLock?:'browser';navigationUI?:'hide'|'show'|'auto'})=>Promise<void>)|undefined;void request?.call(target,{keyboardLock:'browser',navigationUI:'hide'}).catch(()=>{void target?.requestFullscreen?.().catch(()=>setExpanded(false))})}
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
@@ -87,7 +87,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
-  const mapSurface = <div ref={shellRef} className={`coverage-map-shell${expanded?' expanded':''}`}>
+  const mapSurface = <div ref={shellRef} className="coverage-map-shell">
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
