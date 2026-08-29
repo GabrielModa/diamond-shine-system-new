@@ -128,6 +128,18 @@ button:focus-visible {
   outline-offset: 2px;
 }
 
+.sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 .active { outline: 2px solid var(--accent-start); }
 .toast.success { color: #0f766e; font-weight: 600; }
 .toast.error { color: #b91c1c; font-weight: 600; }
