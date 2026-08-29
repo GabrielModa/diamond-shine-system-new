@@ -288,10 +288,7 @@ export async function sendClientNotification(
 
 const INVITE_TEMPLATE_FALLBACK = {
   subject: 'You are invited to Diamond Shine',
-  body: `<p>Hello {{name}},</p>
-<p>You have been invited to Diamond Shine.</p>
-<p><a href="{{inviteUrl}}">Create your password</a>. This secure link expires in 24 hours and can only be used once.</p>
-<p>If you did not request this, please ignore this email.</p>`,
+  body: `<!doctype html><html lang="en"><body style="margin:0;background:#f5f7fb;padding:32px 16px;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,Arial,sans-serif;color:#172033"><div style="max-width:600px;margin:auto;background:#fff;border:1px solid #e5e7f0;border-radius:18px;overflow:hidden;box-shadow:0 12px 35px rgba(41,48,86,.10)"><div style="padding:28px 32px;background:linear-gradient(135deg,#667eea,#764ba2);color:#fff"><div style="font-size:20px;font-weight:800">💎 Diamond Shine</div><div style="margin-top:6px;opacity:.9">Operations Suite</div></div><div style="padding:32px"><p style="margin:0 0 8px;color:#667085">Welcome to the team</p><h1 style="margin:0 0 18px;font-size:28px">You are invited, {{name}}</h1><p style="font-size:16px;line-height:1.6">Your Diamond Shine workspace is ready. Set your password to securely finish your account setup.</p><p style="margin:28px 0"><a href="{{inviteUrl}}" style="display:inline-block;padding:14px 22px;border-radius:10px;background:#6652d8;color:#fff;text-decoration:none;font-weight:700">Create your password</a></p><div style="padding:14px 16px;border-radius:10px;background:#f6f7fb;color:#667085;font-size:13px;line-height:1.5">This secure link expires in 24 hours and can be used only once.</div><p style="color:#667085;font-size:13px;line-height:1.5">If you were not expecting this invitation, you can safely ignore this email.</p></div><div style="padding:18px 32px;background:#fafbfc;border-top:1px solid #edf0f5;color:#98a2b3;font-size:12px">Diamond Shine · Secure account invitation</div></div></body></html>`,
 }
 
 function renderTemplate(template: { subject: string; body: string }, data: Record<string, string>) {

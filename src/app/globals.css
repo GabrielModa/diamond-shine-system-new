@@ -691,6 +691,15 @@ button:focus-visible {
 .toast.error { background: #fef2f2; border: 1px solid #fecaca; }
 .toast { position: sticky; top: 10px; z-index: 30; }
 
+@keyframes toast-success-dismiss {
+  0%, 72% { opacity: 1; transform: translateY(0); }
+  100% { opacity: 0; transform: translateY(-6px); visibility: hidden; }
+}
+
+.toast.success {
+  animation: toast-success-dismiss 5s ease forwards;
+}
+
 .toast-strong {
   font-weight: 600;
   padding: 12px 14px;
