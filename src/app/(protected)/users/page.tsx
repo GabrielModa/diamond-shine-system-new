@@ -22,6 +22,8 @@ const ROLE_OPTIONS: Array<{ value: MembershipRole; label: string; detail: string
   { value: 'viewer', label: 'Viewer', detail: 'Read-only operational visibility' },
 ]
 
+const STATUS_LABELS: Record<User['status'], string> = { pending: 'Pending', active: 'Active', inactive: 'Inactive' }
+
 async function fetchJson<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
   const payload = (await response.json()) as ApiResponse<T>
@@ -174,12 +176,12 @@ export default function UsersPage() {
       </div>
       {loading ? <div role="status" className="empty-state">Loading people…</div> : null}
       {!loading && !filtered.length ? <div className="empty-state">No people match these filters.</div> : null}
-      <div className="admin-list access-list">
+      <div className="admin-list access-list" aria-label="Organization people">
         {filtered.map((user) => <article key={user.id} className="admin-user-row access-user-row">
-          <div><strong>{user.name ?? user.email}</strong><div className="muted">{user.email}</div>{user.setupStage === 'invited' ? <small className="muted">Invitation pending · password not created</small> : user.setupStage === 'profile_setup' ? <small className="muted">Setup in progress · account not active yet</small> : null}</div>
+          <div className="access-person"><strong>{user.name ?? user.email}</strong><div className="muted">{user.email}</div>{user.setupStage === 'invited' ? <small className="muted">Invitation pending · password not created</small> : user.setupStage === 'profile_setup' ? <small className="muted">Setup in progress · account not active yet</small> : null}</div>
           <label className="access-role-control"><span className="sr-only">Role for {user.name ?? user.email}</span><select aria-label={`Role for ${user.name ?? user.email}`} disabled={busyId === user.id} value={user.membershipRole} onChange={(event) => void changeRole(user, event.target.value as MembershipRole)}>{ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select><small>{ROLE_OPTIONS.find((item) => item.value === user.membershipRole)?.detail}</small></label>
-          <span className={`status-badge ${user.status === 'active' ? 'Completed' : user.status === 'pending' ? 'Pending' : 'Cancelled'}`}>{user.status}</span>
-          <div className="row tight">
+          <span className={`status-badge access-status ${user.status === 'active' ? 'Completed' : user.status === 'pending' ? 'Pending' : 'Cancelled'}`}>{STATUS_LABELS[user.status]}</span>
+          <div className="row tight access-actions">
             {user.membershipRole === 'employee' && user.status === 'active' ? <a className="btn-secondary" href={`/users/${user.id}/employment`}>Employee settings</a> : null}
             {user.status === 'pending' ? <button className="btn-secondary" type="button" disabled={busyId === user.id} onClick={() => void resendInvite(user)}>{user.setupStage === 'profile_setup' ? 'Resend setup link' : 'Resend invite'}</button> : null}
             {user.status === 'inactive' ? <button className="btn-success" type="button" disabled={busyId === user.id} onClick={() => void patchStatus(user.id, 'active')}>Reactivate</button> : null}
