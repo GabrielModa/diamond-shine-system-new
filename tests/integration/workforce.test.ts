@@ -189,6 +189,9 @@ describe('GET /api/workforce', () => {
 
     expect(response.status).toBe(200)
     expect(response.body.data.managerSetupRequired).toBe(false)
+    expect(await prisma.notificationJob.count({
+      where: { kind: 'profile_change_alert', entityType: 'workforce_profile', entityId: employeeId },
+    })).toBeGreaterThan(0)
     const saved = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
     expect(saved.phone).toBe('+353871234567')
     expect(saved.homeAddress).toBe('New operational base, Dublin')

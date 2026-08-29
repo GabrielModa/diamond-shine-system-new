@@ -159,7 +159,7 @@ async function notifyManagers(tx: any, current: NonNullable<Awaited<ReturnType<t
       role: { in: ['organization_admin', 'field_supervisor', 'scheduler'] },
       userId: { not: current.auth.id },
     },
-    select: { userId: true },
+    select: { userId: true, user: { select: { email: true } } },
   })
   if (!managers.length) return
   await tx.operationalNotice.create({
@@ -173,6 +173,24 @@ async function notifyManagers(tx: any, current: NonNullable<Awaited<ReturnType<t
       createdById: current.auth.id,
       recipients: {
         create: managers.map(({ userId }: { userId: string }) => ({ organizationId: current.auth.organizationId, userId })),
+      },
+    },
+  })
+  const recipients = managers.map((manager: { user: { email: string } }) => manager.user.email)
+  await tx.notificationJob.create({
+    data: {
+      organizationId: current.auth.organizationId,
+      kind: 'profile_change_alert',
+      status: 'queued',
+      nextAttemptAt: new Date(Date.now() + (priority === 'high' ? 0 : 10 * 60_000)),
+      createdBy: current.auth.email,
+      entityType: 'workforce_profile',
+      entityId: current.user.id,
+      payload: {
+        to: recipients,
+        employeeName: current.user.name ?? current.user.email,
+        changes: [title],
+        summary: body,
       },
     },
   })

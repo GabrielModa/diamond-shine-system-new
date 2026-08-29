@@ -63,6 +63,14 @@ export interface PasswordResetEmailData {
   resetUrl: string
 }
 
+export interface ProfileChangeEmailData {
+  to: string[]
+  employeeName: string
+  changes: string[]
+  summary: string
+  createdAt?: Date | string
+}
+
 function getTransport() {
   if (process.env.EMAIL_TRANSPORT === 'json') {
     return nodemailer.createTransport({ jsonTransport: true })
@@ -384,6 +392,24 @@ export async function sendPasswordReset(
     return { ok: true }
   } catch (error) {
     console.error('[EMAIL] failed password reset email', error)
+    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+  }
+}
+
+export async function sendProfileChangeNotification(data: ProfileChangeEmailData): Promise<{ ok: boolean; error?: string }> {
+  try {
+    const transport = getTransport()
+    const items = data.changes.map((change) => `<li>${escapeHtml(change)}</li>`).join('')
+    const timestamp = formatDublinDate(data.createdAt)
+    await transport.sendMail({
+      from: SMTP_FROM,
+      to: data.to,
+      subject: `Diamond Shine · ${sanitizeHeader(data.employeeName)} updated their profile`,
+      html: `<div style="font-family:-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,sans-serif;max-width:640px;margin:auto;background:#f6f7fb;padding:24px"><div style="background:linear-gradient(135deg,#667eea,#764ba2);color:#fff;padding:24px;border-radius:14px 14px 0 0"><h1 style="margin:0">💎 Diamond Shine</h1><p style="margin:6px 0 0">Operational profile update</p></div><div style="background:#fff;padding:24px;border-radius:0 0 14px 14px"><h2>${escapeHtml(data.employeeName)} updated their profile</h2><p>${escapeHtml(data.summary)}</p><ul>${items}</ul><p style="color:#667085;font-size:13px">${timestamp}</p><p style="color:#667085;font-size:13px">Review future staffing and routing where relevant. Published visits were not changed automatically.</p></div></div>`,
+    })
+    return { ok: true }
+  } catch (error) {
+    console.error('[EMAIL] failed profile change notification', error)
     return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
   }
 }
