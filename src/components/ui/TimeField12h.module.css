@@ -1,6 +1,6 @@
 .time {
   display: grid;
-  grid-template-columns: minmax(58px, 1fr) 10px minmax(68px, 1fr) minmax(74px, .95fr);
+  grid-template-columns: 72px 10px 78px 86px;
   gap: 6px;
   align-items: center;
   min-width: 0;
@@ -20,12 +20,13 @@
 }
 
 .time select:last-child {
-  min-width: 74px;
+  min-width: 86px;
+  padding-right: 10px;
 }
 
 @media (max-width: 420px) {
   .time {
-    grid-template-columns: minmax(52px, 1fr) 8px minmax(62px, 1fr) minmax(70px, .95fr);
+    grid-template-columns: 64px 8px 70px 78px;
     gap: 4px;
   }
 
@@ -35,6 +36,6 @@
   }
 
   .time select:last-child {
-    min-width: 70px;
+    min-width: 78px;
   }
 }
