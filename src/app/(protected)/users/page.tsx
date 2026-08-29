@@ -101,7 +101,7 @@ export default function UsersPage() {
     try {
       const result = await fetchJson<InviteResult>(`/api/users/${user.id}/invite`, { method: 'POST' })
       if (result.emailSent) {
-        setToast({ type: 'success', message: `Invitation resent to ${user.email}.` })
+        setToast({ type: 'success', message: `Invitation resent successfully to ${user.email}.` })
       } else {
         if (result.manualInviteUrl) setManualInvite({ email: user.email, url: result.manualInviteUrl })
         setToast({ type: 'error', message: 'Email delivery failed again. Use the new secure fallback link below.' })
