@@ -23,11 +23,13 @@ type Props = {
   onCloseEmployee?:()=>void
   onOriginModeChange?:(mode:'auto'|'home'|'school')=>void
   fullscreenTarget?:RefObject<HTMLElement|null>
+  routeMode?:'driving'|'transit'|'cycling'|'walking'; onRouteModeChange?:(mode:'driving'|'transit'|'cycling'|'walking')=>void
+  route?:{provider:string;durationSeconds:number;distanceMeters:number}|null; routeError?:string; mapsLink?:string
 }
 const initials=(name:string)=>name.split(' ').map(p=>p[0]).join('').slice(0,2)
 const hours=(m:number)=>`${Math.floor(m/60)}h ${m%60}m`
 
-export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onOriginModeChange,fullscreenTarget}:Props){
+export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onOriginModeChange,fullscreenTarget,routeMode,onRouteModeChange,route,routeError,mapsLink}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
   const shellRef=useRef<HTMLDivElement>(null)
   const mapRef=useRef<import('leaflet').Map|null>(null)
@@ -105,6 +107,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
         <small>{originMode==='auto'?'Uses the real schedule context to choose home or school.':originMode==='home'?'Previewing route from the employee home.':'Previewing route from the registered school.'}</small>
       </div>
       {selectedEmployee.nextVisit?<div className="wf-map-focus-next"><small>Next</small><strong>{selectedEmployee.nextVisit.site.name}</strong><span>{new Date(selectedEmployee.nextVisit.startsAt).toLocaleString('en-IE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</span></div>:<div className="wf-map-focus-next"><small>Next</small><strong>Open capacity</strong></div>}
+      <div className="wf-map-inline-route"><label>Service site<select value={selectedSite?.id??''} onChange={event=>{const next=sites.find(site=>site.id===event.target.value);if(next)onSite(next)}}><option value="">Select service site</option>{sites.map(site=><option key={site.id} value={site.id}>{site.client.displayName} · {site.name}</option>)}</select></label><div className="route-modes">{(['driving','transit','cycling','walking'] as const).map(mode=><button type="button" key={mode} className={routeMode===mode?'active':''} onClick={()=>onRouteModeChange?.(mode)}>{mode==='driving'?'🚗':mode==='transit'?'🚌':mode==='cycling'?'🚲':'🚶'}</button>)}</div>{route?<div className="wf-inline-result"><strong>{Math.max(1,Math.round(route.durationSeconds/60))} min</strong><span>{(route.distanceMeters/1000).toFixed(1)} km · {routeMode}</span>{mapsLink&&mapsLink!=='#'?<a href={mapsLink} target="_blank" rel="noreferrer">Open in Maps ↗</a>:null}</div>:routeError?<small className="muted">{routeError}</small>:null}</div>
     </aside>:null}
   </div>
   return mapSurface
