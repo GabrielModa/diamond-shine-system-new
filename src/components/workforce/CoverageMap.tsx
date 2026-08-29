@@ -1,5 +1,6 @@
 'use client'
 import { useEffect, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 import { schoolScheduleSummary } from '../../lib/workforce-schedule-ui'
 
 type Point = { kind:'home'|'school'; label:string; address:string; latitude:number|null; longitude:number|null }
@@ -36,6 +37,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timer=window.setTimeout(()=>map.invalidateSize(),120);return()=>window.clearTimeout(timer)},[expanded])
+  useEffect(()=>{if(!expanded)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous}},[expanded])
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
@@ -79,7 +81,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,onEmployee,onSite,routePath,routeOrigin,originMode])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
-  return <div className={`coverage-map-shell${expanded?' expanded':''}`}>
+  const mapSurface = <div className={`coverage-map-shell${expanded?' expanded':''}`}>
     <div ref={hostRef} className="coverage-map" aria-label="Workforce coverage map"/>
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
@@ -103,4 +105,5 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       {selectedEmployee.nextVisit?<div className="wf-map-focus-next"><small>Next</small><strong>{selectedEmployee.nextVisit.site.name}</strong><span>{new Date(selectedEmployee.nextVisit.startsAt).toLocaleString('en-IE',{weekday:'short',hour:'2-digit',minute:'2-digit'})}</span></div>:<div className="wf-map-focus-next"><small>Next</small><strong>Open capacity</strong></div>}
     </aside>:null}
   </div>
+  return expanded && typeof document !== 'undefined' ? createPortal(mapSurface, document.body) : mapSurface
 }
