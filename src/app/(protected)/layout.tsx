@@ -15,6 +15,7 @@ type PageMeta = {
   section: NavSection
   any?: Capability[]
   roles?: MembershipRole[]
+  excludedRoles?: MembershipRole[]
   always?: boolean
 }
 
@@ -33,11 +34,11 @@ const pageMeta: Record<string, PageMeta> = {
   quality: { label: 'Quality control', href: '/quality', section: 'analytics', any: ['quality.inspect'] },
   feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', any: ['quality.inspect'] },
   dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics', roles: ['organization_admin', 'field_supervisor'] },
-  clients: { label: 'Clients & sites', href: '/clients', section: 'admin', any: ['clients.read'] },
-  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin', any: ['schedule.read', 'service_plans.read'] },
-  operations: { label: 'Service setup', href: '/operations', section: 'admin', any: ['service_plans.read', 'sites.read'] },
-  users: { label: 'People & access', href: '/users', section: 'admin', any: ['memberships.manage'] },
-  audit: { label: 'Audit trail', href: '/audit', section: 'admin', any: ['audit.read'] },
+  clients: { label: 'Clients & sites', href: '/clients', section: 'admin', any: ['clients.read'], excludedRoles: ['employee'] },
+  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin', any: ['schedule.read', 'service_plans.read'], excludedRoles: ['employee'] },
+  operations: { label: 'Service setup', href: '/operations', section: 'admin', any: ['service_plans.read', 'sites.read'], excludedRoles: ['employee'] },
+  users: { label: 'People & access', href: '/users', section: 'admin', any: ['memberships.manage'], excludedRoles: ['employee'] },
+  audit: { label: 'Audit trail', href: '/audit', section: 'admin', any: ['audit.read'], excludedRoles: ['employee'] },
   profile: { label: 'My profile', href: '/profile', section: 'workspace', always: true },
   'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', any: ['supplies.request'] },
 }
@@ -69,7 +70,7 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
     })),
   })
   const allowed = (meta: PageMeta) => Boolean(
-    meta.always || meta.any?.some(can) || meta.roles?.includes(membership.role)
+    !meta.excludedRoles?.includes(membership.role) && (meta.always || meta.any?.some(can) || meta.roles?.includes(membership.role))
   )
 
   const requestHeaders = await headers()
