@@ -11,6 +11,7 @@ function SetPasswordForm() {
   const [message, setMessage] = useState<{ type: 'success' | 'error'; text: string } | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [checking, setChecking] = useState(Boolean(token))
+  const [showPasswords, setShowPasswords] = useState(false)
 
   useEffect(() => {
     if (!token) return
@@ -84,9 +85,10 @@ function SetPasswordForm() {
         </div>
         <form onSubmit={submit} className="auth-form">
           <label htmlFor="password">Create password</label>
-          <input id="password" type="password" autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required />
+          <input id="password" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" minLength={12} value={password} onChange={(event) => setPassword(event.target.value)} required />
           <label htmlFor="confirmPassword">Confirm password</label>
-          <input id="confirmPassword" type="password" autoComplete="new-password" minLength={12} value={confirm} onChange={(event) => setConfirm(event.target.value)} required />
+          <input id="confirmPassword" type={showPasswords ? 'text' : 'password'} autoComplete="new-password" minLength={12} value={confirm} onChange={(event) => setConfirm(event.target.value)} required />
+          <label className="password-toggle"><input type="checkbox" checked={showPasswords} onChange={(event) => setShowPasswords(event.target.checked)} /> Show passwords</label>
           <p className="muted">At least 12 characters with uppercase, lowercase and a number.</p>
           <button type="submit" className="btn-primary" disabled={submitting || !token}>
             {submitting ? 'Saving password…' : 'Continue account setup'}
