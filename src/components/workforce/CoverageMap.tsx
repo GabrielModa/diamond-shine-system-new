@@ -60,7 +60,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       marker.getElement()?.setAttribute('data-workforce-site-marker',site.id)
     })
     if(showEmployees)employees.filter(e=>e.context.availableForScheduling&&e.context.origin?.latitude!=null&&e.context.origin.longitude!=null).forEach(e=>{
-      const o=e.context.origin!,lat=o.latitude!,lng=o.longitude!;bounds.push([lat,lng])
+      const o=e.id===selectedEmployee?.id?(routeOrigin ?? e.context.origin):e.context.origin!;if(o?.latitude==null||o.longitude==null)return;const lat=o.latitude,lng=o.longitude;bounds.push([lat,lng])
       const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home',selected=e.id===selectedEmployee?.id
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls}${selected?' selected':''}">${initials(e.name)}</span>`,iconSize:[40,40],iconAnchor:[20,20]})})
         .bindTooltip(`${e.name} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`} · ${e.context.state==='school'?'School':'Home'}`,{direction:'top'})
