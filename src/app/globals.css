@@ -217,6 +217,14 @@ button:focus-visible {
 .access-actions button, .access-actions a { white-space: nowrap; }
 .detail-dialog, .detail-dialog-body, .detail-dialog-body > *, .detail-dialog .communication-grid { min-width: 0; }
 .detail-dialog .muted, .detail-dialog .toast { overflow-wrap: anywhere; }
+@media (max-width: 1000px) {
+  .access-invite .admin-form-grid { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .access-invite .admin-form-grid > .btn-primary { grid-column: 1 / -1; justify-self: end; }
+}
+@media (max-width: 700px) {
+  .access-invite .admin-form-grid { grid-template-columns: 1fr; }
+  .access-invite .admin-form-grid > .btn-primary { grid-column: auto; width: 100%; }
+}
 .audit-table { display: grid; }
 .audit-row { display: grid; grid-template-columns: minmax(220px, 1fr) 100px minmax(120px, .7fr) 180px; gap: 12px; align-items: center; padding: 12px 0; border-bottom: 1px solid var(--border); }
 .audit-row:last-child { border-bottom: 0; }
