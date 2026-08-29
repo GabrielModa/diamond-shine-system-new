@@ -40,7 +40,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
   useEffect(()=>{const onFullscreenChange=()=>setExpanded(document.fullscreenElement===((fullscreenTarget?.current??shellRef.current)));document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget])
   const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen()}else{void target?.requestFullscreen?.()}}
-  useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
+  useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape'){event.preventDefault();event.stopPropagation();onCloseEmployee?.()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[selectedEmployee,onCloseEmployee])
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
