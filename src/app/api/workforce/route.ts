@@ -57,7 +57,7 @@ export async function GET(request: NextRequest) {
       },
       select: {
         id: true, name: true, email: true,
-        workforceProfile: { include: { studySchedules: true, leaves: true } },
+        workforceProfile: { include: { studySchedules: true, recurringUnavailability: true, leaves: true } },
       },
       orderBy: [{ name: 'asc' }, { email: 'asc' }],
     }),
@@ -114,6 +114,9 @@ export async function GET(request: NextRequest) {
     const studySchedule = db?.studySchedules.map((r) => ({
       dayOfWeek: r.dayOfWeek, startsMinute: r.startsMinute, endsMinute: r.endsMinute,
     })) ?? []
+    const recurringUnavailability = db?.recurringUnavailability.map((rule) => ({
+      dayOfWeek: rule.dayOfWeek, startsMinute: rule.startsMinute, endsMinute: rule.endsMinute, reason: rule.reason,
+    })) ?? []
     const leaves = db?.leaves.map((l) => ({
       kind: l.kind as 'school_holiday' | 'personal_leave',
       startsAt: l.startsAt, endsAt: l.endsAt, reason: l.reason,
@@ -127,7 +130,7 @@ export async function GET(request: NextRequest) {
           schoolHolidayActive: false,
           activeStudyRule: null,
         }
-      : resolveWorkforceContext({ timezone, home, school, studySchedule, leaves }, now)
+      : resolveWorkforceContext({ timezone, home, school, studySchedule, recurringUnavailability, leaves }, now)
 
     const allAssigned = visits.filter((visit) =>
       visit.status !== 'cancelled' && visit.status !== 'missed' && visit.assignments.some((a) => a.userId === user.id && ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)))
@@ -198,7 +201,7 @@ export async function GET(request: NextRequest) {
         setupRequired,
         home, school,
         travelMode: db ? db.travelMode as 'driving' | 'transit' | 'cycling' : null,
-        weeklyTargetMinutes, studySchedule, leaves,
+        weeklyTargetMinutes, studySchedule, recurringUnavailability, leaves,
       },
       context: { ...context, origin },
       plannedMinutes, actualMinutes, weeklyTargetMinutes, periodTargetMinutes,

@@ -92,6 +92,7 @@ model Organization {
   workforceProfiles      WorkforceProfile[]
   studySchedules         StudySchedule[]
   workforceLeaves        WorkforceLeave[]
+  recurringUnavailability RecurringUnavailability[]
   jobDefaultAssignees   JobDefaultAssignee[]
   servicePauses         ServicePause[]
 
@@ -655,10 +656,28 @@ model WorkforceProfile {
   organization        Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   user                User             @relation(fields: [userId], references: [id], onDelete: Cascade)
   studySchedules      StudySchedule[]
+  recurringUnavailability RecurringUnavailability[]
   leaves              WorkforceLeave[]
 
   @@index([organizationId, weeklyTargetMinutes])
   @@map("workforce_profiles")
+}
+
+model RecurringUnavailability {
+  id             String           @id @default(cuid())
+  organizationId String
+  profileId      String
+  dayOfWeek      Int
+  startsMinute   Int
+  endsMinute     Int
+  reason         String?
+  createdAt      DateTime         @default(now())
+  updatedAt      DateTime         @updatedAt
+  organization   Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  profile        WorkforceProfile @relation(fields: [profileId], references: [id], onDelete: Cascade)
+
+  @@index([organizationId, profileId, dayOfWeek])
+  @@map("recurring_unavailability")
 }
 
 model StudySchedule {

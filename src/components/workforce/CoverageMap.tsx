@@ -9,7 +9,7 @@ export type MapEmployee = {
   plannedMinutes:number; actualMinutes:number; periodTargetMinutes:number; remainingCapacityMinutes:number
   capacityStatus:'available'|'near'|'over'
   qualityAverage:number|null;qualityCount:number;qualityLabel:string;qualityBand:'excellent'|'good'|'watch'|'issues'|'none'
-  context:{state:'home'|'school'|'personal_leave';availableForScheduling:boolean;origin:Point|null;schoolHolidayActive:boolean}
+  context:{state:'home'|'school'|'personal_leave'|'recurring_unavailability';availableForScheduling:boolean;origin:Point|null;schoolHolidayActive:boolean}
   nextVisit:{startsAt:string;site:Site}|null
   profile:{home:Point;school:Point|null;studySchedule:Array<{dayOfWeek:number;startsMinute:number;endsMinute:number}>}
 }

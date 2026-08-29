@@ -82,9 +82,20 @@ export function operationalGreeting(value: Date | string, timeZone = 'Europe/Dub
 }
 
 export function formatOperationalTime(value: Date | string, timeZone = 'Europe/Dublin') {
-  return new Intl.DateTimeFormat('en-IE', { hour: '2-digit', minute: '2-digit', timeZone }).format(asDate(value));
+  return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone }).format(asDate(value));
 }
 
 export function formatOperationalDate(value: Date | string, timeZone = 'Europe/Dublin', options?: Intl.DateTimeFormatOptions) {
-  return new Intl.DateTimeFormat('en-IE', { timeZone, ...(options ?? { day: 'numeric', month: 'short' }) }).format(asDate(value));
+  const selected = options ?? { day: 'numeric', month: 'short' };
+  const hasTime = Boolean(selected.hour || selected.minute || selected.second);
+  return new Intl.DateTimeFormat(hasTime ? 'en-GB' : 'en-IE', { timeZone, ...(hasTime ? { hour12: true } : {}), ...selected }).format(asDate(value));
+}
+
+export function formatMinuteOfDay(minutes: number) {
+  const normalized = Math.min(1439, Math.max(0, Math.round(minutes)));
+  const hour24 = Math.floor(normalized / 60);
+  const minute = normalized % 60;
+  const hour12 = hour24 % 12 || 12;
+  const period = hour24 >= 12 ? 'pm' : 'am';
+  return `${hour12}:${pad(minute)} ${period}`;
 }

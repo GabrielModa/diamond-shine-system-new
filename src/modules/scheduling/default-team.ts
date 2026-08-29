@@ -15,6 +15,7 @@ type Member = {
     workforceProfile: null | {
       weeklyTargetConfigured: boolean
       studySchedules: Array<{ dayOfWeek: number; startsMinute: number; endsMinute: number }>
+      recurringUnavailability: Array<{ dayOfWeek: number; startsMinute: number; endsMinute: number; reason: string | null }>
       leaves: Array<{ kind: string; startsAt: Date; endsAt: Date; reason: string | null }>
     }
   }
@@ -51,7 +52,7 @@ export async function buildDefaultTeamAllocator(
         user: {
           select: {
             id: true,
-            workforceProfile: { include: { studySchedules: true, leaves: true } },
+            workforceProfile: { include: { studySchedules: true, recurringUnavailability: true, leaves: true } },
           },
         },
       },
@@ -97,6 +98,7 @@ export async function buildDefaultTeamAllocator(
     if (!profile?.weeklyTargetConfigured) return false
     const workforceConflict = workforceConstraintForWindow({
       studySchedules: profile.studySchedules,
+      recurringUnavailability: profile.recurringUnavailability,
       leaves: profile.leaves.map((leave) => ({
         kind: leave.kind as 'school_holiday' | 'personal_leave',
         startsAt: leave.startsAt,

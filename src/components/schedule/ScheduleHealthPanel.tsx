@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { addOperationalDays, operationalDateKey } from '../../lib/operational-time'
+import { addOperationalDays, formatOperationalTime, operationalDateKey } from '../../lib/operational-time'
 import type { ScheduleHealthItem, ScheduleHealthState } from '../../modules/scheduling/schedule-health-core'
 import styles from './ScheduleHealthPanel.module.css'
 
@@ -168,7 +168,7 @@ export default function ScheduleHealthPanel({
         return <article key={item.id} className={styles.item} data-state={item.state}>
           <div className={styles.state}><span aria-hidden="true">{item.state === 'covered' ? '✓' : item.state === 'service_paused' ? '⏸' : item.state === 'cleaner_overlap' || item.state === 'expected_not_scheduled' ? '⛔' : '⚠'}</span>{labels[item.state]}</div>
           <div className={styles.copy}><strong>{item.clientName}{item.siteName ? ` · ${item.siteName}` : ''}</strong><span>{item.jobName ?? item.servicePlanName ?? 'Service plan'}</span><small>{item.detail}</small></div>
-          <div className={styles.when}>{start ? <><strong>{start.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone })}</strong><span>{start.toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit', timeZone: zone })}{item.requiredWorkers ? ` · ${item.activeWorkers ?? 0}/${item.requiredWorkers}` : ''}</span></> : <span>Needs scheduling definition</span>}</div>
+          <div className={styles.when}>{start ? <><strong>{start.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone })}</strong><span>{formatOperationalTime(start, zone)}{item.requiredWorkers ? ` · ${item.activeWorkers ?? 0}/${item.requiredWorkers}` : ''}</span></> : <span>Needs scheduling definition</span>}</div>
           <div className={styles.actions}>
             {canManage && item.state === 'expected_not_scheduled' && item.jobId && !item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Schedule now</button> : null}
             {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" onClick={() => router.push(`/schedule?visit=${item.visitId}`)}>Review cancelled visit</button> : null}

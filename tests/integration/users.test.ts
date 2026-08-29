@@ -35,6 +35,7 @@ beforeEach(async () => {
   await prisma.authRateLimit.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.authToken.deleteMany()
+  await prisma.operationalNotice.deleteMany({ where: { createdBy: { email: { contains: '@test.io' } } } })
   await prisma.user.deleteMany({ where: { email: { contains: '@test.io' } } })
   await prisma.user.update({ where: { email: 'admin@ds.ie' }, data: { role: 'admin', status: 'active' } })
 })
@@ -79,7 +80,7 @@ describe('POST /api/users invite', () => {
     expect(token?.tokenHash).toHaveLength(64)
   })
 
-  it('falls back to a secure manual link and only activates after password creation', async () => {
+  it('falls back to a secure manual link and activates field staff only after operational profile setup', async () => {
     const previousTransport = process.env.EMAIL_TRANSPORT
     const previousSmtpPort = process.env.SMTP_PORT
     const invited = await (async () => {
@@ -113,18 +114,57 @@ describe('POST /api/users invite', () => {
     const token = new URL(invited.body.data.manualInviteUrl).searchParams.get('token')
     expect(token).toBeTruthy()
     const password = 'DiamondShine123!'
-    const activated = await request(app)
+    const passwordSaved = await request(app)
       .post('/api/auth/set-password')
       .send({ token, password })
-    expect(activated.status).toBe(200)
+    expect(passwordSaved.status).toBe(200)
+    expect(passwordSaved.body.data.stage).toBe('profile')
 
-    const [savedUser, membership] = await Promise.all([
+    const [stagedUser, stagedMembership] = await Promise.all([
       prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
       prisma.membership.findFirstOrThrow({ where: { userId: user.id, organizationId: LEGACY_ORGANIZATION_ID } }),
     ])
+    expect(stagedUser.status).toBe('pending')
+    expect(stagedUser.password).toBeTruthy()
+    expect(stagedMembership.status).toBe('invited')
+
+    const blockedLogin = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.44')
+      .send({ email: 'onboarding@test.io', password })
+    expect(blockedLogin.status).toBe(403)
+
+    const previousPlacesTestMode = process.env.PLACES_TEST_MODE
+    const completed = await (async () => {
+      try {
+        process.env.PLACES_TEST_MODE = '1'
+        return await request(app)
+          .post('/api/auth/invite-setup')
+          .send({
+            token,
+            phone: '+353871234567',
+            homePlaceId: 'test-home-onboarding',
+            travelMode: 'transit',
+            emergencyContact: null,
+            schoolPlaceId: null,
+            studySchedule: [],
+            recurringUnavailability: [],
+          })
+      } finally {
+        if (previousPlacesTestMode === undefined) delete process.env.PLACES_TEST_MODE
+        else process.env.PLACES_TEST_MODE = previousPlacesTestMode
+      }
+    })()
+    expect(completed.status).toBe(200)
+
+    const [savedUser, membership, profile] = await Promise.all([
+      prisma.user.findUniqueOrThrow({ where: { id: user.id } }),
+      prisma.membership.findFirstOrThrow({ where: { userId: user.id, organizationId: LEGACY_ORGANIZATION_ID } }),
+      prisma.workforceProfile.findUniqueOrThrow({ where: { userId: user.id } }),
+    ])
     expect(savedUser.status).toBe('active')
-    expect(savedUser.password).toBeTruthy()
     expect(membership.status).toBe('active')
+    expect(profile.homeAddress).toBe('10 Test Street, Dublin 8, Ireland')
 
     const login = await request(app)
       .post('/api/auth/login')
@@ -214,7 +254,7 @@ describe('communications validation', () => {
 })
 
 describe('PATCH /api/users/:id/status', () => {
-  it('admin can approve pending user', async () => {
+  it('prevents administrators from bypassing required field-staff account setup', async () => {
     const user = await prisma.user.create({
       data: { email: 'pending@test.io', name: 'Pending', role: 'employee', status: 'pending', password: 'hash' },
     })
@@ -230,9 +270,10 @@ describe('PATCH /api/users/:id/status', () => {
       .patch(`/api/users/${user.id}/status`)
       .set('Cookie', adminCookie)
       .send({ status: 'active' })
-    expect(res.status).toBe(200)
+    expect(res.status).toBe(409)
+    expect(res.body.error).toContain('secure account setup')
     const updated = await prisma.user.findUnique({ where: { id: user.id } })
-    expect(updated?.status).toBe('active')
+    expect(updated?.status).toBe('pending')
   })
 
   it('prevents an administrator from deactivating their own account', async () => {

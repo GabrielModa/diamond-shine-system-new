@@ -1,14 +1,16 @@
 import { localDateTimeToUtc, zonedParts } from './recurrence'
 
 export type StudyRule = { dayOfWeek: number; startsMinute: number; endsMinute: number }
+export type RecurringUnavailableRule = StudyRule & { reason?: string | null }
 export type WorkforceLeaveRule = { kind: 'school_holiday' | 'personal_leave'; startsAt: Date; endsAt: Date; reason?: string | null }
 export type WorkforceConstraintProfile = {
   studySchedules: StudyRule[]
+  recurringUnavailability?: RecurringUnavailableRule[]
   leaves: WorkforceLeaveRule[]
 }
 
 export type WorkforceConstraint = {
-  kind: 'personal_leave' | 'school'
+  kind: 'personal_leave' | 'recurring_unavailability' | 'school'
   startsAt: Date
   endsAt: Date
   reason: string
@@ -28,26 +30,26 @@ function localCalendarDays(start: Date, end: Date, timezone: string) {
   return days
 }
 
-function schoolWindow(day: Date, rule: StudyRule, timezone: string) {
-  const startsDayOffset = Math.floor(rule.startsMinute / 1440)
-  const endsDayOffset = Math.floor(rule.endsMinute / 1440)
-  const startMinute = rule.startsMinute % 1440
-  let endMinute = rule.endsMinute % 1440
-  let effectiveEndOffset = endsDayOffset
-  if (rule.endsMinute > rule.startsMinute && endMinute === 0) effectiveEndOffset = Math.max(1, endsDayOffset)
-  if (rule.endsMinute <= rule.startsMinute) effectiveEndOffset = Math.max(1, effectiveEndOffset)
-
-  const startDay = new Date(day); startDay.setUTCDate(startDay.getUTCDate() + startsDayOffset)
-  const endDay = new Date(day); endDay.setUTCDate(endDay.getUTCDate() + effectiveEndOffset)
+function recurringWindow(day: Date, rule: StudyRule, timezone: string) {
+  const startMinute = rule.startsMinute
+  const endMinute = rule.endsMinute
   const start = localDateTimeToUtc({
-    year: startDay.getUTCFullYear(), month: startDay.getUTCMonth() + 1, day: startDay.getUTCDate(),
+    year: day.getUTCFullYear(), month: day.getUTCMonth() + 1, day: day.getUTCDate(),
     hour: Math.floor(startMinute / 60), minute: startMinute % 60, second: 0,
   }, timezone)
+  const endDay = new Date(day)
+  if (endMinute === 1440) endDay.setUTCDate(endDay.getUTCDate() + 1)
+  const normalizedEnd = endMinute % 1440
   const end = localDateTimeToUtc({
     year: endDay.getUTCFullYear(), month: endDay.getUTCMonth() + 1, day: endDay.getUTCDate(),
-    hour: Math.floor(endMinute / 60), minute: endMinute % 60, second: 0,
+    hour: Math.floor(normalizedEnd / 60), minute: normalizedEnd % 60, second: 0,
   }, timezone)
   return { start, end }
+}
+
+function dayMatches(day: Date, rule: StudyRule) {
+  const jsDay = day.getUTCDay()
+  return rule.dayOfWeek === jsDay || (jsDay === 0 && rule.dayOfWeek === 7)
 }
 
 export function workforceConstraintForWindow(
@@ -67,15 +69,25 @@ export function workforceConstraintForWindow(
   }
 
   for (const day of localCalendarDays(start, end, timezone)) {
-    const jsDay = day.getUTCDay()
-    const rule = profile.studySchedules.find((item) => item.dayOfWeek === jsDay || (jsDay === 0 && item.dayOfWeek === 7))
-    if (!rule) continue
-    const window = schoolWindow(day, rule, timezone)
-    if (!overlaps(start, end, window.start, window.end)) continue
-    const onSchoolHoliday = profile.leaves.some((leave) =>
-      leave.kind === 'school_holiday' && overlaps(window.start, window.end, leave.startsAt, leave.endsAt))
-    if (onSchoolHoliday) continue
-    return { kind: 'school', startsAt: window.start, endsAt: window.end, reason: 'School / study schedule' }
+    for (const recurring of (profile.recurringUnavailability ?? []).filter((rule) => dayMatches(day, rule))) {
+      const window = recurringWindow(day, recurring, timezone)
+      if (!overlaps(start, end, window.start, window.end)) continue
+      return {
+        kind: 'recurring_unavailability',
+        startsAt: window.start,
+        endsAt: window.end,
+        reason: recurring.reason?.trim() || 'Recurring weekly unavailability',
+      }
+    }
+
+    for (const study of profile.studySchedules.filter((rule) => dayMatches(day, rule))) {
+      const window = recurringWindow(day, study, timezone)
+      if (!overlaps(start, end, window.start, window.end)) continue
+      const onSchoolHoliday = profile.leaves.some((leave) =>
+        leave.kind === 'school_holiday' && overlaps(window.start, window.end, leave.startsAt, leave.endsAt))
+      if (onSchoolHoliday) continue
+      return { kind: 'school', startsAt: window.start, endsAt: window.end, reason: 'School / study schedule' }
+    }
   }
   return null
 }

@@ -13,8 +13,8 @@ const membershipRoleSchema = z.enum([
   'stock_controller', 'quality_inspector', 'finance', 'viewer',
 ])
 const inviteSchema = z.object({
-  email: z.string().email(),
-  name: z.string().trim().min(1).max(160),
+  email: z.string().trim().email().max(254),
+  name: z.string().trim().min(2).max(120),
   role: z.enum(['admin', 'supervisor', 'employee', 'viewer']).optional(),
   membershipRole: membershipRoleSchema.optional(),
 })
@@ -37,6 +37,11 @@ export async function GET(request: NextRequest) {
     membershipRole: membership.role,
     membershipId: membership.id,
     hasPassword: Boolean(membership.user.password),
+    setupStage: membership.status === 'invited'
+      ? (membership.user.password ? 'profile_setup' : 'invited')
+      : membership.status === 'active' && membership.user.status === 'active'
+        ? 'active'
+        : 'inactive',
     status: membership.status === 'invited'
       ? 'pending'
       : membership.status === 'active' && membership.user.status === 'active'
@@ -58,22 +63,30 @@ export async function POST(request: NextRequest) {
   const baseUrl = getApplicationUrl()
   const existing = await prisma.user.findUnique({
     where: { email },
-    include: { memberships: { where: { organizationId: auth.user.organizationId, status: { not: 'removed' } }, take: 1 } },
+    include: { memberships: { where: { organizationId: auth.user.organizationId }, take: 1 } },
   })
-  if (existing?.memberships.length) return NextResponse.json({ ok: false, error: 'User already exists in this organization' }, { status: 409 })
+  const existingMembership = existing?.memberships[0] ?? null
+  if (existingMembership && existingMembership.status !== 'removed') {
+    return NextResponse.json({ ok: false, error: 'User already exists in this organization' }, { status: 409 })
+  }
 
   const created = existing ?? await prisma.user.create({
     data: { email, name: parsed.data.name, role: legacyRole, password: null, status: 'pending' },
   })
-  const membership = await prisma.membership.create({
-    data: {
-      organizationId: auth.user.organizationId,
-      userId: created.id,
-      role: membershipRole,
-      status: existing?.status === 'active' ? 'active' : 'invited',
-    },
-  })
-
+  const membershipStatus = existing?.status === 'active' ? 'active' : 'invited'
+  const membership = existingMembership
+    ? await prisma.membership.update({
+        where: { id: existingMembership.id },
+        data: { role: membershipRole, status: membershipStatus },
+      })
+    : await prisma.membership.create({
+        data: {
+          organizationId: auth.user.organizationId,
+          userId: created.id,
+          role: membershipRole,
+          status: membershipStatus,
+        },
+      })
   await logAudit(auth.user.email, 'invite_user', 'user', created.id, {
     email: created.email,
     membershipRole,

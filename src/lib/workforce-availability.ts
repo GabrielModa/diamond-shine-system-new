@@ -7,6 +7,7 @@ export type OriginPoint = {
 }
 
 export type StudyRule = { dayOfWeek: number; startsMinute: number; endsMinute: number }
+export type RecurringUnavailableRule = StudyRule & { reason?: string | null }
 export type LeaveWindow = {
   kind: 'school_holiday' | 'personal_leave'
   startsAt: Date | string
@@ -18,6 +19,7 @@ export type PlanningContext = {
   home: OriginPoint
   school?: OriginPoint | null
   studySchedule: StudyRule[]
+  recurringUnavailability?: RecurringUnavailableRule[]
   leaves: LeaveWindow[]
 }
 
@@ -33,6 +35,10 @@ function activeLeave(leaves: LeaveWindow[], kind: LeaveWindow['kind'], at: Date)
   return leaves.find((leave) => leave.kind === kind && new Date(leave.startsAt) <= at && at < new Date(leave.endsAt)) ?? null
 }
 
+function activeWeeklyRule<T extends StudyRule>(rules: T[], dayOfWeek: number, minuteOfDay: number) {
+  return rules.find((rule) => rule.dayOfWeek === dayOfWeek && minuteOfDay >= rule.startsMinute && minuteOfDay < rule.endsMinute) ?? null
+}
+
 export function resolveWorkforceContext(context: PlanningContext, at = new Date()) {
   const personalLeave = activeLeave(context.leaves, 'personal_leave', at)
   const schoolHoliday = activeLeave(context.leaves, 'school_holiday', at)
@@ -44,24 +50,34 @@ export function resolveWorkforceContext(context: PlanningContext, at = new Date(
       personalLeave,
       schoolHolidayActive: Boolean(schoolHoliday),
       activeStudyRule: null,
+      activeRecurringRule: null,
     }
   }
 
   const local = localParts(at, context.timezone)
-  const activeStudyRule = context.studySchedule.find((rule) =>
-    rule.dayOfWeek === local.dayOfWeek &&
-    local.minuteOfDay >= rule.startsMinute &&
-    local.minuteOfDay < rule.endsMinute
-  ) ?? null
+  const activeRecurringRule = activeWeeklyRule(context.recurringUnavailability ?? [], local.dayOfWeek, local.minuteOfDay)
+  if (activeRecurringRule) {
+    return {
+      state: 'recurring_unavailability' as const,
+      availableForScheduling: false,
+      origin: null,
+      personalLeave: null,
+      schoolHolidayActive: Boolean(schoolHoliday),
+      activeStudyRule: null,
+      activeRecurringRule,
+    }
+  }
 
+  const activeStudyRule = activeWeeklyRule(context.studySchedule, local.dayOfWeek, local.minuteOfDay)
   if (context.school && activeStudyRule && !schoolHoliday) {
     return {
       state: 'school' as const,
-      availableForScheduling: true,
+      availableForScheduling: false,
       origin: context.school,
       personalLeave: null,
       schoolHolidayActive: false,
       activeStudyRule,
+      activeRecurringRule: null,
     }
   }
 
@@ -72,6 +88,7 @@ export function resolveWorkforceContext(context: PlanningContext, at = new Date(
     personalLeave: null,
     schoolHolidayActive: Boolean(schoolHoliday),
     activeStudyRule,
+    activeRecurringRule: null,
   }
 }
 

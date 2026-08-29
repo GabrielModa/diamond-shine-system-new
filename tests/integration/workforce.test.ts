@@ -30,6 +30,7 @@ async function resetWorkforceFixtures() {
   const supervisor = await prisma.user.findUniqueOrThrow({ where: { email: 'super@ds.ie' } })
   employeeId = employee.id
   supervisorId = supervisor.id
+  await prisma.user.update({ where: { id: employee.id }, data: { name: 'Employee' } })
 
   const employeeProfile = await prisma.workforceProfile.create({
     data: {
@@ -101,6 +102,7 @@ async function resetWorkforceFixtures() {
 }
 
 beforeAll(async () => {
+  process.env.GEOCODING_TEST_MODE = '1'
   process.env.NEXT_TEST_DIST_DIR = '.next-integration'
   nextApp = next({ dev: true, dir: process.cwd() })
   const handle = nextApp.getRequestHandler()
@@ -146,6 +148,7 @@ describe('GET /api/workforce', () => {
     expect(employee.context.state).toBe('school')
     expect(employee.context.origin.kind).toBe('school')
     expect(employee.context.origin.label).toBe('Integration Test College')
+    expect(employee.context.availableForScheduling).toBe(false)
   })
 
   it('marks personal leave as unavailable so it can be excluded from the operational map', async () => {
@@ -169,7 +172,7 @@ describe('GET /api/workforce', () => {
     expect(employee.context.origin).toBeNull()
   })
 
-  it('updates only self-service profile fields and preserves manager-owned capacity', async () => {
+  it('lets employees own personal, home and study details while preserving employment settings', async () => {
     const before = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
     const response = await request(app)
       .put('/api/workforce/profile')
@@ -179,6 +182,9 @@ describe('GET /api/workforce', () => {
         home: { address: 'New operational base, Dublin' },
         travelMode: 'cycling',
         emergencyContact: { name: 'Emergency Person', phone: '+353879876543' },
+        school: { name: 'Employee College', address: 'College Road, Dublin' },
+        studySchedule: [{ dayOfWeek: 1, startsMinute: 540, endsMinute: 720 }],
+        recurringUnavailability: [{ dayOfWeek: 3, startsMinute: 1080, endsMinute: 1320, reason: 'Other job' }],
       })
 
     expect(response.status).toBe(200)
@@ -186,26 +192,92 @@ describe('GET /api/workforce', () => {
     const saved = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
     expect(saved.phone).toBe('+353871234567')
     expect(saved.homeAddress).toBe('New operational base, Dublin')
-    expect(saved.homeLatitude).toBeNull()
-    expect(saved.homeLongitude).toBeNull()
+    expect(saved.homeLatitude).not.toBeNull()
+    expect(saved.homeLongitude).not.toBeNull()
     expect(saved.travelMode).toBe('cycling')
     expect(saved.emergencyContactName).toBe('Emergency Person')
+    expect(saved.schoolName).toBe('Employee College')
+    expect(saved.schoolAddress).toBe('Employee College, College Road, Dublin')
+    expect(saved.schoolLatitude).not.toBeNull()
+    expect(saved.schoolLongitude).not.toBeNull()
     expect(saved.weeklyTargetMinutes).toBe(before.weeklyTargetMinutes)
     expect(saved.weeklyTargetConfigured).toBe(true)
+    const updatedUser = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } })
+    expect(updatedUser.name).toBe('Employee')
+    const studyRules = await prisma.studySchedule.findMany({ where: { profileId: saved.id } })
+    expect(studyRules).toHaveLength(1)
+    expect(studyRules[0]).toMatchObject({ dayOfWeek: 1, startsMinute: 540, endsMinute: 720 })
+    const recurringRules = await prisma.recurringUnavailability.findMany({ where: { profileId: saved.id } })
+    expect(recurringRules).toHaveLength(1)
+    expect(recurringRules[0]).toMatchObject({ dayOfWeek: 3, startsMinute: 1080, endsMinute: 1320, reason: 'Other job' })
 
     const forbidden = await request(app)
       .put(`/api/workforce/profiles/${employeeId}`)
       .set('Cookie', employeeCookie)
-      .send({
-        home: { address: 'Attempted managed edit' },
-        school: null,
-        weeklyTargetMinutes: 600,
-        travelMode: 'transit',
-        studySchedule: [],
-        schoolHolidays: [],
-        personalLeaves: [],
-      })
+      .send({ weeklyTargetMinutes: 600, employmentStartDate: null })
     expect(forbidden.status).toBe(403)
+
+    const hiddenEmployment = await request(app)
+      .get(`/api/workforce/profiles/${employeeId}`)
+      .set('Cookie', employeeCookie)
+    expect(hiddenEmployment.status).toBe(403)
+  })
+
+  it('rejects employee attempts to overpost company-managed identity fields', async () => {
+    const response = await request(app)
+      .put('/api/workforce/profile')
+      .set('Cookie', employeeCookie)
+      .send({
+        name: 'Employee Updated',
+        phone: '+353871234567',
+        home: { address: 'New operational base, Dublin' },
+        travelMode: 'cycling',
+        emergencyContact: null,
+        school: null,
+        studySchedule: [],
+        recurringUnavailability: [],
+      })
+
+    expect(response.status).toBe(400)
+    const unchanged = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } })
+    expect(unchanged.name).toBe('Employee')
+  })
+
+  it('employment settings change only company-owned fields', async () => {
+    const before = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
+    const response = await request(app)
+      .put(`/api/workforce/profiles/${employeeId}`)
+      .set('Cookie', adminCookie)
+      .send({ weeklyTargetMinutes: 2100, employmentStartDate: '2026-08-01' })
+
+    expect(response.status).toBe(200)
+    const saved = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employeeId } })
+    expect(saved.weeklyTargetMinutes).toBe(2100)
+    expect(saved.weeklyTargetConfigured).toBe(true)
+    expect(saved.employmentStartDate?.toISOString().slice(0, 10)).toBe('2026-08-01')
+    expect(saved.homeAddress).toBe(before.homeAddress)
+    expect(saved.schoolAddress).toBe(before.schoolAddress)
+    expect(saved.travelMode).toBe(before.travelMode)
+    expect(saved.phone).toBe(before.phone)
+  })
+
+  it('keeps employee identity admin-only after invitation', async () => {
+    const forbidden = await request(app)
+      .patch(`/api/users/${employeeId}/identity`)
+      .set('Cookie', employeeCookie)
+      .send({ name: 'Employee Self Rename', email: 'self-rename@ds.ie' })
+    expect(forbidden.status).toBe(403)
+
+    const updated = await request(app)
+      .patch(`/api/users/${employeeId}/identity`)
+      .set('Cookie', adminCookie)
+      .send({ name: 'Employee Admin Updated', email: 'employee-updated@ds.ie' })
+    expect(updated.status).toBe(200)
+    const saved = await prisma.user.findUniqueOrThrow({ where: { id: employeeId } })
+    expect(saved.name).toBe('Employee Admin Updated')
+    expect(saved.email).toBe('employee-updated@ds.ie')
+
+    await prisma.user.update({ where: { id: employeeId }, data: { name: 'Employee', email: 'employee@ds.ie' } })
   })
 
   it('returns quality signals used by manager filters and map context', async () => {

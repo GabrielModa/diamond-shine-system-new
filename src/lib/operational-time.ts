@@ -89,3 +89,21 @@ export function operationalGreeting(value: Date | string, timeZone = 'Europe/Dub
   if (hour < 18) return 'Good afternoon'
   return 'Good evening'
 }
+
+export function formatMinuteOfDay(minutes: number) {
+  const normalized = Math.min(1439, Math.max(0, Math.round(minutes)))
+  const hour24 = Math.floor(normalized / 60)
+  const minute = normalized % 60
+  const hour12 = hour24 % 12 || 12
+  const period = hour24 >= 12 ? 'pm' : 'am'
+  return `${hour12}:${pad(minute)} ${period}`
+}
+
+export function formatOperationalTime(value: Date | string, timeZone = 'Europe/Dublin') {
+  return new Intl.DateTimeFormat('en-GB', { hour: 'numeric', minute: '2-digit', hour12: true, timeZone }).format(asDate(value))
+}
+
+export function formatOperationalDateTime(value: Date | string, timeZone = 'Europe/Dublin') {
+  const date = new Intl.DateTimeFormat('en-IE', { day: 'numeric', month: 'short', timeZone }).format(asDate(value))
+  return `${date}, ${formatOperationalTime(value, timeZone)}`
+}

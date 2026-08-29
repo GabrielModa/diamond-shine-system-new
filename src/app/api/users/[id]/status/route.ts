@@ -14,13 +14,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   const membership = await prisma.membership.findFirst({
     where: { userId: id, organizationId: auth.user.organizationId, status: { not: 'removed' } },
-    include: { user: true },
+    include: { user: { include: { workforceProfile: true } } },
   })
   if (!membership) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (parsed.data.status === 'active' && !membership.user.password) {
     return NextResponse.json({
       ok: false,
       error: 'This person must create a password from the invitation before activation.',
+    }, { status: 409 })
+  }
+  if (parsed.data.status === 'active' && ['employee', 'field_supervisor'].includes(membership.role) && !membership.user.workforceProfile) {
+    return NextResponse.json({
+      ok: false,
+      error: 'This person must finish the secure account setup before activation.',
     }, { status: 409 })
   }
   if (membership.user.email === auth.user.email && parsed.data.status !== 'active') {
