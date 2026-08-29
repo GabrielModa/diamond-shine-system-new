@@ -36,7 +36,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   const [expanded,setExpanded]=useState(false)
 
   useEffect(()=>{closeEmployeeRef.current=onCloseEmployee},[onCloseEmployee])
-  useEffect(()=>{const map=mapRef.current;if(!map)return;const timer=window.setTimeout(()=>map.invalidateSize(),120);return()=>window.clearTimeout(timer)},[expanded])
+  useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
   useEffect(()=>{if(!expanded)return;const previous=document.body.style.overflow;document.body.style.overflow='hidden';return()=>{document.body.style.overflow=previous}},[expanded])
   useEffect(()=>{if(!selectedEmployee)return;const onKey=(event:KeyboardEvent)=>{if(event.key==='Escape')onCloseEmployee?.()};window.addEventListener('keydown',onKey);return()=>window.removeEventListener('keydown',onKey)},[selectedEmployee,onCloseEmployee])
 
