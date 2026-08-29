@@ -36,7 +36,7 @@ function isoDate(d:Date){return d.toISOString().slice(0,10)}
 function defaultDates(days:number){const to=new Date(),from=new Date(Date.now()-(days-1)*86400000);return{from:isoDate(from),to:isoDate(to)}}
 
 
-function EmployeePicker({employees,value,onChange}:{employees:Employee[];value:string;onChange:(id:string)=>void}){
+function EmployeePicker({employees,value,onChange,originMode='auto'}:{employees:Employee[];value:string;onChange:(id:string)=>void;originMode?:RouteOriginMode}){
  const [open,setOpen]=useState(false)
  const [text,setText]=useState('')
  const selected=employees.find(employee=>employee.id===value)??null
@@ -44,7 +44,7 @@ function EmployeePicker({employees,value,onChange}:{employees:Employee[];value:s
  useEffect(()=>{if(!open)setText(selected?.name??'')},[open,selected?.name])
  return <div className="wf-combobox">
   <button type="button" className="wf-combobox-trigger" role="combobox" aria-label="Choose team member" aria-haspopup="listbox" aria-expanded={open} aria-controls="workforce-team-member-options" onClick={()=>{setOpen(v=>!v);setText(selected?.name??'')}}>
-   <span>{selected?<>{selected.name}<small>{selected.context.state==='school'?'At school':selected.context.state==='personal_leave'?'On leave':selected.context.state==='recurring_unavailability'?'Unavailable':'Home origin'}</small></>:'Search team member…'}</span><b>⌄</b>
+   <span>{selected?<>{selected.name}<small>{originMode==='school'&&selected.profile.school?'School origin':originMode==='home'?'Home origin':selected.context.state==='school'?'At school':selected.context.state==='personal_leave'?'On leave':selected.context.state==='recurring_unavailability'?'Unavailable':'Home origin'}</small></>:'Search team member…'}</span><b>⌄</b>
   </button>
   {open?<div className="wf-combobox-popover">
    <input autoFocus value={text} onChange={event=>setText(event.target.value)} placeholder="Type employee name…" aria-label="Search team member"/>
