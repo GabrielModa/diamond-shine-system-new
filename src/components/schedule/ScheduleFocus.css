@@ -1,0 +1,37 @@
+/* Diamond Schedule Focus MVP11.1 */
+.schedule-focus-tabs{display:flex;flex-wrap:wrap;gap:8px;width:fit-content;max-width:100%;padding:4px;border:1px solid var(--border);border-radius:14px;background:#fff}
+.schedule-focus-tabs button{min-height:40px;padding:8px 14px;border:0;background:transparent;box-shadow:none;color:var(--surface-muted)}
+.schedule-focus-tabs button.selected{color:#fff;background:linear-gradient(135deg,var(--accent-start),var(--accent-end));box-shadow:0 8px 18px rgb(91 76 210/.2)}
+.scheduler-filters{align-items:center}.schedule-tool-anchor{position:relative}
+.schedule-popover{position:absolute;top:calc(100% + 10px);right:0;z-index:110;display:grid;gap:14px;width:min(760px,calc(100vw - 32px));max-height:min(680px,calc(100vh - 140px));overflow:auto;padding:18px;border:1px solid var(--border);border-radius:18px;background:#fff;box-shadow:var(--shadow-strong)}
+.schedule-popover>header,.schedule-popover>footer{display:flex;align-items:center;justify-content:space-between;gap:12px}.schedule-popover h2{margin:0}
+.schedule-filter-popover{width:min(420px,calc(100vw - 32px))}.schedule-filter-popover>label{display:grid;gap:6px;color:var(--surface-muted);font-size:.78rem;font-weight:800}
+.schedule-filter-team{display:grid;gap:6px;max-height:340px;overflow:auto}.schedule-filter-team button{text-align:left;background:#fff;box-shadow:none}.schedule-filter-team button.selected{border-color:#818cf8;background:#eef2ff;color:#3730a3}
+.find-time-controls.compact,.find-time-slots.compact{grid-template-columns:repeat(2,minmax(0,1fr))}
+.schedule-team-field{grid-column:1/-1;min-width:0}.schedule-team-picker{position:relative;display:grid;gap:10px;min-width:0}
+.schedule-team-picker-head{display:flex;align-items:center;justify-content:space-between;gap:12px}.schedule-team-picker-head>div{display:grid;gap:3px;min-width:0}.schedule-team-picker-head small{color:var(--surface-muted);font-weight:650}
+.schedule-team-chips{display:flex;flex-wrap:wrap;gap:7px}.schedule-team-chips button{display:inline-flex;align-items:center;gap:7px;padding:7px 10px;border-color:#c7d2fe;border-radius:999px;background:#eef2ff;color:#3730a3;box-shadow:none}.schedule-team-empty{margin:0}
+.schedule-team-popover{position:absolute;z-index:260;top:calc(100% + 8px);left:0;right:0;display:grid;gap:10px;max-height:min(360px,55vh);overflow:hidden;padding:12px;border:1px solid var(--border);border-radius:14px;background:#fff;box-shadow:0 20px 55px rgb(15 23 42/.2)}.schedule-team-search input{width:100%;background:#fff}
+.schedule-team-options{display:grid;gap:12px;overflow-y:auto;padding-right:3px}.schedule-team-options section{display:grid;gap:6px}.schedule-team-group-label{color:var(--surface-muted);font-size:.7rem;font-weight:900;letter-spacing:.06em;text-transform:uppercase}
+.schedule-team-options label{display:grid;grid-template-columns:auto minmax(0,1fr);align-items:center;gap:10px;padding:9px 10px;border:1px solid var(--border);border-radius:11px;background:#fff;cursor:pointer}.schedule-team-options label.selected{border-color:#8ab394;background:#f0faf3}.schedule-team-options label>span{display:grid;min-width:0}.schedule-team-options label b,.schedule-team-options label small{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}.schedule-team-options label small{color:var(--surface-muted);font-size:.7rem}.schedule-team-options input{width:18px;height:18px}
+.schedule-overlay{z-index:1200!important;align-items:stretch!important;justify-content:flex-end!important;overflow:hidden!important;padding:0!important}.schedule-overlay .schedule-sheet{width:min(680px,100vw);height:100dvh;max-height:100dvh;margin:0;overflow-y:auto;border-radius:24px 0 0 24px;box-shadow:-24px 0 60px rgb(15 23 42/.18)}.schedule-health-panel{position:relative;z-index:1}
+@media(max-width:900px){.scheduler-controls{align-items:stretch}.scheduler-filters{flex-wrap:wrap}.schedule-view-tabs{order:3;width:100%}.schedule-view-tabs button{flex:1}.schedule-team-picker-head{align-items:stretch;flex-direction:column}.schedule-team-picker-head .btn-secondary{width:100%}}
+@media(max-width:700px){.schedule-focus-tabs{width:100%}.schedule-focus-tabs button{flex:1 1 140px}.schedule-popover,.schedule-team-popover{position:fixed;inset:auto 0 0 0;top:auto;width:100%;max-height:82dvh;border-radius:24px 24px 0 0;z-index:1250}.find-time-controls.compact,.find-time-slots.compact{grid-template-columns:1fr}.schedule-overlay .schedule-sheet{width:100%;border-radius:0}}
+
+
+/* Diamond Schedule UX Stabilization MVP11.2 */
+.schedule-filter-popover > label { padding: 0; border: 0; background: transparent; box-shadow: none; }
+.schedule-filter-popover > label > input { width: 100%; margin: 0; border-radius: 12px; }
+.schedule-health-drawer-header { position: sticky; top: 0; z-index: 2; display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 4px 0 14px; background: #fff; border-bottom: 1px solid var(--border); }
+.schedule-health-drawer-header h2 { margin: 2px 0 0; }
+.schedule-health-backdrop { position: fixed; inset: 0; z-index: 180; width: 100vw; height: 100dvh; padding: 0; border: 0; border-radius: 0; background: rgb(15 23 42 / .34); backdrop-filter: blur(2px); cursor: default; }
+.schedule-health-panel > div[data-open="true"] { position: fixed !important; inset: 0 0 0 auto !important; z-index: 190 !important; display: block !important; width: min(500px, calc(100vw - 32px)) !important; height: 100dvh !important; max-height: 100dvh !important; overflow-y: auto !important; overscroll-behavior: contain; padding: 18px !important; border-radius: 22px 0 0 22px !important; background: #fff !important; box-shadow: -24px 0 60px rgb(15 23 42 / .20) !important; outline: none; }
+.schedule-health-panel > div[data-open="true"] > article { grid-template-columns: 1fr !important; gap: 8px !important; margin-top: 10px; padding: 12px !important; }
+.schedule-health-panel > div[data-open="true"] > article > div:last-child { justify-content: flex-start !important; }
+@media (max-width: 980px) {
+  .schedule-health-panel > div[data-open="true"] { width: min(520px, 72vw) !important; }
+}
+@media (max-width: 700px) {
+  .schedule-health-panel > div[data-open="true"] { inset: auto 0 0 0 !important; width: 100vw !important; height: min(88dvh, 760px) !important; max-height: 88dvh !important; padding: 16px !important; border-radius: 24px 24px 0 0 !important; }
+  .schedule-health-backdrop { background: rgb(15 23 42 / .42); }
+}

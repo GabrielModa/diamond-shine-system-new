@@ -18,8 +18,9 @@ export default function TopNav({ items }: { items: NavItem[] }) {
   const pathname = usePathname()
   const [openSection, setOpenSection] = useState<NavSection | null>(null)
   const navRef = useRef<HTMLElement>(null)
+  const mobileMenuRef = useRef<HTMLDetailsElement>(null)
 
-  useEffect(() => { setOpenSection(null) }, [pathname])
+  useEffect(() => { setOpenSection(null); if (mobileMenuRef.current) mobileMenuRef.current.open = false }, [pathname])
   useEffect(() => {
     const closeOnOutsideClick = (event: MouseEvent) => {
       if (navRef.current && !navRef.current.contains(event.target as Node)) setOpenSection(null)
@@ -33,6 +34,11 @@ export default function TopNav({ items }: { items: NavItem[] }) {
       document.removeEventListener('mousedown', closeOnOutsideClick)
       document.removeEventListener('keydown', closeOnEscape)
     }
+  }, [])
+  useEffect(() => {
+    const closeNavigation = () => { setOpenSection(null); if (mobileMenuRef.current) mobileMenuRef.current.open = false }
+    window.addEventListener('diamond:close-nav', closeNavigation)
+    return () => window.removeEventListener('diamond:close-nav', closeNavigation)
   }, [])
 
   const navLinks = (section: NavSection, className = '') => items.filter((item) => item.section === section).map((item) => {
@@ -71,7 +77,7 @@ export default function TopNav({ items }: { items: NavItem[] }) {
       <form className="nav-logout-form nav-desktop" action="/api/auth/logout" method="post">
         <button type="submit" className="nav-logout">Log out</button>
       </form>
-      <details className="nav-mobile-menu">
+      <details ref={mobileMenuRef} className="nav-mobile-menu">
         <summary aria-label="Open navigation menu">
           <span>Menu</span>
           <span aria-hidden="true">☰</span>

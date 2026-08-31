@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { addOperationalDays, formatOperationalTime, operationalDateKey } from '../../lib/operational-time'
 import type { ScheduleHealthItem, ScheduleHealthState } from '../../modules/scheduling/schedule-health-core'
@@ -36,12 +36,13 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ScheduleHealthPanel({
-  from, to, timezone, canManage, onChanged, onOpenServicePlan,
+  from, to, timezone, canManage, closeSignal, onChanged, onOpenServicePlan,
 }: {
   from: string
   to: string
   timezone: string
   canManage: boolean
+  closeSignal: number
   onChanged: () => Promise<void> | void
   onOpenServicePlan: (servicePlanId: string) => void
 }) {
@@ -56,6 +57,8 @@ export default function ScheduleHealthPanel({
   const [drawerOpen, setDrawerOpen] = useState(false)
   const [pauseDraft, setPauseDraft] = useState<PauseDraft | null>(null)
   const [preview, setPreview] = useState<PausePreview | null>(null)
+  const drawerRef = useRef<HTMLDivElement>(null)
+  const returnFocusRef = useRef<HTMLElement | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true); setError('')
@@ -64,8 +67,17 @@ export default function ScheduleHealthPanel({
     finally { setLoading(false) }
   }, [from, to])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { setDrawerOpen(false) }, [closeSignal])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Tab' && drawerOpen && !pauseItem && drawerRef.current) {
+        const focusable = Array.from(drawerRef.current.querySelectorAll<HTMLElement>('button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])'))
+        if (focusable.length) {
+          const first = focusable[0]; const last = focusable[focusable.length - 1]
+          if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last.focus() }
+          else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first.focus() }
+        }
+      }
       if (event.key !== 'Escape') return
       if (pauseItem) { event.preventDefault(); event.stopPropagation(); setPauseItem(null); setPauseDraft(null); setPreview(null); return }
       if (drawerOpen) { event.preventDefault(); event.stopPropagation(); setDrawerOpen(false) }
@@ -73,6 +85,15 @@ export default function ScheduleHealthPanel({
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
   }, [drawerOpen, pauseItem])
+  useEffect(() => {
+    if (!drawerOpen) return
+    returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    window.dispatchEvent(new Event('diamond:schedule-health-open'))
+    requestAnimationFrame(() => drawerRef.current?.focus())
+    return () => { document.body.style.overflow = previousOverflow; requestAnimationFrame(() => returnFocusRef.current?.focus()) }
+  }, [drawerOpen])
 
   const visible = useMemo(() => (data?.items ?? []).filter((item) => {
     if (filter === 'all') return true
@@ -152,29 +173,28 @@ export default function ScheduleHealthPanel({
 
   const summary = data?.summary
   const stats = summary ? [
-    { label: 'Visits', value: summary.visits, filter: 'all' as Filter },
-    { label: 'Covered', value: summary.covered, filter: 'covered' as Filter },
     { label: 'Need staff', value: summary.needsStaff + summary.unassigned, filter: 'needs_staff' as Filter },
     { label: 'Missing schedule', value: summary.missingSchedule + summary.unscheduledServices, filter: 'missing' as Filter },
-    { label: 'Paused', value: summary.paused, filter: 'paused' as Filter },
     { label: 'Conflicts', value: summary.conflicts, filter: 'conflicts' as Filter },
     { label: 'Unacknowledged', value: summary.unacknowledged, filter: 'unacknowledged' as Filter },
   ] : []
+  const drawerTitle = filter === 'needs_staff' ? 'Needs staff' : filter === 'missing' ? 'Missing schedule' : filter === 'conflicts' ? 'Conflicts' : filter === 'unacknowledged' ? 'Unacknowledged' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
 
-  const selectFilter = (next: Filter) => { setFilter(next); setDrawerOpen(true) }
+  const selectFilter = (next: Filter) => { window.dispatchEvent(new Event('diamond:schedule-health-open')); setFilter(next); setDrawerOpen(true) }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
     {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
-    <div className={styles.filters}><span className={styles.filterHint}>Click a metric to inspect its items</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    <div className={styles.filters}><span className={styles.filterHint}>Only exceptions that need attention in this view</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
-    <div className={styles.list} data-open={drawerOpen}>
-      {drawerOpen ? <button type="button" className={styles.drawerClose} onClick={() => setDrawerOpen(false)}>Close issues ×</button> : null}
+    {drawerOpen ? <button type="button" className="schedule-health-backdrop" aria-label="Close schedule health details" onClick={() => setDrawerOpen(false)} /> : null}
+    <div ref={drawerRef} className={styles.list} data-open={drawerOpen} role={drawerOpen ? 'dialog' : undefined} aria-modal={drawerOpen ? true : undefined} aria-label={drawerOpen ? `${drawerTitle} details` : undefined} tabIndex={drawerOpen ? -1 : undefined}>
+      {drawerOpen ? <div className="schedule-health-drawer-header"><div><span className="eyebrow">Needs attention</span><h2>{drawerTitle}</h2></div><button type="button" className="btn-secondary" onClick={() => setDrawerOpen(false)}>Close</button></div> : null}
       {!loading && !visible.length ? <div className={styles.empty}>{filter === 'problems' ? 'No operational scheduling problems in this window.' : 'No items match this health filter.'}</div> : null}
       {visible.slice(0, 120).map((item) => {
         const start = item.scheduledStart ? new Date(item.scheduledStart) : null
         const zone = item.timezone ?? timezone
-        const pauseable = canManage && item.jobId && ['covered', 'needs_staff', 'unassigned'].includes(item.state)
+        const pauseable = canManage && item.jobId && item.state === 'covered'
         return <article key={item.id} className={styles.item} data-state={item.state}>
           <div className={styles.state}><span aria-hidden="true">{item.state === 'covered' ? '✓' : item.state === 'service_paused' ? '⏸' : item.state === 'cleaner_overlap' || item.state === 'expected_not_scheduled' ? '⛔' : '⚠'}</span>{labels[item.state]}</div>
           <div className={styles.copy}><strong>{item.clientName}{item.siteName ? ` · ${item.siteName}` : ''}</strong><span>{item.jobName ?? item.servicePlanName ?? 'Service plan'}</span><small>{item.detail}</small></div>
@@ -183,6 +203,8 @@ export default function ScheduleHealthPanel({
             {canManage && item.state === 'expected_not_scheduled' && item.jobId && !item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Schedule now</button> : null}
             {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" onClick={() => router.push(`/schedule?visit=${item.visitId}`)}>Review cancelled visit</button> : null}
             {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" onClick={() => onOpenServicePlan(item.servicePlanId!)}>Create schedule</button> : null}
+            {canManage && (item.state === 'needs_staff' || item.state === 'unassigned') && item.visitId ? <button className="btn-primary" onClick={() => router.push(`/schedule?visit=${item.visitId}`)}>Assign team</button> : null}
+            {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" onClick={() => router.push(`/schedule?visit=${item.visitId}`)}>Review conflict</button> : null}
             {pauseable ? <button className="btn-secondary" onClick={() => openPause(item)}>Pause service</button> : null}
             {canManage && item.state === 'service_paused' && item.pauseId ? <button className="btn-secondary" disabled={busy} onClick={() => void endPause(item)}>End pause early</button> : null}
           </div>
