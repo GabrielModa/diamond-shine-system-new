@@ -1,6 +1,7 @@
 'use client'
 
 import { ReactNode, useEffect, useId, useRef } from 'react'
+import SurfaceCloseButton from './SurfaceCloseButton'
 
 type DetailDialogProps = {
   open: boolean
@@ -60,7 +61,7 @@ export default function DetailDialog({ open, title, eyebrow, onClose, children }
             {eyebrow ? <span className="eyebrow">{eyebrow}</span> : null}
             <h2 id={titleId}>{title}</h2>
           </div>
-          <button ref={closeButtonRef} type="button" className="detail-dialog-close" aria-label={`Close ${title}`} onClick={onClose}>×</button>
+          <SurfaceCloseButton ref={closeButtonRef} label={`Close ${title}`} onClick={onClose} />
         </header>
         <div className="detail-dialog-body">{children}</div>
       </section>
