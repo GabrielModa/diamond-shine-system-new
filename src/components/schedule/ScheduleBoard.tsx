@@ -39,6 +39,16 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   const range = useMemo(() => { const start = startOfMonth(anchorDate); start.setDate(start.getDate() - 7); const end = new Date(start); end.setMonth(end.getMonth() + 3); return { from: operationalInputToUtc(`${calendarDateKey(start)}T00:00`, timezone).toISOString(), to: operationalInputToUtc(`${calendarDateKey(end)}T23:59`, timezone).toISOString() } }, [anchorDate, timezone])
   const refresh = useCallback(async () => { setLoading(true); try { const [v, p, t, a] = await Promise.all([api<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&mode=all`), api<Plan[]>('/api/service-plans'), api<Member[]>('/api/team'), api<Availability[]>(`/api/availability?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)]); setVisits(v); setPlans(p.filter((plan) => plan.status === 'published')); setTeam(t); setAvailability(a); setDraft((current) => ({ ...current, servicePlanId: current.servicePlanId || p.find((plan) => plan.status === 'published')?.id || '' })) } catch (error) { setNotice(error instanceof Error ? error.message : 'Could not load schedule.') } finally { setLoading(false) } }, [range])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (selected) { event.preventDefault(); event.stopPropagation(); setSelected(null); return }
+      if (showFindTime) { event.preventDefault(); event.stopPropagation(); setShowFindTime(false); return }
+      if (showCreate) { event.preventDefault(); event.stopPropagation(); setShowCreate(false) }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [selected, showFindTime, showCreate])
   useEffect(() => { const visitId = new URLSearchParams(window.location.search).get('visit'); if (!visitId || selected?.id === visitId) return; const visit = visits.find((item) => item.id === visitId); if (!visit) return; setSelected(visit); setEdit({ scheduledStart: operationalDateTimeInput(new Date(visit.scheduledStart), timezone), scheduledEnd: operationalDateTimeInput(new Date(visit.scheduledEnd), timezone), assigneeIds: visit.assignments.filter((assignment) => isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id), dispatchNotes: visit.dispatchNotes ?? '', cancellationReason: visit.cancellationReason ?? '' }) }, [selected?.id, timezone, visits])
   useEffect(() => {
     if (!showCreate && !selected) return
