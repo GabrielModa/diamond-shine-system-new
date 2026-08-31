@@ -64,6 +64,15 @@ export default function ScheduleHealthPanel({
     finally { setLoading(false) }
   }, [from, to])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return
+      if (pauseItem) { event.preventDefault(); event.stopPropagation(); setPauseItem(null); setPauseDraft(null); setPreview(null); return }
+      if (drawerOpen) { event.preventDefault(); event.stopPropagation(); setDrawerOpen(false) }
+    }
+    window.addEventListener('keydown', onKey, true)
+    return () => window.removeEventListener('keydown', onKey, true)
+  }, [drawerOpen, pauseItem])
 
   const visible = useMemo(() => (data?.items ?? []).filter((item) => {
     if (filter === 'all') return true
