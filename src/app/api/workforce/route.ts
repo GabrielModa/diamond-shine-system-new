@@ -43,7 +43,7 @@ export async function GET(request: NextRequest) {
   const visitQueryFrom = period.from < now ? period.from : now
   const visitQueryTo = period.to > addDays(now, 90) ? period.to : addDays(now, 90)
 
-  const [users, visits, entries, feedback] = await Promise.all([
+  const [users, visits, entries, feedback, temporaryAvailability] = await Promise.all([
     prisma.user.findMany({
       where: {
         status: 'active',
@@ -92,6 +92,15 @@ export async function GET(request: NextRequest) {
       where: { organizationId, createdAt: { gte: period.from, lt: period.toExclusive } },
       select: { employeeId: true, overall: true, cleanliness: true, punctuality: true, equipment: true, clientRelations: true, category: true, createdAt: true },
     }),
+    prisma.availability.findMany({
+      where: {
+        organizationId,
+        cancelledAt: null,
+        startsAt: { lte: now },
+        endsAt: { gt: now },
+      },
+      select: { id: true, userId: true, startsAt: true, endsAt: true, reason: true },
+    }),
   ])
 
   const employees = users.map((user) => {
@@ -121,7 +130,8 @@ export async function GET(request: NextRequest) {
       kind: l.kind as 'school_holiday' | 'personal_leave',
       startsAt: l.startsAt, endsAt: l.endsAt, reason: l.reason,
     })) ?? []
-    const context = setupRequired
+    const activeTemporary = temporaryAvailability.find((entry) => entry.userId === user.id) ?? null
+    const resolvedContext = setupRequired
       ? {
           state: 'home' as const,
           availableForScheduling: false,
@@ -129,8 +139,18 @@ export async function GET(request: NextRequest) {
           personalLeave: null,
           schoolHolidayActive: false,
           activeStudyRule: null,
+          activeRecurringRule: null,
         }
       : resolveWorkforceContext({ timezone, home, school, studySchedule, recurringUnavailability, leaves }, now)
+    const context = activeTemporary
+      ? {
+          ...resolvedContext,
+          state: 'temporary_unavailability' as const,
+          availableForScheduling: false,
+          origin: null,
+          temporaryUnavailability: activeTemporary,
+        }
+      : { ...resolvedContext, temporaryUnavailability: null }
 
     const allAssigned = visits.filter((visit) =>
       visit.status !== 'cancelled' && visit.status !== 'missed' && visit.assignments.some((a) => a.userId === user.id && ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)))
@@ -237,15 +257,25 @@ export async function GET(request: NextRequest) {
     }
   })
 
-  const sites = Array.from(new Map(visits.map((visit) => [visit.site.id, visit.site])).values()).map((site) => ({
-    ...site,
-    latitude: site.latitude == null ? null : Number(site.latitude),
-    longitude: site.longitude == null ? null : Number(site.longitude),
-    assignedEmployeeIds: Array.from(new Set(
-      visits.filter((visit) => visit.site.id === site.id)
-        .flatMap((visit) => visit.status === 'cancelled' || visit.status === 'missed' ? [] : visit.assignments.filter((a) => ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)).map((a) => a.userId)),
-    )),
-  }))
+  const sites = Array.from(new Map(visits.map((visit) => [visit.site.id, visit.site])).values()).map((site) => {
+    const upcomingVisits = visits.filter((visit) =>
+      visit.site.id === site.id &&
+      visit.scheduledStart >= now &&
+      !['cancelled', 'completed', 'missed'].includes(visit.status))
+    const assignedEmployeeIds = Array.from(new Set(upcomingVisits.flatMap((visit) =>
+      visit.assignments.filter((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status)).map((assignment) => assignment.userId))))
+    const needsStaff = upcomingVisits.some((visit) =>
+      !visit.assignments.some((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status)))
+
+    return {
+      ...site,
+      latitude: site.latitude == null ? null : Number(site.latitude),
+      longitude: site.longitude == null ? null : Number(site.longitude),
+      assignedEmployeeIds,
+      coverageState: needsStaff ? 'needs_staff' as const : upcomingVisits.length ? 'covered' as const : 'no_upcoming' as const,
+      upcomingVisits: upcomingVisits.length,
+    }
+  })
 
   return NextResponse.json({ ok: true, data: {
     generatedAt: now,

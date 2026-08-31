@@ -47,6 +47,27 @@ describe('scenario matrix seed', () => {
     expect(hours.some((hour) => hour >= 18)).toBe(true)
   })
 
+  it('creates ten recurring and temporary availability examples without replacing manual data', async () => {
+    const users = await prisma.user.findMany({
+      where: { email: { in: DEMO_EMPLOYEE_SCENARIOS.slice(0, 10).map((item) => item.email) } },
+      select: { id: true, workforceProfile: { select: { recurringUnavailability: { where: { reason: { startsWith: 'Scenario matrix:' } } } } } },
+    })
+    const temporary = await prisma.availability.count({
+      where: { organizationId: LEGACY_ORGANIZATION_ID, userId: { in: users.map((user) => user.id) }, reason: { startsWith: 'Scenario matrix:' } },
+    })
+    expect(users.reduce((total, user) => total + (user.workforceProfile?.recurringUnavailability.length ?? 0), 0)).toBe(10)
+    expect(temporary).toBe(10)
+  })
+
+  it('keeps future needs-staff visits unassigned while preserving covered examples', async () => {
+    const futureVisits = await prisma.visit.findMany({
+      where: { organizationId: LEGACY_ORGANIZATION_ID, scheduledStart: { gte: new Date() }, job: { name: { startsWith: 'Scenario · ' } } },
+      select: { job: { select: { instructions: true } }, assignments: true },
+    })
+    expect(futureVisits.some((visit) => visit.job.instructions?.includes('needs-staff') && visit.assignments.length === 0)).toBe(true)
+    expect(futureVisits.some((visit) => !visit.job.instructions?.includes('needs-staff') && visit.assignments.length > 0)).toBe(true)
+  })
+
   it('seeds deterministic quality bands including excellent, good, watch, issues and no-feedback cases', async () => {
     const users = await prisma.user.findMany({
       where: { email: { in: ['aisha@ds.ie', 'aoife@ds.ie', 'liam@ds.ie', 'omar@ds.ie', 'daniel@ds.ie'] } },

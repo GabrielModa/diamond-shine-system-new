@@ -41,7 +41,7 @@ async function ensureEmployeeAccounts() {
 
 async function seedEmployeeContexts() {
   const now = new Date()
-  for (const scenario of DEMO_EMPLOYEE_SCENARIOS) {
+  for (const [index, scenario] of DEMO_EMPLOYEE_SCENARIOS.entries()) {
     const user = await prisma.user.findUniqueOrThrow({ where: { email: scenario.email } })
     const profile = await prisma.workforceProfile.upsert({
       where: { userId: user.id },
@@ -82,6 +82,23 @@ async function seedEmployeeContexts() {
       })
     }
 
+    await prisma.recurringUnavailability.deleteMany({
+      where: { profileId: profile.id, reason: { startsWith: 'Scenario matrix:' } },
+    })
+    if (index < 10) {
+      const startsMinute = (17 + index % 3) * 60
+      await prisma.recurringUnavailability.create({
+        data: {
+          organizationId: LEGACY_ORGANIZATION_ID,
+          profileId: profile.id,
+          dayOfWeek: (index % 7) + 1,
+          startsMinute,
+          endsMinute: Math.min(24 * 60, startsMinute + 180),
+          reason: `Scenario matrix: recurring restriction ${index + 1}`,
+        },
+      })
+    }
+
     await prisma.workforceLeave.deleteMany({
       where: { profileId: profile.id, reason: { startsWith: 'Scenario matrix' } },
     })
@@ -117,6 +134,42 @@ async function seedEmployeeContexts() {
         },
       })
     }
+  }
+}
+
+async function seedTemporaryAvailabilityMatrix() {
+  const scenarios = DEMO_EMPLOYEE_SCENARIOS.slice(0, 10)
+  const users = await prisma.user.findMany({
+    where: { email: { in: scenarios.map((scenario) => scenario.email) } },
+    select: { id: true, email: true },
+  })
+  const userByEmail = new Map(users.map((user) => [user.email, user]))
+
+  for (const [index, scenario] of scenarios.entries()) {
+    const user = userByEmail.get(scenario.email)
+    if (!user) continue
+    await prisma.availability.deleteMany({
+      where: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        reason: { startsWith: 'Scenario matrix:' },
+      },
+    })
+    const startsAt = index === 0
+      ? new Date(Date.now() - 60 * 60_000)
+      : atDayOffset(index, (8 + index % 5) * 60)
+    const endsAt = index === 0
+      ? new Date(Date.now() + 3 * 60 * 60_000)
+      : new Date(startsAt.getTime() + (2 + index % 4) * 60 * 60_000)
+    await prisma.availability.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        startsAt,
+        endsAt,
+        reason: `Scenario matrix: temporary change ${index + 1}`,
+      },
+    })
   }
 }
 
@@ -370,7 +423,11 @@ async function seedScheduleMatrix() {
         },
       })
 
-      for (const email of siteScenario.employeeEmails) {
+      const intentionallyUnassigned = siteScenario.tags.includes('needs-staff') && offset >= 0
+      if (intentionallyUnassigned) {
+        await prisma.visitAssignment.deleteMany({ where: { visitId: visit.id } })
+      }
+      for (const email of intentionallyUnassigned ? [] : siteScenario.employeeEmails) {
         const user = await prisma.user.findUniqueOrThrow({ where: { email } })
         await prisma.visitAssignment.upsert({
           where: { visitId_userId: { visitId: visit.id, userId: user.id } },
@@ -390,9 +447,10 @@ async function seedScheduleMatrix() {
 export async function seedScenarioMatrix() {
   await ensureEmployeeAccounts()
   await seedEmployeeContexts()
+  await seedTemporaryAvailabilityMatrix()
   await seedDeterministicFeedback()
   await seedScheduleMatrix()
-  console.log(`Scenario matrix ready: ${DEMO_EMPLOYEE_SCENARIOS.length} employees, ${DEMO_SITE_SCENARIOS.length} additional client/site scenarios, deterministic quality bands.`)
+  console.log(`Scenario matrix ready: ${DEMO_EMPLOYEE_SCENARIOS.length} employees, ${DEMO_SITE_SCENARIOS.length} client/site/contract/plan/job scenarios, 10 recurring restrictions, 10 temporary changes, deterministic quality bands.`)
 }
 
 async function main() {

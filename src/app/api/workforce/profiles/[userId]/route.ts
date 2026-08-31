@@ -53,19 +53,33 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { userId } = await params
   const auth = await targetForRead(request, userId)
   if ('response' in auth) return auth.response
-  const profile = await prisma.workforceProfile.findFirst({
-    where: { userId, organizationId: auth.user.organizationId },
-    include: {
-      studySchedules: { orderBy: [{ dayOfWeek: 'asc' }, { startsMinute: 'asc' }] },
-      recurringUnavailability: { orderBy: [{ dayOfWeek: 'asc' }, { startsMinute: 'asc' }] },
-      leaves: { orderBy: { startsAt: 'asc' } },
-    },
-  })
+  const [profile, temporaryAvailability] = await Promise.all([
+    prisma.workforceProfile.findFirst({
+      where: { userId, organizationId: auth.user.organizationId },
+      include: {
+        studySchedules: { orderBy: [{ dayOfWeek: 'asc' }, { startsMinute: 'asc' }] },
+        recurringUnavailability: { orderBy: [{ dayOfWeek: 'asc' }, { startsMinute: 'asc' }] },
+        leaves: { orderBy: { startsAt: 'asc' } },
+      },
+    }),
+    prisma.availability.findMany({
+      where: {
+        userId,
+        organizationId: auth.user.organizationId,
+        cancelledAt: null,
+        endsAt: { gt: new Date() },
+      },
+      select: { id: true, startsAt: true, endsAt: true, reason: true, createdAt: true },
+      orderBy: { startsAt: 'asc' },
+      take: 20,
+    }),
+  ])
   return NextResponse.json({
     ok: true,
     data: {
       user: auth.target,
       profile: serialize(profile),
+      temporaryAvailability,
       setupRequired: !workforceProfileReady(profile),
     },
   })

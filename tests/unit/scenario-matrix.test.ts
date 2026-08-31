@@ -21,7 +21,9 @@ describe('demo scenario matrix', () => {
     for (const required of ['very-early', 'early-morning', 'daytime', 'afternoon', 'evening', 'late-evening', 'night']) {
       expect(tags.has(required), `missing site tag ${required}`).toBe(true)
     }
-    expect(DEMO_SITE_SCENARIOS.length).toBeGreaterThanOrEqual(7)
+    expect(tags.has('needs-staff')).toBe(true)
+    expect(tags.has('covered')).toBe(true)
+    expect(DEMO_SITE_SCENARIOS.length).toBeGreaterThanOrEqual(10)
     expect(new Set(DEMO_SITE_SCENARIOS.map((scenario) => scenario.client)).size).toBe(DEMO_SITE_SCENARIOS.length)
   })
 })

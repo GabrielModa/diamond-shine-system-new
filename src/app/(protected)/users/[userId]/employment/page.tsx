@@ -26,11 +26,13 @@ type Profile = {
 type Data = {
   user: { id: string; name: string | null; email: string; status: string }
   profile: Profile | null
+  temporaryAvailability: Array<{ id: string; startsAt: string; endsAt: string; reason: string | null; createdAt: string }>
   setupRequired: boolean
 }
 
 const dayNames = ['', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
 const minutesToTime = (minutes: number) => `${String(Math.floor(minutes / 60)).padStart(2, '0')}:${String(minutes % 60).padStart(2, '0')}`
+const availabilityTime = (value: string) => new Date(value).toLocaleString('en-IE', { dateStyle: 'medium', timeStyle: 'short' })
 
 export default function EmployeeSettingsPage() {
   const params = useParams<{ userId: string }>()
@@ -155,6 +157,7 @@ export default function EmployeeSettingsPage() {
           </div>
           {data.profile.studySchedules.length ? <div><h3>Study hours</h3>{data.profile.studySchedules.map((rule, index) => <p className="muted" key={`study-${rule.dayOfWeek}-${rule.startsMinute}-${index}`}>{dayNames[rule.dayOfWeek]} · {minutesToTime(rule.startsMinute)}–{minutesToTime(rule.endsMinute)}</p>)}</div> : null}
           {data.profile.recurringUnavailability.length ? <div><h3>Recurring weekly unavailability</h3>{data.profile.recurringUnavailability.map((rule, index) => <p className="muted" key={`recurring-${rule.dayOfWeek}-${rule.startsMinute}-${index}`}>{dayNames[rule.dayOfWeek]} · {minutesToTime(rule.startsMinute)}–{minutesToTime(rule.endsMinute)}{rule.reason ? ` · ${rule.reason}` : ''}</p>)}</div> : <p className="muted">No recurring weekly restrictions declared.</p>}
+          <div><h3>Current and upcoming temporary changes</h3>{data.temporaryAvailability.length ? data.temporaryAvailability.map((entry) => <p className="muted" key={entry.id}><strong>{availabilityTime(entry.startsAt)} → {availabilityTime(entry.endsAt)}</strong>{entry.reason ? ` · ${entry.reason}` : ' · No reason provided'}</p>) : <p className="muted">No current or upcoming temporary changes.</p>}</div>
         </> : <p className="muted">No employee operational profile yet.</p>}
       </section>
     </>}
