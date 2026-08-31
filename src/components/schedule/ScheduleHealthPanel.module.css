@@ -14,6 +14,12 @@
 .list[data-open='true']::before { content: 'Schedule health details'; position: absolute; top: 23px; left: 22px; color: #172033; font-size: 18px; font-weight: 900; }
 .drawerClose { position: absolute; top: 17px; right: 20px; border: 1px solid var(--border, #dfe5e8); border-radius: 999px; background: #fff; padding: 8px 12px; font-weight: 800; cursor: pointer; }
 .filterHint { color: var(--muted, #637078); font-size: 12px; font-weight: 700; }
+.list[data-open='true'] .item { grid-template-columns: minmax(0, 1fr) auto; gap: 8px 14px; padding: 12px 14px; }
+.list[data-open='true'] .state { grid-column: 1 / -1; font-size: 10px; }
+.list[data-open='true'] .copy strong { font-size: 13px; }
+.list[data-open='true'] .copy small { max-width: 48ch; }
+.list[data-open='true'] .actions { grid-column: 1 / -1; justify-content: flex-start; padding-top: 2px; }
+.list[data-open='true'] .actions:empty { display: none; }
 .item { display: grid; grid-template-columns: minmax(110px, .65fr) minmax(240px, 2fr) minmax(180px, 1.1fr) auto; gap: 12px; align-items: center; border: 1px solid var(--border, #dfe5e8); border-radius: 14px; background: #fff; padding: 11px 12px; }
 .item[data-state='expected_not_scheduled'] { border-style: dashed; border-width: 2px; }
 .item[data-state='cleaner_overlap'] { box-shadow: inset 4px 0 0 #a62b2b; }
