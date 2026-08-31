@@ -156,10 +156,7 @@ export default function ScheduleHealthPanel({
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
     {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
-    <div className={styles.filters}>
-      {([['all', 'All operational'], ['problems', 'Problems only'], ['needs_staff', 'Needs staff'], ['missing', 'Missing schedule'], ['paused', 'Paused'], ['unacknowledged', 'Unacknowledged']] as Array<[Filter, string]>).map(([key, label]) => <button key={key} data-active={filter === key} onClick={() => selectFilter(key)}>{label}</button>)}
-      <button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button>
-    </div>
+    <div className={styles.filters}><span className={styles.filterHint}>Click a metric to inspect its items</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
     <div className={styles.list} data-open={drawerOpen}>
