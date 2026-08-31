@@ -286,6 +286,7 @@ button:focus-visible {
 .geofence-preview span:nth-child(3) { color: #9f3131; background: #fff0f0; }
 .notice-close { float: right; border: 0; padding: 0 6px; background: transparent; }
 .schedule-page { --schedule-ink: #12352c; }
+.schedule-page{display:flex;flex-direction:column}.schedule-health-panel{order:10}.schedule-health-panel .healthBar{margin-top:2px}
 .schedule-hero { flex-direction: row; align-items: center; justify-content: space-between; background: linear-gradient(115deg,#effaf5,#edf4ff); border-color: #cee4db; }
 .schedule-toolbar { display: flex; align-items: center; justify-content: space-between; gap: 12px; }
 .schedule-availability { display:flex; justify-content:space-between; align-items:flex-start; gap:18px; border-color:#efd7a4; background:#fffdf7; }.schedule-availability h2{margin:3px 0}.schedule-availability-list{display:grid;gap:6px;min-width:310px;color:#72511d;font-size:.77rem}.schedule-availability-list span{padding:7px 9px;border-radius:9px;background:#fff3d8}

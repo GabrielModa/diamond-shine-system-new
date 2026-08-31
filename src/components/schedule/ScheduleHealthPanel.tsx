@@ -53,6 +53,7 @@ export default function ScheduleHealthPanel({
   const [error, setError] = useState('')
   const [message, setMessage] = useState('')
   const [pauseItem, setPauseItem] = useState<ScheduleHealthItem | null>(null)
+  const [drawerOpen, setDrawerOpen] = useState(false)
   const [pauseDraft, setPauseDraft] = useState<PauseDraft | null>(null)
   const [preview, setPreview] = useState<PausePreview | null>(null)
 
@@ -151,15 +152,18 @@ export default function ScheduleHealthPanel({
     { label: 'Unacknowledged', value: summary.unacknowledged, filter: 'unacknowledged' as Filter },
   ] : []
 
-  return <section className={styles.panel} aria-label="Schedule intelligence and service continuity">
-    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => setFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
+  const selectFilter = (next: Filter) => { setFilter(next); setDrawerOpen(true) }
+
+  return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
+    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
     <div className={styles.filters}>
-      {([['all', 'All operational'], ['problems', 'Problems only'], ['needs_staff', 'Needs staff'], ['missing', 'Missing schedule'], ['paused', 'Paused'], ['unacknowledged', 'Unacknowledged']] as Array<[Filter, string]>).map(([key, label]) => <button key={key} data-active={filter === key} onClick={() => setFilter(key)}>{label}</button>)}
+      {([['all', 'All operational'], ['problems', 'Problems only'], ['needs_staff', 'Needs staff'], ['missing', 'Missing schedule'], ['paused', 'Paused'], ['unacknowledged', 'Unacknowledged']] as Array<[Filter, string]>).map(([key, label]) => <button key={key} data-active={filter === key} onClick={() => selectFilter(key)}>{label}</button>)}
       <button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button>
     </div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
-    <div className={styles.list}>
+    <div className={styles.list} data-open={drawerOpen}>
+      {drawerOpen ? <button type="button" className={styles.drawerClose} onClick={() => setDrawerOpen(false)}>Close issues ×</button> : null}
       {!loading && !visible.length ? <div className={styles.empty}>{filter === 'problems' ? 'No operational scheduling problems in this window.' : 'No items match this health filter.'}</div> : null}
       {visible.slice(0, 120).map((item) => {
         const start = item.scheduledStart ? new Date(item.scheduledStart) : null
