@@ -18,6 +18,8 @@ describe('scenario matrix seed', () => {
     })
     expect(users).toHaveLength(DEMO_EMPLOYEE_SCENARIOS.length)
     expect(users.every((user) => Boolean(user.workforceProfile))).toBe(true)
+    expect(users.every((user) => user.workforceProfile?.weeklyTargetConfigured === true)).toBe(true)
+    expect(users.every((user) => user.workforceProfile?.homeLatitude != null && user.workforceProfile.homeLongitude != null)).toBe(true)
   })
 
   it('creates additional companies, sites, jobs and visits for schedule coverage', async () => {

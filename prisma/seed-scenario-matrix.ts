@@ -54,6 +54,7 @@ async function seedEmployeeContexts() {
         schoolLatitude: scenario.school?.latitude ?? null,
         schoolLongitude: scenario.school?.longitude ?? null,
         weeklyTargetMinutes: scenario.weeklyTargetMinutes,
+        weeklyTargetConfigured: true,
         travelMode: scenario.travelMode,
       },
       create: {
@@ -67,6 +68,7 @@ async function seedEmployeeContexts() {
         schoolLatitude: scenario.school?.latitude ?? null,
         schoolLongitude: scenario.school?.longitude ?? null,
         weeklyTargetMinutes: scenario.weeklyTargetMinutes,
+        weeklyTargetConfigured: true,
         travelMode: scenario.travelMode,
       },
     })
