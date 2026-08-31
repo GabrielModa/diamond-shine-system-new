@@ -3,7 +3,7 @@
 .stat { min-width: 110px; border: 1px solid var(--border, #dfe5e8); background: var(--surface, #fff); border-radius: 14px; padding: 11px 12px; text-align: left; cursor: pointer; }
 .stat strong { display: block; font-size: 20px; line-height: 1; }
 .stat span { display: block; margin-top: 5px; font-size: 11px; color: var(--muted, #637078); }
-.stat[data-active='true'] { outline: 2px solid currentColor; outline-offset: 1px; }
+.stat[data-active='true'] { border-color: #7669dc; background: #f4f2ff; box-shadow: 0 0 0 2px rgba(118,105,220,.16); }
 .filters { display: flex; gap: 7px; flex-wrap: wrap; align-items: center; }
 .filters button { border: 1px solid var(--border, #dfe5e8); border-radius: 999px; background: #fff; padding: 8px 11px; font-weight: 750; font-size: 12px; cursor: pointer; }
 .filters button[data-active='true'] { background: #102f38; color: #fff; border-color: #102f38; }
