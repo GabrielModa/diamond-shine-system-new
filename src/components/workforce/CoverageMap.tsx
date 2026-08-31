@@ -29,8 +29,10 @@ type Props = {
   route?:{provider:string;durationSeconds:number;distanceMeters:number}|null; routeError?:string; mapsLink?:string
 }
 const initials=(name:string)=>name.split(' ').map(p=>p[0]).join('').slice(0,2)
-const siteInitials=(name:string)=>name.split(/\s+/).filter(Boolean).map(part=>part[0]).join('').slice(0,2).toUpperCase()
 const hours=(m:number)=>`${Math.floor(m/60)}h ${m%60}m`
+const siteStateLabel=(state:Site['coverageState'])=>state==='needs_staff'?'Needs staff':state==='covered'?'Covered':'No upcoming visits'
+const siteMarkerIcon=(state:Site['coverageState'])=>`<span class="wf-site-marker-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 20v-9.5L12 7l5 3.5V20M9.5 20v-5h5v5M5 20h14M9.5 11.5h.01M14.5 11.5h.01"/></svg><b>${state==='needs_staff'?'!':state==='covered'?'✓':'–'}</b></span>`
+const SiteSymbol=({state}:{state:Site['coverageState']})=><span className={`wf-site-marker-symbol ${state}`} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 20v-9.5L12 7l5 3.5V20M9.5 20v-5h5v5M5 20h14M9.5 11.5h.01M14.5 11.5h.01"/></svg><b>{state==='needs_staff'?'!':state==='covered'?'✓':'–'}</b></span>
 
 export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,siteCoverageFilter='all',onEmployee,onSite,routePath,routeOrigin,originMode='auto',onCloseEmployee,onCloseSite,onOriginModeChange,fullscreenTarget,routeMode,onRouteModeChange,route,routeError,mapsLink}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
@@ -68,16 +70,16 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     const L=m.default;layers.clearLayers();const bounds:[number,number][]=[]
     if(showSites)sites.filter(site=>site.latitude!=null&&site.longitude!=null&&(siteCoverageFilter==='all'||site.coverageState===siteCoverageFilter)).forEach(site=>{
       const lat=site.latitude!,lng=site.longitude!;bounds.push([lat,lng])
-      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-site-pin ${site.coverageState}${site.id===selectedSite?.id?' selected':''}">${siteInitials(site.name)}</span>`,iconSize:[30,30],iconAnchor:[15,15]})})
-        .bindTooltip(`${site.client.displayName} · ${site.name} · ${site.coverageState==='needs_staff'?'Needs staff':site.coverageState==='covered'?'Covered':'No upcoming visits'}`,{direction:'top'})
+      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-site-pin ${site.coverageState}">${siteMarkerIcon(site.coverageState)}</span>`,iconSize:[34,42],iconAnchor:[17,40]})})
+        .bindTooltip(`<strong>${site.name}</strong><br>${site.client.displayName} · ${siteStateLabel(site.coverageState)}`,{direction:'top',className:'wf-map-tooltip'})
       marker.on('click',()=>{onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Service site ${site.client.displayName} · ${site.name}`)
       marker.getElement()?.setAttribute('data-workforce-site-marker',site.id)
     })
     if(showEmployees)employees.filter(e=>['home','school'].includes(e.context.state)&&e.context.origin?.latitude!=null&&e.context.origin.longitude!=null).forEach(e=>{
       const o=e.id===selectedEmployee?.id?(routeOrigin ?? e.context.origin):e.context.origin!;if(o?.latitude==null||o.longitude==null)return;const lat=o.latitude,lng=o.longitude;bounds.push([lat,lng])
-      const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home',selected=e.id===selectedEmployee?.id
-      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls}${selected?' selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
+      const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home'
+      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
         .bindTooltip(`${e.name} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`} · ${e.context.state==='school'?'School':'Home'}`,{direction:'top'})
       marker.on('click',()=>{onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Employee ${e.name}`)
@@ -99,12 +101,12 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
-    <div className="wf-map-legend"><span><i className="home"/>Home origin</span><span><i className="school"/>School origin</span><span><i className="site needs-staff"/>Needs staff</span><span><i className="site covered"/>Covered</span></div>
+    <div className="wf-map-legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
     {selectedSite&&dismissedSiteId!==selectedSite.id?<aside className="wf-map-site-card" data-testid="map-site-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>{setDismissedSiteId(selectedSite.id);onCloseSite?.()}}>×</button>
-      <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}>{siteInitials(selectedSite.name)}</span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
+      <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
       <p>{selectedSite.addressLine1}, {selectedSite.city}</p>
-      <div className="wf-map-site-meta"><span className={selectedSite.coverageState}>{selectedSite.coverageState==='needs_staff'?'Needs staff':selectedSite.coverageState==='covered'?'Covered':'No upcoming visits'}</span><span><b>{selectedSite.upcomingVisits}</b> upcoming</span><span><b>{selectedSite.assignedEmployeeIds.length}</b> assigned</span></div>
+      <div className="wf-map-site-meta"><span className={selectedSite.coverageState}>{siteStateLabel(selectedSite.coverageState)}</span><span><b>{selectedSite.upcomingVisits}</b> upcoming</span><span><b>{selectedSite.assignedEmployeeIds.length}</b> assigned</span></div>
       {selectedSite.assignedEmployeeIds.length?<small className="wf-map-site-team">{selectedSite.assignedEmployeeIds.map(id=>employees.find(employee=>employee.id===id)?.name).filter(Boolean).join(' · ')}</small>:<small className="wf-map-site-team warning">No employee assigned to the upcoming visit.</small>}
     </aside>:null}
     {selectedEmployee?.context.origin?<aside className="wf-map-focus-card" data-testid="map-employee-card">
