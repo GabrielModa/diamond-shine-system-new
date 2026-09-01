@@ -8,6 +8,15 @@ function initials(name: string) {
   return name.split(' ').map((part) => part[0]).join('').slice(0, 2).toUpperCase()
 }
 
+function escapeHtml(value: string) {
+  return value
+    .replaceAll('&', '&amp;')
+    .replaceAll('<', '&lt;')
+    .replaceAll('>', '&gt;')
+    .replaceAll('"', '&quot;')
+    .replaceAll("'", '&#039;')
+}
+
 function markerClass(employee: LiveEmployee) {
   if (employee.attention || employee.state === 'attention') return styles.markerAttention
   if (employee.mapPoint?.kind === 'live_gps') return styles.markerLive
@@ -99,11 +108,11 @@ export default function WorkforceLiveMap({
         const marker = L.marker([latitude, longitude], {
           icon: L.divIcon({
             className,
-            html: initials(employee.name),
+            html: escapeHtml(initials(employee.name)),
             iconSize: [34, 34],
             iconAnchor: [17, 17],
           }),
-        }).bindTooltip(`<strong>${employee.name}</strong><br>${point.label}<br>${source}`, {
+        }).bindTooltip(`<strong>${escapeHtml(employee.name)}</strong><br>${escapeHtml(point.label)}<br>${escapeHtml(source)}`, {
           direction: 'top',
         })
         marker.on('click', () => onSelect(employee))
@@ -128,6 +137,7 @@ export default function WorkforceLiveMap({
     {status !== 'ready' ? <div className={styles.mapState}>{status === 'loading' ? 'Loading live operations map…' : 'Map tiles unavailable.'}</div> : null}
     <div className={styles.legend}>
       <span><i className={styles.live} />Live work GPS</span>
+      <span><i className={styles.markerAttention} />Attention</span>
       <span><i className={styles.expected} />Expected visit</span>
       <span><i className={styles.school} />Expected school</span>
     </div>
