@@ -110,3 +110,44 @@ test('capacity finder tolerates an empty date while the user edits with Backspac
   expect(await finder.locator('.find-time-slots button').count()).toBeGreaterThanOrEqual(4)
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
 })
+
+test('a rejected occurrence save stays visibly failed instead of looking successful', async ({ page }) => {
+  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await page.getByRole('button', { name: 'Week', exact: true }).click()
+
+  const firstVisit = page.locator('.visit-card').first()
+  await expect(firstVisit).toBeVisible()
+  await firstVisit.click()
+
+  const editor = page.getByRole('dialog', { name: /Dispatch action/i })
+  await expect(editor).toBeVisible()
+
+  // Remove selected cleaners so the client-side overlap guard cannot prevent
+  // the request. The network response below then exercises the 409 UX itself.
+  const selectedChips = editor.locator('.schedule-team-chips button')
+  while (await selectedChips.count()) await selectedChips.first().click()
+
+  await page.route('**/api/visits/*', async (route) => {
+    if (route.request().method() !== 'PATCH') return route.continue()
+    await route.fulfill({
+      status: 409,
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: false,
+        code: 'ASSIGNEE_WORKFORCE_CONSTRAINT',
+        error: 'Aisha Khan is in school during this visit. Choose another cleaner or change the time.',
+      }),
+    })
+  })
+
+  await editor.getByRole('button', { name: 'Save occurrence', exact: true }).click()
+
+  const failure = page.getByTestId('visit-save-error')
+  await expect(failure).toBeVisible()
+  await expect(failure).toContainText('Could not save this occurrence')
+  await expect(failure).toContainText('Aisha Khan is in school during this visit')
+  await expect(editor).toBeVisible()
+
+  const legacyToast = page.locator('.toast.success').filter({ hasText: 'Aisha Khan is in school during this visit' })
+  if (await legacyToast.count()) await expect(legacyToast).toBeHidden()
+})
