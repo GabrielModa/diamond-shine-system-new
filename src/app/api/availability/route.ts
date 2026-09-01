@@ -4,7 +4,6 @@ import { requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 import { availabilityCreateSchema, availabilityQuerySchema } from '../../../modules/scheduling/schemas'
-import { workforceConstraintWindows } from '../../../modules/scheduling/workforce-constraints'
 import { classifyAvailabilityNotice } from '../../../modules/workforce/profile-policy'
 
 async function hasScheduleManagement(request: NextRequest) {
@@ -24,8 +23,6 @@ export async function GET(request: NextRequest) {
   }
   const from = parsed.data.from ?? new Date(Date.now() - 7 * 86_400_000)
   const to = parsed.data.to ?? new Date(Date.now() + 90 * 86_400_000)
-  if (to <= from) return NextResponse.json({ ok: false, error: 'Availability range must end after it starts.' }, { status: 400 })
-
   const entries = await prisma.availability.findMany({
     where: {
       organizationId: auth.user.organizationId,
@@ -37,85 +34,6 @@ export async function GET(request: NextRequest) {
     include: { user: { select: { id: true, name: true, email: true } } },
     orderBy: { startsAt: 'asc' },
   })
-
-  // The manager Schedule view asks for all team availability. In that context,
-  // return derived workforce blockers as normal unavailable windows too, so the
-  // Capacity Finder and visit editor consume the exact server-side school,
-  // leave and recurring-unavailability rules instead of duplicating them in React.
-  if (manager && !requestedUserId) {
-    const [organization, memberships] = await Promise.all([
-      prisma.organization.findUnique({
-        where: { id: auth.user.organizationId },
-        select: { timezone: true },
-      }),
-      prisma.membership.findMany({
-        where: {
-          organizationId: auth.user.organizationId,
-          status: 'active',
-          role: { in: ['employee', 'field_supervisor'] },
-          user: {
-            status: 'active',
-            workforceProfile: { is: { weeklyTargetConfigured: true } },
-          },
-        },
-        select: {
-          user: {
-            select: {
-              id: true,
-              name: true,
-              email: true,
-              workforceProfile: {
-                include: {
-                  studySchedules: true,
-                  recurringUnavailability: true,
-                  leaves: true,
-                },
-              },
-            },
-          },
-        },
-      }),
-    ])
-    const timezone = organization?.timezone ?? 'Europe/Dublin'
-    const derived = memberships.flatMap((membership) => {
-      const profile = membership.user.workforceProfile
-      if (!profile) return []
-      const windows = workforceConstraintWindows({
-        studySchedules: profile.studySchedules,
-        recurringUnavailability: profile.recurringUnavailability,
-        leaves: profile.leaves.map((leave) => ({
-          kind: leave.kind as 'school_holiday' | 'personal_leave',
-          startsAt: leave.startsAt,
-          endsAt: leave.endsAt,
-          reason: leave.reason,
-        })),
-      }, from, to, timezone)
-      return windows.map((window, index) => ({
-        id: `workforce:${membership.user.id}:${window.kind}:${window.startsAt.toISOString()}:${index}`,
-        organizationId: auth.user.organizationId,
-        userId: membership.user.id,
-        startsAt: window.startsAt,
-        endsAt: window.endsAt,
-        reason: window.reason,
-        createdAt: window.startsAt,
-        updatedAt: window.startsAt,
-        cancelledAt: null,
-        user: {
-          id: membership.user.id,
-          name: membership.user.name,
-          email: membership.user.email,
-        },
-        source: 'workforce_constraint' as const,
-        constraintKind: window.kind,
-      }))
-    })
-
-    return NextResponse.json({
-      ok: true,
-      data: [...entries, ...derived].sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime()),
-    })
-  }
-
   return NextResponse.json({ ok: true, data: entries })
 }
 
