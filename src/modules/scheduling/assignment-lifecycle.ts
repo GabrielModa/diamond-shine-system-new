@@ -8,9 +8,10 @@ export const ACTIVE_ASSIGNMENT_STATUSES: readonly AssignmentStatus[] = [
   'acknowledged',
 ] as const
 
-/** Visit states that should not consume future coverage/capacity. */
+/** Visit states that should not consume future coverage/capacity or operational health. */
 export const NON_OPERATIONAL_VISIT_STATUSES: readonly VisitStatus[] = [
   'cancelled',
+  'completed',
   'missed',
 ] as const
 
