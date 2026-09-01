@@ -6,6 +6,7 @@ import { enqueueNotification } from '../../../../lib/notification-queue'
 import { visitUpdateSchema } from '../../../../modules/scheduling/schemas'
 import { ACTIVE_ASSIGNMENT_STATUSES, isActiveAssignmentStatus } from '../../../../modules/scheduling/assignment-lifecycle'
 import { workforceConstraintForWindow } from '../../../../modules/scheduling/workforce-constraints'
+import { visitMutationRequiresNewAcknowledgement } from '../../../../modules/scheduling/visit-mutation-policy'
 
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
 
@@ -74,6 +75,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const currentActiveIds = current.assignments.filter((item) => isActiveAssignmentStatus(item.status)).map((item) => item.userId)
   const assigneeIds = parsed.data.assigneeIds ? [...new Set(parsed.data.assigneeIds)] : currentActiveIds
+  const acknowledgementEligible = ['scheduled', 'dispatched', 'acknowledged'].includes(current.status)
+  const requiresNewAcknowledgement = !cancelling && acknowledgementEligible && visitMutationRequiresNewAcknowledgement({
+    scheduledStart: current.scheduledStart,
+    scheduledEnd: current.scheduledEnd,
+    dispatchNotes: current.dispatchNotes,
+    assigneeIds: currentActiveIds,
+  }, {
+    scheduledStart: start,
+    scheduledEnd: end,
+    dispatchNotes: parsed.data.dispatchNotes === undefined ? current.dispatchNotes : parsed.data.dispatchNotes,
+    assigneeIds,
+  })
 
   if (!cancelling && assigneeIds.length) {
     const members = await prisma.membership.findMany({
@@ -188,15 +201,31 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
 
+  const nextStatus = cancelling
+    ? 'cancelled'
+    : requiresNewAcknowledgement
+      ? assigneeIds.length ? 'dispatched' : 'scheduled'
+      : parsed.data.status === 'scheduled' && ['dispatched', 'acknowledged'].includes(current.status)
+        ? current.status
+        : parsed.data.status
+
   const updated = await prisma.$transaction(async (tx) => {
     if (parsed.data.assigneeIds) {
       const selected = new Set(assigneeIds)
       for (const assignment of current.assignments) {
         if (selected.has(assignment.userId)) {
-          if (!isActiveAssignmentStatus(assignment.status)) {
+          if (!isActiveAssignmentStatus(assignment.status) || requiresNewAcknowledgement) {
             await tx.visitAssignment.update({
               where: { id: assignment.id },
-              data: { status: 'assigned', assignedAt: new Date(), declinedAt: null, declineReason: null },
+              data: {
+                status: 'assigned',
+                assignedAt: new Date(),
+                notifiedAt: null,
+                seenAt: null,
+                acknowledgedAt: null,
+                declinedAt: null,
+                declineReason: null,
+              },
             })
           }
         } else if (isActiveAssignmentStatus(assignment.status)) {
@@ -216,9 +245,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         scheduledStart: parsed.data.scheduledStart,
         scheduledEnd: parsed.data.scheduledEnd,
         dispatchNotes: parsed.data.dispatchNotes,
-        status: parsed.data.status,
+        status: nextStatus,
         cancellationReason: cancelling ? parsed.data.cancellationReason!.trim() : parsed.data.cancellationReason,
-        cancelledAt: parsed.data.status === 'cancelled' ? new Date() : parsed.data.status ? null : undefined,
+        cancelledAt: cancelling ? new Date() : nextStatus ? null : undefined,
         version: { increment: 1 },
       },
       include: { assignments: { include: { user: { select: { id: true, name: true, email: true } } } } },
@@ -227,7 +256,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const updatedActiveIds = updated.assignments.filter((item) => isActiveAssignmentStatus(item.status)).map((item) => item.userId)
   const notificationRecipients = [...new Set([...currentActiveIds, ...updatedActiveIds])]
-  if (notificationRecipients.length) {
+  if (notificationRecipients.length && (cancelling || requiresNewAcknowledgement)) {
     const title = cancelling ? 'Cleaning visit cancelled' : 'Visit schedule updated'
     const body = cancelling
       ? `${current.site.client.displayName} · ${current.site.name} on ${updated.scheduledStart.toLocaleString('en-IE', { timeZone: updated.timezone })} was cancelled. Reason: ${updated.cancellationReason}.`
@@ -263,6 +292,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     cancellationReason: updated.cancellationReason,
     previousAssigneeIds: currentActiveIds,
     assigneeIds: updatedActiveIds,
+    requiresNewAcknowledgement,
   }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: updated })
 }
