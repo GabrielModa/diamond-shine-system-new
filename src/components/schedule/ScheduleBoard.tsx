@@ -38,13 +38,32 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   const [visits, setVisits] = useState<Visit[]>([]); const [plans, setPlans] = useState<Plan[]>([]); const [team, setTeam] = useState<Member[]>([]); const [availability, setAvailability] = useState<Availability[]>([])
   const [view, setView] = useState<ScheduleView>('week'); const [anchorDate, setAnchorDate] = useState(() => operationalCalendarDate(new Date(), timezone)); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false)
   const [statusFilter, setStatusFilter] = useState('needs_scheduling'); const [healthFocus, setHealthFocus] = useState<HealthFocus>(null); const [healthRefreshSignal, setHealthRefreshSignal] = useState(0); const [teamFilter, setTeamFilter] = useState('all'); const [draftTeamFilter, setDraftTeamFilter] = useState('all'); const [teamQuery, setTeamQuery] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [noticeIsError, setNoticeIsError] = useState(false); const [showCreate, setShowCreate] = useState(false); const [showFindTime, setShowFindTime] = useState(false); const [showFilters, setShowFilters] = useState(false); const [healthCloseSignal, setHealthCloseSignal] = useState(0)
-  const [showPlanPicker, setShowPlanPicker] = useState(false); const [planQuery, setPlanQuery] = useState(''); const planPickerRef = useRef<HTMLDivElement>(null)
+  const [showPlanPicker, setShowPlanPicker] = useState(false); const [planQuery, setPlanQuery] = useState(''); const planPickerRef = useRef<HTMLDivElement>(null); const deepLinkAppliedRef = useRef(false)
   const [selected, setSelected] = useState<Visit | null>(null); const [edit, setEdit] = useState({ scheduledStart: '', scheduledEnd: '', assigneeIds: [] as string[], dispatchNotes: '', cancellationReason: '' }); const [editError, setEditError] = useState<string | null>(null)
   const [draft, setDraft] = useState({ servicePlanId: '', name: '', startAt: operationalDateTimeInput(new Date(Date.now() + 86_400_000), timezone), endDate: '', durationMinutes: 120, frequency: 'once', interval: 1, weekdays: [1, 3, 5] as number[], assigneeIds: [] as string[] })
   const [finder, setFinder] = useState({ date: operationalDateKey(new Date(Date.now() + 86_400_000), timezone), durationMinutes: 120, assigneeIds: [] as string[] })
   const range = useMemo(() => { const start = startOfMonth(anchorDate); start.setDate(start.getDate() - 7); const end = new Date(start); end.setMonth(end.getMonth() + 3); return { from: operationalInputToUtc(`${calendarDateKey(start)}T00:00`, timezone).toISOString(), to: operationalInputToUtc(`${calendarDateKey(end)}T23:59`, timezone).toISOString() } }, [anchorDate, timezone])
   const refresh = useCallback(async () => { setLoading(true); try { const [v, p, t, a] = await Promise.all([api<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&mode=all`), api<Plan[]>('/api/service-plans'), api<Member[]>('/api/team'), api<Availability[]>(`/api/availability?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)]); setVisits(v); setPlans(p.filter((plan) => plan.status === 'published')); setTeam(t); setAvailability(a); setDraft((current) => ({ ...current, servicePlanId: current.servicePlanId || p.find((plan) => plan.status === 'published')?.id || '' })) } catch (error) { setNoticeIsError(true); setNotice(error instanceof Error ? error.message : 'Could not load schedule.') } finally { setLoading(false) } }, [range])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (deepLinkAppliedRef.current || !team.length) return
+    const params = new URLSearchParams(window.location.search)
+    const employeeId = params.get('employee')
+    const dateValue = params.get('date')
+    if (!employeeId && !dateValue) { deepLinkAppliedRef.current = true; return }
+    if (employeeId && team.some((member) => member.id === employeeId)) {
+      setTeamFilter(employeeId)
+      setDraftTeamFilter(employeeId)
+      setHealthFocus(null)
+      setStatusFilter('upcoming')
+      setView('week')
+    }
+    if (dateValue) {
+      const instant = new Date(dateValue)
+      if (!Number.isNaN(instant.getTime())) setAnchorDate(operationalCalendarDate(instant, timezone))
+    }
+    deepLinkAppliedRef.current = true
+  }, [team, timezone])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
