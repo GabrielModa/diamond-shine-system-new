@@ -92,4 +92,43 @@ describe('schedule capacity availability', () => {
     expect(employeeView.status).toBe(200)
     expect(employeeView.body.data.some((item: { source?: string }) => item.source === 'workforce_constraint')).toBe(false)
   })
+
+  it('uses the same recurring workforce rule in capacity preview that visit PATCH enforces', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })
+
+    await prisma.recurringUnavailability.create({
+      data: {
+        organizationId: profile.organizationId,
+        profileId: profile.id,
+        dayOfWeek: 1,
+        startsMinute: 18 * 60,
+        endsMinute: 22 * 60,
+        reason: 'Other job every Monday',
+      },
+    })
+
+    const response = await request(app)
+      .post('/api/schedule-capacity')
+      .set('Cookie', adminCookie)
+      .send({
+        userIds: [employee.id],
+        windows: [
+          { start: '2026-08-24T17:30:00.000Z', end: '2026-08-24T18:30:00.000Z' },
+          { start: '2026-08-24T14:00:00.000Z', end: '2026-08-24T15:00:00.000Z' },
+        ],
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.body.data.windows).toHaveLength(2)
+    expect(response.body.data.windows[0]).toMatchObject({ total: 1, available: 0, blockedCount: 1 })
+    expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        userId: employee.id,
+        kind: 'recurring_unavailability',
+        reason: 'Other job every Monday',
+      }),
+    ]))
+    expect(response.body.data.windows[1]).toMatchObject({ total: 1, available: 1, blockedCount: 0 })
+  })
 })
