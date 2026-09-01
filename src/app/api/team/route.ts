@@ -10,7 +10,10 @@ export async function GET(request: NextRequest) {
       organizationId: auth.user.organizationId,
       status: 'active',
       role: { in: ['employee', 'field_supervisor'] },
-      user: { status: 'active' },
+      user: {
+        status: 'active',
+        workforceProfile: { is: { weeklyTargetConfigured: true } },
+      },
     },
     orderBy: { user: { name: 'asc' } },
     select: { role: true, user: { select: { id: true, name: true, email: true } } },
