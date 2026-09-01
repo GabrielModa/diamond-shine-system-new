@@ -77,7 +77,7 @@ test('week view always exposes Schedule work on every day', async ({ page }) => 
   expect(await page.getByRole('button', { name: '+ Schedule work', exact: true }).count()).toBe(7)
 })
 
-test('capacity finder tolerates an empty date while the user edits with Backspace', async ({ page }) => {
+test('capacity finder tolerates an empty date and waits for a valid date', async ({ page }) => {
   const pageErrors: string[] = []
   page.on('pageerror', (error) => pageErrors.push(error.message))
 
@@ -93,15 +93,72 @@ test('capacity finder tolerates an empty date while the user edits with Backspac
   await page.waitForTimeout(100)
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
   await expect(finder.getByRole('heading', { name: 'Find a workable time' })).toBeVisible()
-
-  await finder.getByRole('heading', { name: 'Find a workable time' }).click()
-  await expect(dateInput).toHaveValue(originalDate)
+  await expect(dateInput).toHaveValue('')
+  await expect(finder.getByText('Select a date to see workable times.')).toBeVisible()
+  await expect(finder.locator('.find-time-slots button')).toHaveCount(0)
 
   await dateInput.fill('2027-09-25')
   await expect(dateInput).toHaveValue('2027-09-25')
   await expect(finder.locator('.find-time-slots button').first()).toBeVisible()
   expect(await finder.locator('.find-time-slots button').count()).toBeGreaterThanOrEqual(4)
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
+})
+
+test('successful create explicitly refreshes schedule health without a reload', async ({ page }) => {
+  let healthRequests = 0
+  await page.route('**/api/schedule-health?**', async (route) => {
+    healthRequests += 1
+    await route.continue()
+  })
+  await page.reload({ waitUntil: 'domcontentloaded' })
+  await expect(page.locator('[data-health-filter="scheduling"] .schedule-health-stat-main')).toBeVisible()
+  const beforeCreate = healthRequests
+
+  await page.route('**/api/jobs', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    await route.fulfill({
+      status: 201,
+      contentType: 'application/json',
+      body: JSON.stringify({ ok: true, data: { generatedVisits: 1 } }),
+    })
+  })
+
+  await page.getByRole('button', { name: '+ Create work', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Schedule cleaning work' })
+  await dialog.getByLabel('Job name').fill(`Health refresh ${Date.now()}`)
+  await dialog.getByRole('button', { name: 'Generate schedule' }).click()
+
+  await expect(page.getByText('Visit scheduled.')).toBeVisible()
+  await expect.poll(() => healthRequests).toBeGreaterThan(beforeCreate)
+  await expect(dialog).toHaveCount(0)
+})
+
+test('Escape closes only the topmost filter surface and never reopens it', async ({ page }) => {
+  await page.getByRole('button', { name: /^Filters/ }).click()
+  const filters = page.getByRole('dialog', { name: 'Schedule filters' })
+  await expect(filters).toBeVisible()
+  await filters.getByRole('button', { name: /All team/ }).click()
+
+  await page.keyboard.press('Escape')
+  await expect(filters).toHaveCount(0)
+  await page.waitForTimeout(150)
+  await expect(filters).toHaveCount(0)
+})
+
+test('schedule and health drawer stay within the viewport', async ({ page }) => {
+  const scheduling = page.locator('[data-health-filter="scheduling"]')
+  const count = Number(await scheduling.locator('.schedule-health-stat-main strong').innerText())
+  if (count > 0) {
+    await scheduling.locator('.schedule-health-stat-details').click()
+    const drawer = page.getByRole('dialog', { name: /Needs scheduling details/i })
+    await expect(drawer).toBeVisible()
+    const box = await drawer.boundingBox()
+    expect(box).not.toBeNull()
+    expect(box!.x).toBeGreaterThanOrEqual(0)
+    expect(box!.x + box!.width).toBeLessThanOrEqual(page.viewportSize()!.width + 1)
+  }
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+  expect(overflow).toBeLessThanOrEqual(1)
 })
 
 test('rejected occurrence save stays failed and stale error clears when the current team changes', async ({ page }) => {
