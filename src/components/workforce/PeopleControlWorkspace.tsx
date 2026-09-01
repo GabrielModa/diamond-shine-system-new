@@ -27,6 +27,8 @@ export default function PeopleControlWorkspace() {
       </header>
     </div>
 
-    {mode === 'live' ? <main className="page-shell"><WorkforceLiveNow /></main> : <WorkforceWorkspace />}
+    {mode === 'live'
+      ? <main className="page-shell"><WorkforceLiveNow /></main>
+      : <div className={styles.planMode}><WorkforceWorkspace /></div>}
   </>
 }
