@@ -50,7 +50,7 @@ export default function TeamPicker({
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
-    const assignable = members.filter((member) => member.role === 'employee')
+    const assignable = members.filter((member) => member.role === 'employee' || member.role === 'field_supervisor')
     if (!needle) return assignable
     return assignable.filter((member) => `${member.name ?? ''} ${member.email}`.toLowerCase().includes(needle))
   }, [members, query])
@@ -99,10 +99,10 @@ export default function TeamPicker({
       <div className="filter-dialog-body"><label className="schedule-team-search"><span>Search</span><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cleaner by name..." /></label>
       <div className="schedule-team-options">
         {cleaners.length ? <section>
-          <span className="schedule-team-group-label">Cleaners</span>
+          <span className="schedule-team-group-label">Assignable team</span>
           {cleaners.map((member) => <label key={member.id} className={draftIds.includes(member.id) ? 'selected' : ''}>
             <input type="checkbox" checked={draftIds.includes(member.id)} onChange={() => toggleDraft(member.id)} />
-            <span><b>{member.name ?? member.email}</b><small>{member.email}</small></span>
+            <span><b>{member.name ?? member.email}</b><small>{member.role === 'field_supervisor' ? 'Field supervisor · ' : ''}{member.email}</small></span>
           </label>)}
         </section> : null}
 
