@@ -38,7 +38,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ScheduleHealthPanel({
-  from, to, timezone, canManage, closeSignal, onChanged, onOpenServicePlan,
+  from, to, timezone, canManage, closeSignal, onChanged, onOpenVisit, onOpenServicePlan,
 }: {
   from: string
   to: string
@@ -46,6 +46,7 @@ export default function ScheduleHealthPanel({
   canManage: boolean
   closeSignal: number
   onChanged: () => Promise<void> | void
+  onOpenVisit: (visitId: string) => void
   onOpenServicePlan: (servicePlanId: string) => void
 }) {
   const [data, setData] = useState<Result | null>(null)
@@ -191,7 +192,7 @@ export default function ScheduleHealthPanel({
     setBusy(true); setError(''); setMessage('')
     try {
       const result = await api<ReminderResult>(`/api/visits/${item.visitId}/remind`, { method: 'POST' })
-      setMessage(`Reminder sent to ${result.reminded} cleaner${result.reminded === 1 ? '' : 's'}.`)
+      setMessage(`Reminder queued for ${result.reminded} cleaner${result.reminded === 1 ? '' : 's'}.`)
       await Promise.resolve(onChanged()); await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send acknowledgement reminder.') }
     finally { setBusy(false) }
@@ -209,9 +210,7 @@ export default function ScheduleHealthPanel({
   const selectFilter = (next: Filter) => { window.dispatchEvent(new Event('diamond:schedule-health-open')); setFilter(next); setDrawerQuery(''); setDrawerDate('all'); setDrawerOpen(true) }
   const openVisit = (visitId: string) => {
     setDrawerOpen(false)
-    const target = new URL('/schedule', window.location.origin)
-    target.searchParams.set('visit', visitId)
-    window.location.assign(`${target.pathname}${target.search}`)
+    onOpenVisit(visitId)
   }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
