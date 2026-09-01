@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 
 export type WorkforceLiveIconName =
   | 'live'
@@ -17,7 +17,7 @@ export type WorkforceLiveIconName =
   | 'visit'
   | 'back'
 
-const paths: Record<WorkforceLiveIconName, React.ReactNode> = {
+const paths: Record<WorkforceLiveIconName, ReactNode> = {
   live: <><circle cx="12" cy="12" r="2.5"/><path d="M7.8 7.8a6 6 0 0 0 0 8.4M16.2 7.8a6 6 0 0 1 0 8.4M4.7 4.7a10.3 10.3 0 0 0 0 14.6M19.3 4.7a10.3 10.3 0 0 1 0 14.6"/></>,
   calendar: <><rect x="3.5" y="5" width="17" height="15" rx="2"/><path d="M7.5 3.5v3M16.5 3.5v3M3.5 9h17"/></>,
   refresh: <><path d="M20 6v5h-5"/><path d="M18.2 9a7.5 7.5 0 1 0 .3 6.5"/></>,
