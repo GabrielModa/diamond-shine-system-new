@@ -44,7 +44,7 @@ export type LiveEmployee = {
     temporaryReason: string | null
   }
   mapPoint: {
-    kind: 'active_visit_site' | 'expected_visit_site' | 'expected_school'
+    kind: 'live_gps' | 'expected_visit_site' | 'expected_school'
     latitude: number
     longitude: number
     label: string
