@@ -15,6 +15,7 @@ export type LiveStatusInput = {
     lastSignalAt: Date | null
     locationClassification: string | null
     hasCriticalIncident?: boolean
+    terminalVisitStatus?: string | null
   } | null
   currentVisit?: LiveVisitWindow | null
   nextVisit?: LiveVisitWindow | null
@@ -41,16 +42,19 @@ export function resolveWorkforceLiveStatus(input: LiveStatusInput) {
       ? Math.max(0, input.now.getTime() - input.runningEntry.lastSignalAt.getTime())
       : null
     const locationProblem = ['suspicious', 'unavailable'].includes(input.runningEntry.locationClassification ?? '')
-    const attention = signalAgeMs == null || signalAgeMs > LIVE_SIGNAL_ATTENTION_MS || locationProblem || Boolean(input.runningEntry.hasCriticalIncident)
+    const terminalVisit = Boolean(input.runningEntry.terminalVisitStatus)
+    const attention = terminalVisit || signalAgeMs == null || signalAgeMs > LIVE_SIGNAL_ATTENTION_MS || locationProblem || Boolean(input.runningEntry.hasCriticalIncident)
     const reason = input.runningEntry.hasCriticalIncident
       ? 'Critical incident on the active visit.'
-      : locationProblem
-        ? 'Latest work-location check needs review.'
-        : signalAgeMs == null
-          ? 'No work-location signal has been received for this active timer.'
-          : signalAgeMs > LIVE_SIGNAL_ATTENTION_MS
-            ? 'Work-location signal is stale for this active timer.'
-            : null
+      : terminalVisit
+        ? `Timer is still running although the visit is ${input.runningEntry.terminalVisitStatus}.`
+        : locationProblem
+          ? 'Latest work-location check needs review.'
+          : signalAgeMs == null
+            ? 'No work-location signal has been received for this active timer.'
+            : signalAgeMs > LIVE_SIGNAL_ATTENTION_MS
+              ? 'Work-location signal is stale for this active timer.'
+              : null
     return { state: 'on_job' as const, signalState: signal, attention, attentionReason: reason }
   }
 
