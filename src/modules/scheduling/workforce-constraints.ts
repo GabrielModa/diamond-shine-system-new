@@ -82,10 +82,13 @@ function schoolOverlapCoveredByHoliday(
   const overlapStart = new Date(Math.max(visitStart.getTime(), schoolStart.getTime()))
   const overlapEnd = new Date(Math.min(visitEnd.getTime(), schoolEnd.getTime()))
   if (overlapEnd <= overlapStart) return false
-  return leaves.some((leave) =>
-    leave.kind === 'school_holiday'
-    && leave.startsAt <= overlapStart
-    && leave.endsAt >= overlapEnd)
+  let remaining = [{ start: overlapStart, end: overlapEnd }]
+  for (const leave of leaves) {
+    if (leave.kind !== 'school_holiday') continue
+    remaining = subtractWindow(remaining, leave.startsAt, leave.endsAt)
+    if (!remaining.length) return true
+  }
+  return false
 }
 
 /**
