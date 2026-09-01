@@ -152,6 +152,8 @@ export async function GET(request: NextRequest) {
             distanceM: true,
             accuracyM: true,
             kind: true,
+            latitude: true,
+            longitude: true,
           },
         },
       },
@@ -241,23 +243,34 @@ export async function GET(request: NextRequest) {
 
     const visitForAction = activeVisit ?? nextVisit
     const operationalSite = visitForAction ? sitePayload(visitForAction.site) : null
-    const mapPoint = live.state === 'on_job' || live.state === 'starting_soon' || live.state === 'attention'
-      ? operationalSite?.latitude != null && operationalSite.longitude != null
-        ? {
-            kind: live.state === 'on_job' ? 'active_visit_site' as const : 'expected_visit_site' as const,
-            latitude: operationalSite.latitude,
-            longitude: operationalSite.longitude,
-            label: `${operationalSite.client.displayName} · ${operationalSite.name}`,
-          }
-        : null
-      : live.state === 'expected_school' && school?.latitude != null && school.longitude != null
-        ? {
-            kind: 'expected_school' as const,
-            latitude: school.latitude,
-            longitude: school.longitude,
-            label: school.label,
-          }
-        : null
+    const liveLatitude = latestSignal?.latitude == null ? null : Number(latestSignal.latitude)
+    const liveLongitude = latestSignal?.longitude == null ? null : Number(latestSignal.longitude)
+    const mapPoint = running && liveLatitude != null && liveLongitude != null
+      ? {
+          kind: 'live_gps' as const,
+          latitude: liveLatitude,
+          longitude: liveLongitude,
+          label: operationalSite
+            ? `${operationalSite.client.displayName} · ${operationalSite.name}`
+            : 'Active work session',
+        }
+      : live.state === 'on_job' || live.state === 'starting_soon' || live.state === 'attention'
+        ? operationalSite?.latitude != null && operationalSite.longitude != null
+          ? {
+              kind: 'expected_visit_site' as const,
+              latitude: operationalSite.latitude,
+              longitude: operationalSite.longitude,
+              label: `${operationalSite.client.displayName} · ${operationalSite.name}`,
+            }
+          : null
+        : live.state === 'expected_school' && school?.latitude != null && school.longitude != null
+          ? {
+              kind: 'expected_school' as const,
+              latitude: school.latitude,
+              longitude: school.longitude,
+              label: school.label,
+            }
+          : null
 
     const signalAgeSeconds = signalCapturedAt
       ? Math.max(0, Math.round((now.getTime() - signalCapturedAt.getTime()) / 1000))
