@@ -52,26 +52,6 @@ function dayMatches(day: Date, rule: StudyRule) {
   return rule.dayOfWeek === jsDay || (jsDay === 0 && rule.dayOfWeek === 7)
 }
 
-function clipWindow(start: Date, end: Date, from: Date, to: Date) {
-  const clippedStart = new Date(Math.max(start.getTime(), from.getTime()))
-  const clippedEnd = new Date(Math.min(end.getTime(), to.getTime()))
-  return clippedEnd > clippedStart ? { start: clippedStart, end: clippedEnd } : null
-}
-
-function subtractWindow(
-  segments: Array<{ start: Date; end: Date }>,
-  blockedStart: Date,
-  blockedEnd: Date,
-) {
-  return segments.flatMap((segment) => {
-    if (!overlaps(segment.start, segment.end, blockedStart, blockedEnd)) return [segment]
-    const result: Array<{ start: Date; end: Date }> = []
-    if (blockedStart > segment.start) result.push({ start: segment.start, end: new Date(Math.min(blockedStart.getTime(), segment.end.getTime())) })
-    if (blockedEnd < segment.end) result.push({ start: new Date(Math.max(blockedEnd.getTime(), segment.start.getTime())), end: segment.end })
-    return result.filter((item) => item.end > item.start)
-  })
-}
-
 function schoolOverlapCoveredByHoliday(
   visitStart: Date,
   visitEnd: Date,
@@ -82,76 +62,17 @@ function schoolOverlapCoveredByHoliday(
   const overlapStart = new Date(Math.max(visitStart.getTime(), schoolStart.getTime()))
   const overlapEnd = new Date(Math.min(visitEnd.getTime(), schoolEnd.getTime()))
   if (overlapEnd <= overlapStart) return false
-  let remaining = [{ start: overlapStart, end: overlapEnd }]
-  for (const leave of leaves) {
-    if (leave.kind !== 'school_holiday') continue
-    remaining = subtractWindow(remaining, leave.startsAt, leave.endsAt)
-    if (!remaining.length) return true
+
+  const holidays = leaves
+    .filter((leave) => leave.kind === 'school_holiday' && overlaps(overlapStart, overlapEnd, leave.startsAt, leave.endsAt))
+    .sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime())
+  let coveredThrough = overlapStart.getTime()
+  for (const holiday of holidays) {
+    if (holiday.startsAt.getTime() > coveredThrough) return false
+    coveredThrough = Math.max(coveredThrough, holiday.endsAt.getTime())
+    if (coveredThrough >= overlapEnd.getTime()) return true
   }
   return false
-}
-
-/**
- * Expands the same workforce rules used by visit validation into concrete
- * unavailable windows. Schedule clients can consume these windows without
- * reimplementing school / leave / recurring-rule logic in React.
- */
-export function workforceConstraintWindows(
-  profile: WorkforceConstraintProfile | null | undefined,
-  from: Date,
-  to: Date,
-  timezone: string,
-): WorkforceConstraint[] {
-  if (!profile || to <= from) return []
-  const windows: WorkforceConstraint[] = []
-
-  for (const leave of profile.leaves) {
-    if (leave.kind !== 'personal_leave') continue
-    const clipped = clipWindow(leave.startsAt, leave.endsAt, from, to)
-    if (!clipped) continue
-    windows.push({
-      kind: 'personal_leave',
-      startsAt: clipped.start,
-      endsAt: clipped.end,
-      reason: leave.reason?.trim() || 'Personal leave',
-    })
-  }
-
-  const schoolHolidays = profile.leaves.filter((leave) => leave.kind === 'school_holiday')
-  for (const day of localCalendarDays(from, to, timezone)) {
-    for (const recurring of (profile.recurringUnavailability ?? []).filter((rule) => dayMatches(day, rule))) {
-      const window = recurringWindow(day, recurring, timezone)
-      const clipped = clipWindow(window.start, window.end, from, to)
-      if (!clipped) continue
-      windows.push({
-        kind: 'recurring_unavailability',
-        startsAt: clipped.start,
-        endsAt: clipped.end,
-        reason: recurring.reason?.trim() || 'Recurring weekly unavailability',
-      })
-    }
-
-    for (const study of profile.studySchedules.filter((rule) => dayMatches(day, rule))) {
-      const window = recurringWindow(day, study, timezone)
-      let segments = [{ start: window.start, end: window.end }]
-      for (const holiday of schoolHolidays) {
-        segments = subtractWindow(segments, holiday.startsAt, holiday.endsAt)
-        if (!segments.length) break
-      }
-      for (const segment of segments) {
-        const clipped = clipWindow(segment.start, segment.end, from, to)
-        if (!clipped) continue
-        windows.push({
-          kind: 'school',
-          startsAt: clipped.start,
-          endsAt: clipped.end,
-          reason: 'School / study schedule',
-        })
-      }
-    }
-  }
-
-  return windows.sort((left, right) => left.startsAt.getTime() - right.startsAt.getTime())
 }
 
 export function workforceConstraintForWindow(
