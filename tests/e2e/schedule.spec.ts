@@ -38,7 +38,7 @@ test('needs scheduling adopts the amber operational state in the calendar', asyn
   }
 })
 
-test('conflicts are highlighted on the calendar, counted as affected visits and details are explicitly opt-in', async ({ page }) => {
+test('conflict count represents actionable overlap cases while all affected visits stay highlighted', async ({ page }) => {
   const card = page.locator('[data-health-filter="conflicts"]')
   const count = Number(await card.locator('.schedule-health-stat-main strong').innerText())
 
@@ -50,12 +50,12 @@ test('conflicts are highlighted on the calendar, counted as affected visits and 
     const conflictCards = page.locator('.visit-card.schedule-conflict')
     expect(await visibleCards.count()).toBeGreaterThan(0)
     expect(await conflictCards.count()).toBe(await visibleCards.count())
-    expect(await conflictCards.count()).toBe(count)
 
     await card.locator('.schedule-health-stat-details').click()
     const drawer = page.getByRole('dialog', { name: /Conflicts details/i })
     await expect(drawer).toBeVisible()
     await expect(drawer.getByText(/Double booked/i).first()).toBeVisible()
+    await expect(drawer.locator('article')).toHaveCount(count)
     await drawer.getByRole('button', { name: 'Close' }).click()
     await expect(drawer).toBeHidden()
     await expect(page.locator('.schedule-health-active-filter')).toContainText('Conflicts')
