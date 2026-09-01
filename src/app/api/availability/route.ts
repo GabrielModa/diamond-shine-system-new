@@ -142,7 +142,8 @@ export async function POST(request: NextRequest) {
       noticeLevel,
       affectedAssignments: result.affectedAssignments,
       managementNotified: result.managementNotified,
-    }, auth.user.organizationId,
+    },
+    auth.user.organizationId,
   )
 
   return NextResponse.json({
