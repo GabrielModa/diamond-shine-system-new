@@ -18,16 +18,23 @@ type Summary = {
   unacknowledged: number
 }
 type Result = { from: string; to: string; summary: Summary; items: ScheduleHealthItem[] }
-type Filter = 'all' | 'problems' | 'covered' | 'needs_staff' | 'missing' | 'paused' | 'conflicts' | 'unacknowledged'
+type Filter = 'all' | 'problems' | 'covered' | 'scheduling' | 'paused' | 'conflicts' | 'confirmation'
 type PauseDraft = { scope: 'client' | 'site' | 'job'; targetId: string; fromDate: string; untilDate: string; reason: string; note: string }
 type PausePreview = { target: string; timezone: string; consequence: { canApply: boolean; affectedVisits: number; materializedVisits: number; expectedOccurrences: number; assignedCleaners: number; plannedLabourHours: number; blockers: Array<{ id: string; site: string }> } }
 type EnsureResult = { result: { jobsChecked: number; generatedVisits: number; pausedOccurrences: number; staffingGaps: number } }
 type ReminderResult = { visitId: string; reminded: number; notificationJobId: string }
 
 const PROBLEM_STATES = new Set<ScheduleHealthState>(['needs_staff', 'unassigned', 'expected_not_scheduled', 'unscheduled_service', 'cleaner_overlap', 'acknowledgement_pending'])
+const SCHEDULING_STATES = new Set<ScheduleHealthState>(['needs_staff', 'unassigned', 'expected_not_scheduled', 'unscheduled_service'])
 const labels: Record<ScheduleHealthState, string> = {
-  covered: 'Covered', needs_staff: 'Needs staff', unassigned: 'Unassigned', expected_not_scheduled: 'Expected · not scheduled',
-  unscheduled_service: 'Unscheduled service', service_paused: 'Service paused', cleaner_overlap: 'Cleaner overlap', acknowledgement_pending: 'Ack pending',
+  covered: 'Covered',
+  needs_staff: 'Team needed',
+  unassigned: 'Team needed',
+  expected_not_scheduled: 'Visit not created',
+  unscheduled_service: 'Schedule setup needed',
+  service_paused: 'Service paused',
+  cleaner_overlap: 'Double booked',
+  acknowledgement_pending: 'Awaiting confirmation',
 }
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
@@ -103,8 +110,7 @@ export default function ScheduleHealthPanel({
     if (filter === 'all') return true
     if (filter === 'problems') return PROBLEM_STATES.has(item.state)
     if (filter === 'covered') return item.state === 'covered'
-    if (filter === 'needs_staff') return item.state === 'needs_staff' || item.state === 'unassigned'
-    if (filter === 'missing') return item.state === 'expected_not_scheduled' || item.state === 'unscheduled_service'
+    if (filter === 'scheduling') return SCHEDULING_STATES.has(item.state)
     if (filter === 'paused') return item.state === 'service_paused'
     if (filter === 'conflicts') return item.state === 'cleaner_overlap'
     return item.state === 'acknowledgement_pending'
@@ -113,7 +119,7 @@ export default function ScheduleHealthPanel({
   const displayedItems = useMemo(() => {
     const needle = drawerQuery.trim().toLowerCase()
     return visible.filter((item) => {
-      const matchesQuery = !needle || `${item.clientName} ${item.siteName ?? ''} ${item.jobName ?? ''} ${item.servicePlanName ?? ''}`.toLowerCase().includes(needle)
+      const matchesQuery = !needle || `${item.clientName} ${item.siteName ?? ''} ${item.jobName ?? ''} ${item.servicePlanName ?? ''} ${item.conflict?.workerName ?? ''} ${item.conflict?.otherClientName ?? ''} ${item.conflict?.otherSiteName ?? ''}`.toLowerCase().includes(needle)
       const itemDate = item.scheduledStart ? operationalDateKey(new Date(item.scheduledStart), item.timezone ?? timezone) : ''
       return matchesQuery && (drawerDate === 'all' || itemDate === drawerDate)
     })
@@ -200,12 +206,11 @@ export default function ScheduleHealthPanel({
 
   const summary = data?.summary
   const stats = summary ? [
-    { label: 'Need staff', value: summary.needsStaff + summary.unassigned, filter: 'needs_staff' as Filter },
-    { label: 'Missing schedule', value: summary.missingSchedule + summary.unscheduledServices, filter: 'missing' as Filter },
+    { label: 'Needs scheduling', value: summary.needsStaff + summary.unassigned + summary.missingSchedule + summary.unscheduledServices, filter: 'scheduling' as Filter },
     { label: 'Conflicts', value: summary.conflicts, filter: 'conflicts' as Filter },
-    { label: 'Unacknowledged', value: summary.unacknowledged, filter: 'unacknowledged' as Filter },
+    { label: 'Awaiting confirmation', value: summary.unacknowledged, filter: 'confirmation' as Filter },
   ] : []
-  const drawerTitle = filter === 'needs_staff' ? 'Needs staff' : filter === 'missing' ? 'Missing schedule' : filter === 'conflicts' ? 'Conflicts' : filter === 'unacknowledged' ? 'Unacknowledged' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
+  const drawerTitle = filter === 'scheduling' ? 'Needs scheduling' : filter === 'conflicts' ? 'Conflicts' : filter === 'confirmation' ? 'Awaiting confirmation' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
 
   const selectFilter = (next: Filter) => { window.dispatchEvent(new Event('diamond:schedule-health-open')); setFilter(next); setDrawerQuery(''); setDrawerDate('all'); setDrawerOpen(true) }
   const openVisit = (visitId: string) => {
@@ -215,29 +220,30 @@ export default function ScheduleHealthPanel({
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
     {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
-    <div className={styles.filters}><span className={styles.filterHint}>Only exceptions that need attention in this view</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    <div className={styles.filters}><span className={styles.filterHint}>Everything here needs an operational action.</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
     {drawerOpen ? <button type="button" className="schedule-health-backdrop" aria-label="Close schedule health details" onClick={() => setDrawerOpen(false)} /> : null}
     <div ref={drawerRef} className={styles.list} data-open={drawerOpen} role={drawerOpen ? 'dialog' : undefined} aria-modal={drawerOpen ? true : undefined} aria-label={drawerOpen ? `${drawerTitle} details` : undefined} tabIndex={drawerOpen ? -1 : undefined}>
       {drawerOpen ? <div className="schedule-health-drawer-header"><div><span className="eyebrow">Needs attention</span><h2>{drawerTitle}</h2></div><button type="button" className="btn-secondary" onClick={() => setDrawerOpen(false)}>Close</button></div> : null}
-      {drawerOpen ? <div className="schedule-health-drawer-tools"><label><span>Search</span><input type="search" value={drawerQuery} onChange={(event) => setDrawerQuery(event.target.value)} placeholder="Client, site or service..." /></label><label><span>Date</span><select value={drawerDate} onChange={(event) => setDrawerDate(event.target.value)}><option value="all">All dates</option>{drawerDates.map((date) => <option value={date} key={date}>{new Date(`${date}T12:00:00`).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' })}</option>)}</select></label></div> : null}
+      {drawerOpen ? <div className="schedule-health-drawer-tools"><label><span>Search</span><input type="search" value={drawerQuery} onChange={(event) => setDrawerQuery(event.target.value)} placeholder="Client, site or employee..." /></label><label><span>Date</span><select value={drawerDate} onChange={(event) => setDrawerDate(event.target.value)}><option value="all">All dates</option>{drawerDates.map((date) => <option value={date} key={date}>{new Date(`${date}T12:00:00`).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' })}</option>)}</select></label></div> : null}
       <div className="schedule-health-results">
       {!loading && !displayedItems.length ? <div className={styles.empty}>{visible.length ? 'No items match these filters.' : filter === 'problems' ? 'No operational scheduling problems in this window.' : 'No items match this health filter.'}</div> : null}
       {displayedItems.slice(0, 120).map((item) => {
         const start = item.scheduledStart ? new Date(item.scheduledStart) : null
         const zone = item.timezone ?? timezone
         const pauseable = canManage && item.jobId && item.state === 'covered'
+        const otherZone = item.conflict?.otherTimezone ?? zone
         return <article key={item.id} className={styles.item} data-state={item.state}>
           <div className={styles.state}><span aria-hidden="true">{item.state === 'covered' ? '✓' : item.state === 'service_paused' ? '⏸' : item.state === 'cleaner_overlap' || item.state === 'expected_not_scheduled' ? '⛔' : '⚠'}</span>{labels[item.state]}</div>
-          <div className={styles.copy}><strong>{item.clientName}{item.siteName ? ` · ${item.siteName}` : ''}</strong><span>{item.jobName ?? item.servicePlanName ?? 'Service plan'}</span><small>{item.detail}</small></div>
+          <div className={styles.copy}><strong>{item.clientName}{item.siteName ? ` · ${item.siteName}` : ''}</strong><span>{item.jobName ?? item.servicePlanName ?? 'Service plan'}</span><small>{item.detail}</small>{item.conflict ? <div className={styles.conflictContext}><strong>{item.conflict.workerName}</strong><span>Also scheduled at {item.conflict.otherClientName} · {item.conflict.otherSiteName}</span><small>{formatOperationalTime(new Date(item.conflict.otherScheduledStart), otherZone)}–{formatOperationalTime(new Date(item.conflict.otherScheduledEnd), otherZone)} · {item.conflict.overlapMinutes} min overlap</small></div> : null}</div>
           <div className={styles.when}>{start ? <><strong>{start.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone })}</strong><span>{formatOperationalTime(start, zone)}{item.scheduledEnd ? `–${formatOperationalTime(new Date(item.scheduledEnd), zone)}` : ''}{item.requiredWorkers ? ` · ${item.activeWorkers ?? 0}/${item.requiredWorkers}` : ''}</span></> : <span>Needs scheduling definition</span>}</div>
           <div className={styles.actions}>
-            {canManage && item.state === 'expected_not_scheduled' && item.jobId && !item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Schedule now</button> : null}
-            {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Review cancelled visit</button> : null}
-            {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" disabled={busy} onClick={() => onOpenServicePlan(item.servicePlanId!)}>Create schedule</button> : null}
+            {canManage && item.state === 'expected_not_scheduled' && item.jobId && !item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Create visit</button> : null}
+            {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Review visit</button> : null}
+            {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" disabled={busy} onClick={() => onOpenServicePlan(item.servicePlanId!)}>Set schedule</button> : null}
             {canManage && (item.state === 'needs_staff' || item.state === 'unassigned') && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Assign team</button> : null}
-            {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Review conflict</button> : null}
+            {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Resolve conflict</button> : null}
             {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void remindAcknowledgement(item)}>{busy ? 'Sending…' : 'Send reminder'}</button> : null}
             {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Open visit</button> : null}
             {pauseable ? <button className="btn-secondary" disabled={busy} onClick={() => openPause(item)}>Pause service</button> : null}
