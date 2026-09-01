@@ -8,6 +8,7 @@ import { resolveWorkforceLiveStatus } from '../../../../modules/workforce/live-s
 const MINUTE = 60_000
 const SOON_WINDOW_MS = 45 * MINUTE
 const ACTIVE_VISIT_STATUSES = ['scheduled', 'dispatched', 'acknowledged', 'in_progress', 'completion_blocked'] as const
+const TERMINAL_VISIT_STATUSES = new Set(['completed', 'cancelled', 'missed'])
 
 function sitePayload(site: {
   id: string
@@ -219,6 +220,9 @@ export async function GET(request: NextRequest) {
     const activeVisit = running?.visit ?? currentVisit
     const criticalIncident = running?.visit?.incidents.find((incident) => incident.severity === 'critical') ?? null
     const signalCapturedAt = latestSignal?.capturedAt ?? (running?.startLocationClass ? running.startedAt : null)
+    const terminalVisitStatus = running?.visit && TERMINAL_VISIT_STATUSES.has(running.visit.status)
+      ? running.visit.status
+      : null
 
     const live = resolveWorkforceLiveStatus({
       now,
@@ -228,6 +232,7 @@ export async function GET(request: NextRequest) {
         lastSignalAt: signalCapturedAt,
         locationClassification: latestSignal?.classification ?? running.startLocationClass,
         hasCriticalIncident: Boolean(criticalIncident),
+        terminalVisitStatus,
       } : null,
       currentVisit: currentVisit ? {
         id: currentVisit.id,
