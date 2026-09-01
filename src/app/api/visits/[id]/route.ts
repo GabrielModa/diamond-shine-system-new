@@ -88,7 +88,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         user: {
           select: {
             id: true, name: true, email: true,
-            workforceProfile: { include: { studySchedules: true, leaves: true } },
+            workforceProfile: { include: { studySchedules: true, recurringUnavailability: true, leaves: true } },
           },
         },
       },
@@ -160,6 +160,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const profile = membership.user.workforceProfile
       const conflict = workforceConstraintForWindow(profile ? {
         studySchedules: profile.studySchedules,
+        recurringUnavailability: profile.recurringUnavailability,
         leaves: profile.leaves.map((leave) => ({
           kind: leave.kind as 'school_holiday' | 'personal_leave',
           startsAt: leave.startsAt,
@@ -171,10 +172,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     })
     if (workforceConflicts.length) {
       const leaveConflicts = workforceConflicts.filter((item) => item.kind === 'personal_leave')
-      const schoolConflicts = workforceConflicts.filter((item) => item.kind !== 'personal_leave')
+      const recurringConflicts = workforceConflicts.filter((item) => item.kind === 'recurring_unavailability')
+      const schoolConflicts = workforceConflicts.filter((item) => item.kind === 'school')
       const error = leaveConflicts.length
         ? `${humanList(leaveConflicts.map((item) => item.user))} ${leaveConflicts.length === 1 ? 'is' : 'are'} on leave during this visit. Choose another cleaner or change the time.`
-        : `${humanList(schoolConflicts.map((item) => item.user))} ${schoolConflicts.length === 1 ? 'is' : 'are'} in school during this visit. Choose another cleaner or change the time.`
+        : recurringConflicts.length
+          ? `${humanList(recurringConflicts.map((item) => item.user))} ${recurringConflicts.length === 1 ? 'has' : 'have'} recurring unavailability during this visit. Choose another cleaner or change the time.`
+          : `${humanList(schoolConflicts.map((item) => item.user))} ${schoolConflicts.length === 1 ? 'is' : 'are'} in school during this visit. Choose another cleaner or change the time.`
       return NextResponse.json({
         ok: false,
         error,
