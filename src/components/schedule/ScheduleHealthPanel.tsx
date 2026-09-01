@@ -1,7 +1,6 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { useRouter } from 'next/navigation'
 import { addOperationalDays, formatOperationalTime, operationalDateKey } from '../../lib/operational-time'
 import type { ScheduleHealthItem, ScheduleHealthState } from '../../modules/scheduling/schedule-health-core'
 import styles from './ScheduleHealthPanel.module.css'
@@ -22,6 +21,8 @@ type Result = { from: string; to: string; summary: Summary; items: ScheduleHealt
 type Filter = 'all' | 'problems' | 'covered' | 'needs_staff' | 'missing' | 'paused' | 'conflicts' | 'unacknowledged'
 type PauseDraft = { scope: 'client' | 'site' | 'job'; targetId: string; fromDate: string; untilDate: string; reason: string; note: string }
 type PausePreview = { target: string; timezone: string; consequence: { canApply: boolean; affectedVisits: number; materializedVisits: number; expectedOccurrences: number; assignedCleaners: number; plannedLabourHours: number; blockers: Array<{ id: string; site: string }> } }
+type EnsureResult = { result: { jobsChecked: number; generatedVisits: number; pausedOccurrences: number; staffingGaps: number } }
+type ReminderResult = { visitId: string; reminded: number; notificationJobId: string }
 
 const PROBLEM_STATES = new Set<ScheduleHealthState>(['needs_staff', 'unassigned', 'expected_not_scheduled', 'unscheduled_service', 'cleaner_overlap', 'acknowledgement_pending'])
 const labels: Record<ScheduleHealthState, string> = {
@@ -47,7 +48,6 @@ export default function ScheduleHealthPanel({
   onChanged: () => Promise<void> | void
   onOpenServicePlan: (servicePlanId: string) => void
 }) {
-  const router = useRouter()
   const [data, setData] = useState<Result | null>(null)
   const [filter, setFilter] = useState<Filter>('problems')
   const [loading, setLoading] = useState(true)
@@ -159,12 +159,15 @@ export default function ScheduleHealthPanel({
 
   async function ensureOccurrence(item: ScheduleHealthItem) {
     if (!item.jobId || !item.scheduledStart || !item.scheduledEnd) return
-    setBusy(true); setError('')
+    setBusy(true); setError(''); setMessage('')
     try {
-      await api('/api/schedule-health', {
+      const result = await api<EnsureResult>('/api/schedule-health', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ from: item.scheduledStart, to: new Date(new Date(item.scheduledEnd).getTime() + 60_000).toISOString(), jobIds: [item.jobId] }),
       })
+      setMessage(result.result.generatedVisits > 0
+        ? `Visit created${result.result.staffingGaps ? ' with a staffing gap to resolve.' : ' successfully.'}`
+        : 'Schedule continuity checked. No additional visit was required.')
       await Promise.resolve(onChanged()); await refresh()
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not generate this expected visit.') }
     finally { setBusy(false) }
@@ -183,6 +186,17 @@ export default function ScheduleHealthPanel({
     finally { setBusy(false) }
   }
 
+  async function remindAcknowledgement(item: ScheduleHealthItem) {
+    if (!item.visitId) return
+    setBusy(true); setError(''); setMessage('')
+    try {
+      const result = await api<ReminderResult>(`/api/visits/${item.visitId}/remind`, { method: 'POST' })
+      setMessage(`Reminder sent to ${result.reminded} cleaner${result.reminded === 1 ? '' : 's'}.`)
+      await Promise.resolve(onChanged()); await refresh()
+    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not send acknowledgement reminder.') }
+    finally { setBusy(false) }
+  }
+
   const summary = data?.summary
   const stats = summary ? [
     { label: 'Need staff', value: summary.needsStaff + summary.unassigned, filter: 'needs_staff' as Filter },
@@ -195,8 +209,9 @@ export default function ScheduleHealthPanel({
   const selectFilter = (next: Filter) => { window.dispatchEvent(new Event('diamond:schedule-health-open')); setFilter(next); setDrawerQuery(''); setDrawerDate('all'); setDrawerOpen(true) }
   const openVisit = (visitId: string) => {
     setDrawerOpen(false)
-    router.push(`/schedule?visit=${encodeURIComponent(visitId)}`)
-    window.dispatchEvent(new CustomEvent('diamond:open-schedule-visit', { detail: { visitId } }))
+    const target = new URL('/schedule', window.location.origin)
+    target.searchParams.set('visit', visitId)
+    window.location.assign(`${target.pathname}${target.search}`)
   }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
@@ -220,11 +235,13 @@ export default function ScheduleHealthPanel({
           <div className={styles.when}>{start ? <><strong>{start.toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short', timeZone: zone })}</strong><span>{formatOperationalTime(start, zone)}{item.scheduledEnd ? `–${formatOperationalTime(new Date(item.scheduledEnd), zone)}` : ''}{item.requiredWorkers ? ` · ${item.activeWorkers ?? 0}/${item.requiredWorkers}` : ''}</span></> : <span>Needs scheduling definition</span>}</div>
           <div className={styles.actions}>
             {canManage && item.state === 'expected_not_scheduled' && item.jobId && !item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Schedule now</button> : null}
-            {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" onClick={() => openVisit(item.visitId!)}>Review cancelled visit</button> : null}
-            {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" onClick={() => onOpenServicePlan(item.servicePlanId!)}>Create schedule</button> : null}
-            {canManage && (item.state === 'needs_staff' || item.state === 'unassigned') && item.visitId ? <button className="btn-primary" onClick={() => openVisit(item.visitId!)}>Assign team</button> : null}
-            {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" onClick={() => openVisit(item.visitId!)}>Review conflict</button> : null}
-            {pauseable ? <button className="btn-secondary" onClick={() => openPause(item)}>Pause service</button> : null}
+            {canManage && item.state === 'expected_not_scheduled' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Review cancelled visit</button> : null}
+            {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" disabled={busy} onClick={() => onOpenServicePlan(item.servicePlanId!)}>Create schedule</button> : null}
+            {canManage && (item.state === 'needs_staff' || item.state === 'unassigned') && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Assign team</button> : null}
+            {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Review conflict</button> : null}
+            {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void remindAcknowledgement(item)}>{busy ? 'Sending…' : 'Send reminder'}</button> : null}
+            {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Open visit</button> : null}
+            {pauseable ? <button className="btn-secondary" disabled={busy} onClick={() => openPause(item)}>Pause service</button> : null}
             {canManage && item.state === 'service_paused' && item.pauseId ? <button className="btn-secondary" disabled={busy} onClick={() => void endPause(item)}>End pause early</button> : null}
           </div>
         </article>
