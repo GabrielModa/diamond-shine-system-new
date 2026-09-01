@@ -6,6 +6,7 @@ import ScheduleHealthPanel from './ScheduleHealthPanel'
 import DateTimeField12h from '../ui/DateTimeField12h'
 import DurationField from '../ui/DurationField'
 import TeamPicker from './TeamPicker'
+import { useScheduleCapacity } from './useScheduleCapacity'
 import { formatDuration } from '../../lib/duration'
 import './ScheduleFocus.css'
 
@@ -121,17 +122,7 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   const monthDays = useMemo(() => { const first = startOfMonth(anchorDate); const gridStart = new Date(first); gridStart.setDate(first.getDate() - first.getDay()); return Array.from({ length: 42 }, (_, index) => { const date = new Date(gridStart); date.setDate(gridStart.getDate() + index); return date }) }, [anchorDate])
   const weekDays = useMemo(() => { const start = new Date(anchorDate); start.setDate(anchorDate.getDate() - anchorDate.getDay()); return Array.from({ length: 7 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date }) }, [anchorDate])
   const title = view === 'month' ? anchorDate.toLocaleDateString('en-IE', { month: 'long', year: 'numeric' }) : view === 'week' ? `${weekDays[0].toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}` : anchorDate.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const suggestedTimes = useMemo(() => {
-    if (!/^\d{4}-\d{2}-\d{2}$/.test(finder.date)) return []
-    const candidateTeam = finder.assigneeIds.length ? finder.assigneeIds : team.map((member) => member.id)
-    return [7, 9, 11, 13, 15, 17].map((hour) => {
-      const start = operationalInputToUtc(`${finder.date}T${String(hour).padStart(2, '0')}:00`, timezone)
-      const end = new Date(start.getTime() + finder.durationMinutes * 60_000)
-      const unavailable = candidateTeam.filter((userId) => availability.some((entry) => entry.user.id === userId && new Date(entry.startsAt) < end && new Date(entry.endsAt) > start))
-      const booked = visits.filter((visit) => !['cancelled', 'missed'].includes(visit.status) && new Date(visit.scheduledStart) < end && new Date(visit.scheduledEnd) > start && visit.assignments.some((assignment) => candidateTeam.includes(assignment.user.id) && isActiveAssignment(assignment.status)))
-      return { start, end, free: Math.max(0, candidateTeam.length - new Set([...unavailable, ...booked.flatMap((visit) => visit.assignments.filter((assignment) => candidateTeam.includes(assignment.user.id) && isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id))]).size), conflicts: unavailable.length + booked.length }
-    })
-  }, [availability, finder, team, timezone, visits])
+  const suggestedTimes = useScheduleCapacity(finder, team, timezone)
   const assignmentState = useCallback((userId: string, startValue: string, endValue: string, ignoredVisitId?: string): AssignmentState | null => {
     const start = operationalInputToUtc(startValue, timezone); const end = operationalInputToUtc(endValue, timezone)
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null
