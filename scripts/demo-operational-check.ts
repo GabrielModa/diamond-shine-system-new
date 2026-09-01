@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 import { LEGACY_ORGANIZATION_ID } from '../src/lib/tenancy'
 import { operationalDateKey } from '../src/lib/operational-time'
+import { workforceConstraintForWindow } from '../src/modules/scheduling/workforce-constraints'
 
 const prisma = new PrismaClient()
 const TZ = 'Europe/Dublin'
@@ -28,27 +29,38 @@ async function firstUpcoming(externalId: string) {
       siteId: site.id,
       scheduledStart: { gte: new Date() },
       status: { notIn: ['cancelled', 'completed', 'missed'] },
+      job: { name: { startsWith: 'Scenario ·' } },
     },
     include: { assignments: true },
     orderBy: { scheduledStart: 'asc' },
   })
-  assert(visit, `missing upcoming visit for ${externalId}`)
+  assert(visit, `missing upcoming scenario visit for ${externalId}`)
   return visit
 }
 
 async function main() {
+  const now = new Date()
   const employees = await prisma.user.findMany({
     where: {
       status: 'active',
       memberships: { some: { organizationId: LEGACY_ORGANIZATION_ID, status: 'active', role: { in: ['employee', 'field_supervisor'] } } },
     },
-    include: { workforceProfile: { include: { studySchedules: true, leaves: true } } },
+    include: {
+      workforceProfile: {
+        include: { studySchedules: true, recurringUnavailability: true, leaves: true },
+      },
+    },
   })
   assert(employees.length >= 15, `expected at least 15 operational people, found ${employees.length}`)
   const configured = employees.filter((employee) => employee.workforceProfile?.weeklyTargetConfigured)
   assert(configured.length >= 15, `expected at least 15 configured workforce profiles, found ${configured.length}`)
   const homeMapped = configured.filter((employee) => employee.workforceProfile?.homeLatitude != null && employee.workforceProfile.homeLongitude != null)
   assert(homeMapped.length >= 15, `expected at least 15 home map origins, found ${homeMapped.length}`)
+  const contactReady = configured.filter((employee) =>
+    employee.workforceProfile?.phone &&
+    employee.workforceProfile.emergencyContactName &&
+    employee.workforceProfile.emergencyContactPhone)
+  assert(contactReady.length >= 15, `expected at least 15 profiles with phone/emergency data, found ${contactReady.length}`)
 
   const sites = await prisma.site.findMany({
     where: { organizationId: LEGACY_ORGANIZATION_ID, status: 'active', latitude: { not: null }, longitude: { not: null } },
@@ -59,7 +71,7 @@ async function main() {
   assert(aisha?.workforceProfile?.schoolLatitude != null, 'Aisha must have a mapped school origin')
   assert(aisha.workforceProfile.studySchedules.some((rule) => rule.startsMinute === 0 && rule.endsMinute === 1440), 'Aisha must keep the all-day school test schedule')
 
-  const activePersonalLeave = configured.filter((employee) => employee.workforceProfile?.leaves.some((leave) => leave.kind === 'personal_leave' && leave.startsAt <= new Date() && leave.endsAt > new Date()))
+  const activePersonalLeave = configured.filter((employee) => employee.workforceProfile?.leaves.some((leave) => leave.kind === 'personal_leave' && leave.startsAt <= now && leave.endsAt > now))
   assert(activePersonalLeave.length >= 2, `expected at least two active personal-leave scenarios, found ${activePersonalLeave.length}`)
 
   const liffey = await firstUpcoming('scenario-liffey-tech')
@@ -74,46 +86,106 @@ async function main() {
   const merrionStatuses = merrion.assignments.map((assignment) => assignment.status)
   assert(merrionStatuses.includes('acknowledged') && merrionStatuses.some((status) => status !== 'acknowledged'), 'Merrion must contain acknowledged + pending assignments')
 
-  const gabriel = await prisma.user.findUniqueOrThrow({ where: { email: 'gabriel.moda@ds.ie' } })
-  const gabrielAssignments = await prisma.visitAssignment.findMany({
+  const pendingAssignments = await prisma.visitAssignment.count({
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
-      userId: gabriel.id,
-      status: { in: [...ACTIVE] },
-      visit: { scheduledStart: { gte: new Date() }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+      status: { in: ['assigned', 'notified', 'seen'] },
+      visit: { scheduledStart: { gte: now }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
     },
-    include: { visit: { select: { id: true, scheduledStart: true, scheduledEnd: true, site: { select: { name: true } } } } },
+  })
+  assert(pendingAssignments === 1, `expected exactly one future acknowledgement pending assignment, found ${pendingAssignments}`)
+
+  const futureAssignments = await prisma.visitAssignment.findMany({
+    where: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      status: { in: [...ACTIVE] },
+      visit: { scheduledStart: { gte: now }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+    },
+    include: {
+      user: {
+        include: {
+          workforceProfile: { include: { studySchedules: true, recurringUnavailability: true, leaves: true } },
+        },
+      },
+      visit: { select: { id: true, scheduledStart: true, scheduledEnd: true, timezone: true, site: { select: { name: true } } } },
+    },
     orderBy: { visit: { scheduledStart: 'asc' } },
   })
-  const conflictPairs = new Set<string>()
-  for (let left = 0; left < gabrielAssignments.length; left += 1) {
-    for (let right = left + 1; right < gabrielAssignments.length; right += 1) {
-      const a = gabrielAssignments[left].visit
-      const b = gabrielAssignments[right].visit
-      if (a.scheduledStart < b.scheduledEnd && a.scheduledEnd > b.scheduledStart) {
-        conflictPairs.add([a.id, b.id].sort().join(':'))
+  const futureAvailability = await prisma.availability.findMany({
+    where: {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      cancelledAt: null,
+      endsAt: { gt: now },
+    },
+  })
+  for (const assignment of futureAssignments) {
+    const profile = assignment.user.workforceProfile
+    assert(profile?.weeklyTargetConfigured, `${assignment.user.email} is assigned without configured workforce setup`)
+    const workforceBlock = workforceConstraintForWindow({
+      studySchedules: profile.studySchedules,
+      recurringUnavailability: profile.recurringUnavailability,
+      leaves: profile.leaves.map((leave) => ({
+        kind: leave.kind as 'school_holiday' | 'personal_leave',
+        startsAt: leave.startsAt,
+        endsAt: leave.endsAt,
+        reason: leave.reason,
+      })),
+    }, assignment.visit.scheduledStart, assignment.visit.scheduledEnd, assignment.visit.timezone)
+    assert(!workforceBlock, `${assignment.user.email} is assigned while blocked by ${workforceBlock?.kind ?? 'workforce rule'} at ${assignment.visit.site.name}`)
+    const temporaryBlock = futureAvailability.find((entry) =>
+      entry.userId === assignment.userId &&
+      entry.startsAt < assignment.visit.scheduledEnd &&
+      entry.endsAt > assignment.visit.scheduledStart)
+    assert(!temporaryBlock, `${assignment.user.email} is assigned during temporary unavailability at ${assignment.visit.site.name}`)
+  }
+
+  const byUser = new Map<string, typeof futureAssignments>()
+  for (const assignment of futureAssignments) {
+    const list = byUser.get(assignment.userId) ?? []
+    list.push(assignment)
+    byUser.set(assignment.userId, list)
+  }
+  const conflictPairs = new Map<string, string>()
+  for (const [userId, assignments] of byUser) {
+    for (let left = 0; left < assignments.length; left += 1) {
+      for (let right = left + 1; right < assignments.length; right += 1) {
+        const a = assignments[left].visit
+        const b = assignments[right].visit
+        if (a.scheduledStart < b.scheduledEnd && a.scheduledEnd > b.scheduledStart) {
+          conflictPairs.set(`${userId}:${[a.id, b.id].sort().join(':')}`, assignments[left].user.email)
+        }
       }
     }
   }
-  assert(conflictPairs.size >= 1, 'Gabriel must have at least one deterministic overlap case')
+  assert(conflictPairs.size === 1, `expected exactly one future conflict case, found ${conflictPairs.size}`)
+  assert([...conflictPairs.values()][0] === 'gabriel.moda@ds.ie', 'the deterministic conflict must belong to Gabriel Nunes Moda')
 
-  const liveEntry = await prisma.timeEntry.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, source: 'operational-lab-live', status: 'running' }, include: { locationEvents: true } })
+  const liveEntry = await prisma.timeEntry.findFirst({
+    where: { organizationId: LEGACY_ORGANIZATION_ID, source: 'operational-lab-live', status: 'running' },
+    include: { locationEvents: true, visit: { include: { assignments: true } } },
+  })
   assert(liveEntry, 'missing running Field Control timer')
   assert(liveEntry.startLocationClass === 'verified' && liveEntry.locationEvents.length >= 1, 'running timer must include verified GPS evidence')
+  assert(liveEntry.visit?.assignments.some((assignment) => assignment.userId === liveEntry.userId && ACTIVE.includes(assignment.status as typeof ACTIVE[number])), 'live GPS timer must be linked to the same employee assigned to the visit')
 
-  const reviewEntry = await prisma.timeEntry.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, source: 'operational-lab-review', status: 'needs_review' }, include: { locationEvents: true, disputes: true } })
+  const reviewEntry = await prisma.timeEntry.findFirst({
+    where: { organizationId: LEGACY_ORGANIZATION_ID, source: 'operational-lab-review', status: 'needs_review' },
+    include: { locationEvents: true, disputes: true, visit: { include: { assignments: true } } },
+  })
   assert(reviewEntry, 'missing needs-review Field Control entry')
   assert(reviewEntry.startLocationClass === 'suspicious' && reviewEntry.disputes.some((dispute) => dispute.status === 'open'), 'review entry must include suspicious GPS and an open correction request')
+  assert(reviewEntry.visit?.assignments.some((assignment) => assignment.userId === reviewEntry.userId), 'review GPS/time entry must be linked to the same employee and visit')
 
   const incident = await prisma.incident.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, title: { startsWith: 'Operational lab:' }, status: { notIn: ['resolved', 'closed'] } } })
   assert(incident?.severity === 'critical', 'missing deterministic critical Field Control incident')
 
   console.log('✓ Demo operational lab is coherent')
-  console.log(`  People: ${configured.length} configured · ${homeMapped.length} mapped homes · ${activePersonalLeave.length} active leave scenarios`)
+  console.log(`  People: ${configured.length} configured · ${homeMapped.length} mapped homes · ${contactReady.length} contact-ready · ${activePersonalLeave.length} active leave`)
   console.log(`  Map: ${sites.length} geocoded service sites · Aisha school origin configured`)
-  console.log(`  Schedule: Liffey 0/2 · Greenpark 1/2 · Merrion pending confirmation · ${conflictPairs.size} Gabriel overlap case(s)`)
-  console.log(`  Field Control: live verified timer · suspicious review entry · critical incident`)
-  console.log(`  Operational date: ${operationalDateKey(new Date(), TZ)}`)
+  console.log(`  Schedule: Liffey 0/2 · Greenpark 1/2 · exactly 1 pending confirmation · exactly 1 Gabriel conflict`)
+  console.log(`  Integrity: ${futureAssignments.length} future active assignments respect workforce + temporary availability rules`)
+  console.log('  Field Control: live verified GPS linked to assignment · suspicious review entry + dispute · critical incident')
+  console.log(`  Operational date: ${operationalDateKey(now, TZ)}`)
 }
 
 main()
