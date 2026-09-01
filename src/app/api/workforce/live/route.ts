@@ -183,18 +183,18 @@ export async function GET(request: NextRequest) {
           timezone,
           home: { kind: 'home', ...home },
           school: school ? { kind: 'school', ...school } : null,
-          studySchedule: profile.studySchedules.map((rule) => ({
+          studySchedule: profile!.studySchedules.map((rule) => ({
             dayOfWeek: rule.dayOfWeek,
             startsMinute: rule.startsMinute,
             endsMinute: rule.endsMinute,
           })),
-          recurringUnavailability: profile.recurringUnavailability.map((rule) => ({
+          recurringUnavailability: profile!.recurringUnavailability.map((rule) => ({
             dayOfWeek: rule.dayOfWeek,
             startsMinute: rule.startsMinute,
             endsMinute: rule.endsMinute,
             reason: rule.reason,
           })),
-          leaves: profile.leaves.map((leave) => ({
+          leaves: profile!.leaves.map((leave) => ({
             kind: leave.kind as 'school_holiday' | 'personal_leave',
             startsAt: leave.startsAt,
             endsAt: leave.endsAt,
@@ -216,13 +216,14 @@ export async function GET(request: NextRequest) {
     const latestSignal = running?.locationEvents[0] ?? null
     const activeVisit = running?.visit ?? currentVisit
     const criticalIncident = running?.visit?.incidents.find((incident) => incident.severity === 'critical') ?? null
+    const signalCapturedAt = latestSignal?.capturedAt ?? (running?.startLocationClass ? running.startedAt : null)
 
     const live = resolveWorkforceLiveStatus({
       now,
       contextState,
       runningEntry: running ? {
         startedAt: running.startedAt,
-        lastSignalAt: latestSignal?.capturedAt ?? null,
+        lastSignalAt: signalCapturedAt,
         locationClassification: latestSignal?.classification ?? running.startLocationClass,
         hasCriticalIncident: Boolean(criticalIncident),
       } : null,
@@ -258,7 +259,6 @@ export async function GET(request: NextRequest) {
           }
         : null
 
-    const signalCapturedAt = latestSignal?.capturedAt ?? null
     const signalAgeSeconds = signalCapturedAt
       ? Math.max(0, Math.round((now.getTime() - signalCapturedAt.getTime()) / 1000))
       : null
