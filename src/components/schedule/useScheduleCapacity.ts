@@ -5,14 +5,17 @@ import { operationalInputToUtc } from '../../lib/operational-time'
 import type { ScheduleTeamMember } from './TeamPicker'
 
 type FinderState = { date: string; durationMinutes: number; assigneeIds: string[] }
+type BlockKind = 'booked' | 'temporary_unavailability' | 'personal_leave' | 'recurring_unavailability' | 'school'
 type CapacityWindow = {
   start: string
   end: string
+  total: number
   available: number
   blockedCount: number
+  blockedBy: Record<BlockKind, number>
 }
 type CapacityResponse = { windows: CapacityWindow[] }
-type SuggestedTime = { start: Date; end: Date; free: number; conflicts: number }
+type SuggestedTime = { start: Date; end: Date; free: number; total: number; conflicts: number; blockerLabel: string }
 
 const HOURS = [7, 9, 11, 13, 15, 17]
 
@@ -21,6 +24,18 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const body = await response.json().catch(() => null)
   if (!response.ok || !body?.ok) throw new Error(body?.error ?? 'Request failed')
   return body.data as T
+}
+
+function blockerLabel(window: CapacityWindow) {
+  if (!window.blockedCount) return 'clear window'
+  const parts = [
+    window.blockedBy.booked ? `${window.blockedBy.booked} booked` : '',
+    window.blockedBy.temporary_unavailability ? `${window.blockedBy.temporary_unavailability} unavailable` : '',
+    window.blockedBy.personal_leave ? `${window.blockedBy.personal_leave} leave` : '',
+    window.blockedBy.recurring_unavailability ? `${window.blockedBy.recurring_unavailability} recurring` : '',
+    window.blockedBy.school ? `${window.blockedBy.school} school` : '',
+  ].filter(Boolean)
+  return parts.join(', ') || `${window.blockedCount} blocked`
 }
 
 export function useScheduleCapacity(
@@ -63,7 +78,9 @@ export function useScheduleCapacity(
           start: new Date(window.start),
           end: new Date(window.end),
           free: window.available,
+          total: window.total,
           conflicts: window.blockedCount,
+          blockerLabel: blockerLabel(window),
         })),
       })
     }).catch(() => {
