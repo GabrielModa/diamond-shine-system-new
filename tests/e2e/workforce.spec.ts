@@ -15,6 +15,11 @@ async function chooseEmployee(page: Page, name: string) {
   await option.click()
 }
 
+async function openPlanAhead(page: Page) {
+  await page.getByRole('tab', { name: /Plan ahead/ }).click()
+  await expect(page.getByRole('heading', { name: 'People, hours & coverage' })).toBeVisible({ timeout: 15_000 })
+}
+
 test.beforeEach(async ({ page }) => {
   await page.goto('/login')
   await page.fill('input[type="email"]', 'admin@ds.ie')
@@ -22,10 +27,28 @@ test.beforeEach(async ({ page }) => {
   await page.click('button[type="submit"]')
   await page.waitForURL(/\/home/)
   await page.goto('/people', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: 'What is happening right now?' })).toBeVisible()
+})
+
+test('live now separates active work from expected context and exposes operational attention', async ({ page }) => {
+  await expect(page.getByText('Live operational picture')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('button', { name: /On job/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Attention/ })).toBeVisible()
+  await expect(page.getByText(/work-location checks are used only while a visit timer is active/i)).toBeVisible()
+
+  const activity = page.getByRole('heading', { name: 'Team activity' })
+  await expect(activity).toBeVisible()
+  const onJobMetric = page.getByRole('button', { name: /On job/ }).first()
+  await onJobMetric.click()
+  await expect(page.getByText(/On job/).first()).toBeVisible()
+
+  await page.getByRole('tab', { name: /Plan ahead/ }).click()
+  await expect(page.getByRole('heading', { name: 'Plan the next move' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'People, hours & coverage' })).toBeVisible()
 })
 
 test('workforce performance supports custom dates and operational filters', async ({ page }) => {
+  await openPlanAhead(page)
   await expect(page.getByText('Team workload')).toBeVisible()
   await expect(page.getByText('Worked', { exact: true }).first()).toBeVisible()
 
@@ -53,10 +76,10 @@ test('workforce performance supports custom dates and operational filters', asyn
 })
 
 test('map and route planner stay synchronized and expose walking', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
 
   const siteSelect = page.locator('label').filter({ hasText: 'Service site' }).locator('select')
-
   await expect(page.getByRole('button', { name: '🚶 Walk' })).toBeVisible()
 
   await chooseEmployee(page, 'Aisha')
@@ -71,8 +94,8 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await expect(page.locator('.wf-map-focus-card')).toBeVisible()
 })
 
-
 test('scenario matrix exposes many employees and route-origin overrides', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
 
   await page.getByRole('combobox', { name: 'Choose team member' }).click()
@@ -98,8 +121,8 @@ test('scenario matrix exposes many employees and route-origin overrides', async 
   await expect(page.getByText(/Uses the real schedule context/i)).toBeVisible()
 })
 
-
 test('employee detail closes by Escape and backdrop and does not leak between tabs', async ({ page }) => {
+  await openPlanAhead(page)
   const firstRow = page.locator('.wf4-row').first()
   await firstRow.click()
   const dialog = page.getByRole('dialog')
@@ -121,6 +144,7 @@ test('employee detail closes by Escape and backdrop and does not leak between ta
 })
 
 test('quality filter and manager detail expose the no-feedback state', async ({ page }) => {
+  await openPlanAhead(page)
   await page.getByRole('button', { name: 'No feedback', exact: true }).click()
   const rows = page.locator('.wf4-row')
   await expect(rows.first()).toBeVisible()
@@ -136,14 +160,15 @@ test('quality filter and manager detail expose the no-feedback state', async ({ 
   await expect(dialog.getByText('Availability & school')).toBeVisible()
 })
 
-
 test('route planner supports type-ahead employee search', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
   await expect(page.getByTestId('map-employee-card')).toContainText('Aisha Khan')
 })
 
 test('map employee card shows school schedule, owns route-origin overrides and closes cleanly', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
 
@@ -161,6 +186,7 @@ test('map employee card shows school schedule, owns route-origin overrides and c
 })
 
 test('map employee card has an explicit close button', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
   await chooseEmployee(page, 'Aoife')
   await page.getByRole('button', { name: 'Close selected employee' }).click()
@@ -168,6 +194,7 @@ test('map employee card has an explicit close button', async ({ page }) => {
 })
 
 test('map employee card closes when clicking map background', async ({ page }) => {
+  await openPlanAhead(page)
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
   await expect(page.getByTestId('map-employee-card')).toBeVisible()
