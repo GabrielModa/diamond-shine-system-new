@@ -211,16 +211,32 @@ export default function ScheduleHealthPanel({
     { label: 'Awaiting confirmation', value: summary.unacknowledged, filter: 'confirmation' as Filter },
   ] : []
   const drawerTitle = filter === 'scheduling' ? 'Needs scheduling' : filter === 'conflicts' ? 'Conflicts' : filter === 'confirmation' ? 'Awaiting confirmation' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
+  const activeStat = stats.find((stat) => stat.filter === filter)
 
-  const selectFilter = (next: Filter) => { window.dispatchEvent(new Event('diamond:schedule-health-open')); setFilter(next); setDrawerQuery(''); setDrawerDate('all'); setDrawerOpen(true) }
+  const selectFilter = (next: Filter) => {
+    setFilter(next)
+    setDrawerOpen(false)
+    setDrawerQuery('')
+    setDrawerDate('all')
+    requestAnimationFrame(() => window.dispatchEvent(new Event('diamond:schedule-health-open')))
+  }
+  const openDetails = (next: Filter) => {
+    setFilter(next)
+    setDrawerQuery('')
+    setDrawerDate('all')
+    setDrawerOpen(true)
+  }
+  const clearFilter = () => {
+    document.querySelector<HTMLButtonElement>('.schedule-focus-tabs button:nth-child(2)')?.click()
+  }
   const openVisit = (visitId: string) => {
     setDrawerOpen(false)
     onOpenVisit(visitId)
   }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
-    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <button key={stat.label} className={styles.stat} data-active={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button>)}</div> : null}
-    <div className={styles.filters}><span className={styles.filterHint}>Everything here needs an operational action.</span><button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <div key={stat.label} className={styles.statWrap}><button className={styles.stat} data-active={filter === stat.filter} aria-pressed={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button><button type="button" className={styles.statDetails} disabled={stat.value === 0} onClick={() => openDetails(stat.filter)}>View details <span aria-hidden="true">→</span></button></div>)}</div> : null}
+    <div className={styles.filters}>{activeStat ? <div className={styles.activeFilter}><span>Showing: <strong>{activeStat.label}</strong> · {activeStat.value}</span><button type="button" onClick={clearFilter}>Clear</button></div> : <span className={styles.filterHint}>Everything here needs an operational action.</span>}<button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
     {drawerOpen ? <button type="button" className="schedule-health-backdrop" aria-label="Close schedule health details" onClick={() => setDrawerOpen(false)} /> : null}
