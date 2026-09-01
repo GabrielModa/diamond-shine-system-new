@@ -112,6 +112,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       code: 'ASSIGNEE_NOT_EXECUTABLE',
     }, { status: 400 })
 
+    const setupRequired = members.filter((membership) => !membership.user.workforceProfile?.weeklyTargetConfigured)
+    if (setupRequired.length) return NextResponse.json({
+      ok: false,
+      error: `${humanList(setupRequired.map((membership) => membership.user.name ?? membership.user.email))} still needs workforce setup before being assigned to visits.`,
+      code: 'ASSIGNEE_WORKFORCE_SETUP_REQUIRED',
+      data: setupRequired.map((membership) => ({ userId: membership.user.id, user: membership.user.name ?? membership.user.email })),
+    }, { status: 409 })
+
     const [conflicts, availability] = await Promise.all([
       prisma.visitAssignment.findMany({
         where: {
@@ -210,7 +218,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         : parsed.data.status
 
   const updated = await prisma.$transaction(async (tx) => {
-    if (parsed.data.assigneeIds) {
+    if (parsed.data.assigneeIds || requiresNewAcknowledgement) {
       const selected = new Set(assigneeIds)
       for (const assignment of current.assignments) {
         if (selected.has(assignment.userId)) {
