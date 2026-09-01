@@ -65,6 +65,43 @@ describe('jobs and visits', () => {
     expect((await prisma.visit.findUniqueOrThrow({ where: { id: visit.id } })).status).toBe('acknowledged')
   })
 
+  it('queues a real reminder for pending visit acknowledgements and stops after acknowledgement', async () => {
+    const plan = await publishedPlan()
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Reminder visit',
+      startAt: '2026-08-24T08:00:00.000Z',
+      recurrence: { frequency: 'once' },
+      assigneeIds: [employee.id],
+    })
+    const visit = await prisma.visit.findFirstOrThrow({ where: { jobId: created.body.data.id } })
+
+    const reminded = await request(app).post(`/api/visits/${visit.id}/remind`).set('Cookie', adminCookie)
+    expect(reminded.status).toBe(202)
+    expect(reminded.body.data.reminded).toBe(1)
+
+    const assignment = await prisma.visitAssignment.findFirstOrThrow({ where: { visitId: visit.id, userId: employee.id } })
+    expect(assignment.status).toBe('notified')
+    expect(assignment.notifiedAt).toBeTruthy()
+
+    const notice = await prisma.operationalNotice.findFirstOrThrow({
+      where: { visitId: visit.id, title: 'Visit acknowledgement reminder' },
+      include: { recipients: true },
+    })
+    expect(notice.requiresAcknowledgement).toBe(true)
+    expect(notice.recipients.map((recipient) => recipient.userId)).toEqual([employee.id])
+
+    const job = await prisma.notificationJob.findUniqueOrThrow({ where: { id: reminded.body.data.notificationJobId } })
+    expect(job.kind).toBe('operational_notice_push')
+    expect(job.status).toBe('queued')
+
+    const acknowledged = await request(app).post(`/api/visits/${visit.id}/acknowledgement`).set('Cookie', employeeCookie).send({ status: 'acknowledged' })
+    expect(acknowledged.status).toBe(200)
+    const repeated = await request(app).post(`/api/visits/${visit.id}/remind`).set('Cookie', adminCookie)
+    expect(repeated.status).toBe(409)
+  })
+
   it('creates service obligations around staffing conflicts but still rejects conflicting manual assignment', async () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
