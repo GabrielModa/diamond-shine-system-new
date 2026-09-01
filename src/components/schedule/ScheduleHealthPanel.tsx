@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { addOperationalDays, formatOperationalTime, operationalDateKey } from '../../lib/operational-time'
 import type { ScheduleHealthItem, ScheduleHealthState } from '../../modules/scheduling/schedule-health-core'
 import styles from './ScheduleHealthPanel.module.css'
+import './ScheduleHealthCards.css'
 import { formatDuration } from '../../lib/duration'
 
 type Summary = {
@@ -235,8 +236,8 @@ export default function ScheduleHealthPanel({
   }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
-    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <div key={stat.label} className={styles.statWrap}><button className={styles.stat} data-active={filter === stat.filter} aria-pressed={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button><button type="button" className={styles.statDetails} disabled={stat.value === 0} onClick={() => openDetails(stat.filter)}>View details <span aria-hidden="true">→</span></button></div>)}</div> : null}
-    <div className={styles.filters}>{activeStat ? <div className={styles.activeFilter}><span>Showing: <strong>{activeStat.label}</strong> · {activeStat.value}</span><button type="button" onClick={clearFilter}>Clear</button></div> : <span className={styles.filterHint}>Everything here needs an operational action.</span>}<button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <div key={stat.label} className="schedule-health-stat-wrap" data-health-filter={stat.filter}><button className={`${styles.stat} schedule-health-stat-main`} data-active={filter === stat.filter} aria-pressed={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button><button type="button" className="schedule-health-stat-details" disabled={stat.value === 0} onClick={() => openDetails(stat.filter)}>View details <span aria-hidden="true">→</span></button></div>)}</div> : null}
+    <div className={styles.filters}>{activeStat ? <div className="schedule-health-active-filter"><span>Showing: <strong>{activeStat.label}</strong> · {activeStat.value}</span><button type="button" onClick={clearFilter}>Clear</button></div> : <span className={styles.filterHint}>Everything here needs an operational action.</span>}<button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
     {drawerOpen ? <button type="button" className="schedule-health-backdrop" aria-label="Close schedule health details" onClick={() => setDrawerOpen(false)} /> : null}
