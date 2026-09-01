@@ -35,6 +35,27 @@ afterAll(async () => {
   await nextApp.close()
 })
 
+async function publishedPlan() {
+  const client = (await request(app).post('/api/clients').set('Cookie', adminCookie).send({ displayName: 'Capacity Client' })).body.data
+  const site = (await request(app).post('/api/sites').set('Cookie', adminCookie).send({
+    clientId: client.id,
+    name: 'Capacity Site',
+    addressLine1: '1 Capacity Street',
+    city: 'Dublin',
+    postalCode: 'D01 CAP',
+    areas: [{ name: 'Office', type: 'zone' }],
+  })).body.data
+  const plan = (await request(app).post('/api/service-plans').set('Cookie', adminCookie).send({
+    siteId: site.id,
+    name: 'Capacity Clean',
+    expectedDurationMinutes: 120,
+    requiredWorkers: 1,
+    tasks: [{ areaId: site.areas[0].id, title: 'Clean office', responseType: 'done_na_problem' }],
+  })).body.data
+  expect((await request(app).post(`/api/service-plans/${plan.id}/publish`).set('Cookie', adminCookie)).status).toBe(201)
+  return plan
+}
+
 describe('schedule capacity preview', () => {
   it('uses the same recurring workforce rule that visit PATCH enforces', async () => {
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
@@ -116,6 +137,49 @@ describe('schedule capacity preview', () => {
     ]))
     expect(response.body.data.windows[1].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: employee.id, kind: 'personal_leave', reason: 'Appointment' }),
+    ]))
+  })
+
+  it('treats existing work and temporary unavailability as unavailable capacity', async () => {
+    const plan = await publishedPlan()
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Capacity booked visit',
+      startAt: '2026-08-24T10:00:00.000Z',
+      durationMinutes: 120,
+      recurrence: { frequency: 'once' },
+      assigneeIds: [employee.id],
+    })
+    expect(created.status).toBe(201)
+
+    await prisma.availability.create({
+      data: {
+        organizationId: (await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })).organizationId,
+        userId: employee.id,
+        startsAt: new Date('2026-08-24T14:00:00.000Z'),
+        endsAt: new Date('2026-08-24T15:00:00.000Z'),
+        reason: 'Medical appointment',
+      },
+    })
+
+    const response = await request(app)
+      .post('/api/schedule-capacity')
+      .set('Cookie', adminCookie)
+      .send({
+        userIds: [employee.id],
+        windows: [
+          { start: '2026-08-24T10:30:00.000Z', end: '2026-08-24T11:30:00.000Z' },
+          { start: '2026-08-24T14:15:00.000Z', end: '2026-08-24T14:45:00.000Z' },
+        ],
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: employee.id, kind: 'booked' }),
+    ]))
+    expect(response.body.data.windows[1].blocked).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: employee.id, kind: 'temporary_unavailability', reason: 'Medical appointment' }),
     ]))
   })
 })
