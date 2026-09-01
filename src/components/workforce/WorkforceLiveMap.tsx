@@ -10,9 +10,15 @@ function initials(name: string) {
 
 function markerClass(employee: LiveEmployee) {
   if (employee.attention || employee.state === 'attention') return styles.markerAttention
-  if (employee.mapPoint?.kind === 'active_visit_site') return styles.markerLive
+  if (employee.mapPoint?.kind === 'live_gps') return styles.markerLive
   if (employee.mapPoint?.kind === 'expected_school') return styles.markerSchool
   return styles.markerExpected
+}
+
+function ageLabel(seconds: number | null) {
+  if (seconds == null) return 'signal time unavailable'
+  if (seconds < 60) return `${seconds}s ago`
+  return `${Math.round(seconds / 60)} min ago`
 }
 
 export default function WorkforceLiveMap({
@@ -83,11 +89,13 @@ export default function WorkforceLiveMap({
           markerClass(employee),
           employee.id === selectedId ? styles.markerSelected : '',
         ].filter(Boolean).join(' ')
-        const source = point.kind === 'active_visit_site'
-          ? 'Clocked in · work location checked'
+        const source = point.kind === 'live_gps'
+          ? employee.signal.state === 'fresh'
+            ? `Live work GPS · ${ageLabel(employee.signal.ageSeconds)}`
+            : `Last known work GPS · ${ageLabel(employee.signal.ageSeconds)}`
           : point.kind === 'expected_school'
-            ? 'Expected from study schedule'
-            : 'Expected service site'
+            ? 'Expected from study schedule · not live GPS'
+            : 'Expected service site · not live GPS'
         const marker = L.marker([latitude, longitude], {
           icon: L.divIcon({
             className,
@@ -119,7 +127,7 @@ export default function WorkforceLiveMap({
     <div ref={hostRef} className={styles.map} aria-label="Live workforce operations map" />
     {status !== 'ready' ? <div className={styles.mapState}>{status === 'loading' ? 'Loading live operations map…' : 'Map tiles unavailable.'}</div> : null}
     <div className={styles.legend}>
-      <span><i className={styles.live} />On job</span>
+      <span><i className={styles.live} />Live work GPS</span>
       <span><i className={styles.expected} />Expected visit</span>
       <span><i className={styles.school} />Expected school</span>
     </div>
