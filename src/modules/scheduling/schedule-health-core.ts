@@ -11,6 +11,19 @@ export const SCHEDULE_HEALTH_STATES = [
 
 export type ScheduleHealthState = (typeof SCHEDULE_HEALTH_STATES)[number]
 
+export type ScheduleConflictContext = {
+  workerId: string
+  workerName: string
+  otherVisitId: string
+  otherClientName: string
+  otherSiteName: string
+  otherJobName: string
+  otherScheduledStart: string
+  otherScheduledEnd: string
+  otherTimezone: string
+  overlapMinutes: number
+}
+
 export type ScheduleHealthItem = {
   id: string
   state: ScheduleHealthState
@@ -31,6 +44,7 @@ export type ScheduleHealthItem = {
   requiredWorkers?: number | null
   activeWorkers?: number | null
   workerNames?: string[]
+  conflict?: ScheduleConflictContext | null
   detail: string
 }
 
