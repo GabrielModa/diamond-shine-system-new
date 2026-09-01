@@ -499,47 +499,22 @@ export async function PUT(request: NextRequest) {
     if (current.auth.membershipRole === 'employee' && (
       firstPersonalSetup || addressChanged || schoolChanged || studyScheduleChanged || recurringChanged
     )) {
-      const managers = await tx.membership.findMany({
-        where: {
-          organizationId: current.auth.organizationId,
-          status: 'active',
-          role: { in: ['organization_admin', 'field_supervisor', 'scheduler'] },
-          userId: { not: current.auth.id },
-        },
-        select: { userId: true },
-      })
+      const title = firstPersonalSetup
+        ? 'Employee operational profile completed'
+        : recurringChanged
+          ? 'Recurring availability changed'
+          : schoolChanged || studyScheduleChanged
+            ? 'Employee study details changed'
+            : 'Operational starting address changed'
+      const body = firstPersonalSetup
+        ? `${current.user.name ?? current.user.email} completed their operational profile. Review company-owned employment setup before automatic scheduling.`
+        : recurringChanged
+          ? `${current.user.name ?? current.user.email} changed their recurring weekly unavailability. Review future staffing; published visits were not cancelled automatically.`
+          : schoolChanged || studyScheduleChanged
+            ? `${current.user.name ?? current.user.email} updated school or study hours. Review future staffing and routing; published visits were not moved automatically.`
+            : `${current.user.name ?? current.user.email} changed their validated home / operational starting address. Review future routing; published visits were not moved automatically.`
 
-      if (managers.length) {
-        const title = firstPersonalSetup
-          ? 'Employee operational profile completed'
-          : recurringChanged
-            ? 'Recurring availability changed'
-            : schoolChanged || studyScheduleChanged
-              ? 'Employee study details changed'
-              : 'Operational starting address changed'
-        const body = firstPersonalSetup
-          ? `${current.user.name ?? current.user.email} completed their operational profile. Review company-owned employment setup before automatic scheduling.`
-          : recurringChanged
-            ? `${current.user.name ?? current.user.email} changed their recurring weekly unavailability. Review future staffing; published visits were not cancelled automatically.`
-            : schoolChanged || studyScheduleChanged
-              ? `${current.user.name ?? current.user.email} updated school or study hours. Review future staffing and routing; published visits were not moved automatically.`
-              : `${current.user.name ?? current.user.email} changed their validated home / operational starting address. Review future routing; published visits were not moved automatically.`
-
-        await tx.operationalNotice.create({
-          data: {
-            organizationId: current.auth.organizationId,
-            type: 'schedule_change',
-            priority: recurringChanged ? 'high' : 'normal',
-            title,
-            body,
-            requiresAcknowledgement: false,
-            createdById: current.auth.id,
-            recipients: {
-              create: managers.map(({ userId }) => ({ organizationId: current.auth.organizationId, userId })),
-            },
-          },
-        })
-      }
+      await notifyManagers(tx, current, title, body, recurringChanged ? 'high' : 'normal')
     }
 
     return tx.workforceProfile.findUniqueOrThrow({

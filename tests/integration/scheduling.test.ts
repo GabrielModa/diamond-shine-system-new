@@ -136,7 +136,7 @@ describe('jobs and visits', () => {
     expect(declared.body.data.affectedAssignments).toBe(0)
     const availabilityNotice = await prisma.operationalNotice.findFirst({ where: { title: 'Urgent availability change' } })
     expect(availabilityNotice).toBeTruthy()
-    const ownAvailability = await request(app).get('/api/availability').set('Cookie', employeeCookie)
+    const ownAvailability = await request(app).get('/api/availability?from=2026-08-24T00:00:00.000Z&to=2026-08-25T00:00:00.000Z').set('Cookie', employeeCookie)
     expect(ownAvailability.status).toBe(200); expect(ownAvailability.body.data).toHaveLength(1)
     const blocked = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id, name: 'Unavailable worker', startAt: '2026-08-24T09:00:00.000Z', durationMinutes: 120, recurrence: { frequency: 'once' }, assigneeIds: [employee.id],

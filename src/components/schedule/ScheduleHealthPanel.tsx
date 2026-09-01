@@ -46,14 +46,16 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ScheduleHealthPanel({
-  from, to, timezone, canManage, closeSignal, onChanged, onOpenVisit, onOpenServicePlan,
+  from, to, timezone, canManage, closeSignal, refreshSignal, onChanged, onFocusChange, onOpenVisit, onOpenServicePlan,
 }: {
   from: string
   to: string
   timezone: string
   canManage: boolean
   closeSignal: number
+  refreshSignal: number
   onChanged: () => Promise<void> | void
+  onFocusChange: (focus: 'scheduling' | 'conflicts' | 'confirmation' | null) => void
   onOpenVisit: (visitId: string) => void
   onOpenServicePlan: (servicePlanId: string) => void
 }) {
@@ -78,7 +80,7 @@ export default function ScheduleHealthPanel({
     catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load schedule health.') }
     finally { setLoading(false) }
   }, [from, to])
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { void refresh() }, [refresh, refreshSignal])
   useEffect(() => { setDrawerOpen(false) }, [closeSignal])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -102,7 +104,6 @@ export default function ScheduleHealthPanel({
     returnFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
     const previousOverflow = document.body.style.overflow
     document.body.style.overflow = 'hidden'
-    window.dispatchEvent(new Event('diamond:schedule-health-open'))
     requestAnimationFrame(() => drawerRef.current?.focus())
     return () => { document.body.style.overflow = previousOverflow; requestAnimationFrame(() => returnFocusRef.current?.focus()) }
   }, [drawerOpen])
@@ -213,22 +214,25 @@ export default function ScheduleHealthPanel({
   ] : []
   const drawerTitle = filter === 'scheduling' ? 'Needs scheduling' : filter === 'conflicts' ? 'Conflicts' : filter === 'confirmation' ? 'Awaiting confirmation' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
   const activeStat = stats.find((stat) => stat.filter === filter)
+  const healthFocus = (next: Filter) => next === 'scheduling' || next === 'conflicts' || next === 'confirmation' ? next : null
 
   const selectFilter = (next: Filter) => {
     setFilter(next)
     setDrawerOpen(false)
     setDrawerQuery('')
     setDrawerDate('all')
-    requestAnimationFrame(() => window.dispatchEvent(new Event('diamond:schedule-health-open')))
+    onFocusChange(healthFocus(next))
   }
   const openDetails = (next: Filter) => {
     setFilter(next)
     setDrawerQuery('')
     setDrawerDate('all')
     setDrawerOpen(true)
+    onFocusChange(healthFocus(next))
   }
   const clearFilter = () => {
-    document.querySelector<HTMLButtonElement>('.schedule-focus-tabs button:nth-child(2)')?.click()
+    setFilter('problems')
+    onFocusChange(null)
   }
   const openVisit = (visitId: string) => {
     setDrawerOpen(false)
