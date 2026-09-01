@@ -12,7 +12,7 @@ const FILTERS: Array<{ value: LiveFilter; label: string; icon: WorkforceLiveIcon
   { value: 'starting_soon', label: 'Starting soon', icon: 'clock' },
   { value: 'attention', label: 'Attention', icon: 'alert' },
   { value: 'expected_school', label: 'Expected school', icon: 'school' },
-  { value: 'available', label: 'Available', icon: 'available' },
+  { value: 'available', label: 'Available now', icon: 'available' },
 ]
 
 function stateLabel(employee: LiveEmployee) {
@@ -20,7 +20,7 @@ function stateLabel(employee: LiveEmployee) {
   if (employee.state === 'starting_soon') return 'Starting soon'
   if (employee.state === 'attention') return 'Needs attention'
   if (employee.state === 'expected_school') return 'Expected school'
-  if (employee.state === 'available') return 'Available'
+  if (employee.state === 'available') return 'Available now'
   return 'Unavailable'
 }
 
@@ -70,7 +70,7 @@ function secondaryLine(employee: LiveEmployee, timezone: string) {
   if (employee.currentVisit) return `${employee.currentVisit.site.client.displayName} · ${employee.currentVisit.site.name}`
   if (employee.nextVisit) return `${formatTime(employee.nextVisit.scheduledStart, timezone)} · ${employee.nextVisit.site.name}`
   if (employee.state === 'expected_school') return employee.expectedContext.school?.label ?? 'Study schedule'
-  if (employee.state === 'available') return 'Open capacity now'
+  if (employee.state === 'available') return 'No active visit right now'
   return employee.expectedContext.temporaryReason ?? 'Off operational map'
 }
 
@@ -268,7 +268,7 @@ export default function WorkforceLiveNow() {
                 <div><span>Expected context</span><strong>{selected.expectedContext.school?.label ?? 'School'}</strong><small>Based on the registered study schedule, not a live location.</small></div>
               </div> : <div className={styles.visitContext}>
                 <WorkforceLiveIcon name="available" />
-                <div><span>Capacity now</span><strong>Available for operational planning</strong><small>No active or imminent visit in the live window.</small></div>
+                <div><span>Capacity now</span><strong>Available right now</strong><small>No active or imminent visit in the live window. Future scheduled work is shown in Schedule.</small></div>
               </div>}
 
               <div className={styles.actions}>
