@@ -20,7 +20,7 @@ beforeAll(async () => {
   await seedUsers()
   adminCookie = await getAuthCookie('admin@ds.ie')
   employeeCookie = await getAuthCookie('employee@ds.ie')
-})
+}, 60_000)
 
 beforeEach(async () => {
   await cleanOperations()
@@ -33,7 +33,7 @@ afterAll(async () => {
   await cleanOperations()
   await prisma.recurringUnavailability.deleteMany()
   await nextApp.close()
-})
+}, 60_000)
 
 async function publishedPlan(requiredWorkers = 1) {
   const client = (await request(app).post('/api/clients').set('Cookie', adminCookie).send({ displayName: 'Schedule Hardening Client' })).body.data
