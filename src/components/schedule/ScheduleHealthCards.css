@@ -1,0 +1,106 @@
+.schedule-health-stat-wrap {
+  position: relative;
+  min-width: 0;
+}
+
+.schedule-health-stat-main {
+  width: 100%;
+  min-height: 112px !important;
+  padding-bottom: 38px !important;
+}
+
+.schedule-health-stat-details {
+  position: absolute;
+  right: 16px;
+  bottom: 12px;
+  z-index: 2;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  min-height: 28px;
+  padding: 4px 7px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: #5f6878;
+  box-shadow: none;
+  font-size: 11px;
+  font-weight: 800;
+}
+
+.schedule-health-stat-details:hover:not(:disabled) {
+  background: rgba(255,255,255,.72);
+  color: #40377f;
+  transform: translateX(1px);
+}
+
+.schedule-health-stat-details:disabled {
+  opacity: .38;
+  cursor: default;
+}
+
+.schedule-health-stat-wrap[data-health-filter="conflicts"] .schedule-health-stat-main::before {
+  background-color: #df5b64 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M10.3 2.9 1.8 17a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 2.9a2 2 0 0 0-3.4 0Z'/%3E%3Cpath d='M12 9v4M12 17h.01'/%3E%3C/svg%3E") !important;
+}
+
+.schedule-health-stat-wrap[data-health-filter="confirmation"] .schedule-health-stat-main::before {
+  background-color: #6960d8 !important;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Ccircle cx='12' cy='12' r='9'/%3E%3Cpath d='M12 7v5l3 2'/%3E%3C/svg%3E") !important;
+}
+
+.schedule-health-stat-wrap[data-health-filter="conflicts"] .schedule-health-stat-main[data-active="true"] {
+  border-color: #e69aa0 !important;
+  background: linear-gradient(135deg,#fffafa,#fff1f2) !important;
+  box-shadow: 0 0 0 2px rgba(223,91,100,.09), 0 12px 28px rgba(170,45,56,.06) !important;
+}
+
+.schedule-health-stat-wrap[data-health-filter="confirmation"] .schedule-health-stat-main[data-active="true"] {
+  border-color: #9f97ef !important;
+  background: linear-gradient(135deg,#faf9ff,#f1efff) !important;
+  box-shadow: 0 0 0 2px rgba(105,96,216,.09), 0 12px 28px rgba(73,61,167,.06) !important;
+}
+
+.schedule-health-active-filter {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  min-height: 36px;
+  padding: 6px 8px 6px 12px;
+  border: 1px solid #dddff0;
+  border-radius: 999px;
+  background: rgba(255,255,255,.76);
+  color: #626b79;
+  font-size: 12px;
+  font-weight: 700;
+  box-shadow: 0 3px 12px rgba(30,41,59,.03);
+}
+
+.schedule-health-active-filter strong {
+  color: #27233f;
+}
+
+.schedule-health-active-filter button {
+  min-height: 26px !important;
+  padding: 3px 9px !important;
+  border-color: #d8d9e7 !important;
+  background: #fff !important;
+  color: #514a8d !important;
+}
+
+@media (max-width: 700px) {
+  .schedule-health-stat-main {
+    min-height: 92px !important;
+    padding-bottom: 34px !important;
+  }
+
+  .schedule-health-stat-details {
+    right: 12px;
+    bottom: 8px;
+  }
+
+  .schedule-health-active-filter {
+    width: 100%;
+    justify-content: space-between;
+  }
+}
