@@ -25,6 +25,18 @@ function managerHealthAllowed(role: string) {
   return role !== 'employee'
 }
 
+function employeeScopeFromReferer(request: NextRequest) {
+  const referer = request.headers.get('referer')
+  if (!referer) return null
+  try {
+    const url = new URL(referer)
+    if (url.pathname !== '/schedule') return null
+    return url.searchParams.get('employee')
+  } catch {
+    return null
+  }
+}
+
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'schedule.read')
   if ('response' in auth) return auth.response
@@ -41,7 +53,8 @@ export async function GET(request: NextRequest) {
     to: parsed.data.to,
   })
 
-  if (!parsed.data.employeeId) return NextResponse.json({ ok: true, data })
+  const employeeId = parsed.data.employeeId ?? employeeScopeFromReferer(request)
+  if (!employeeId) return NextResponse.json({ ok: true, data })
 
   const employeeVisits = await prisma.visit.findMany({
     where: {
@@ -50,7 +63,7 @@ export async function GET(request: NextRequest) {
       status: { notIn: [...NON_OPERATIONAL_VISIT_STATUSES] },
       assignments: {
         some: {
-          userId: parsed.data.employeeId,
+          userId: employeeId,
           status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] },
         },
       },
@@ -59,7 +72,7 @@ export async function GET(request: NextRequest) {
       id: true,
       assignments: {
         where: {
-          userId: parsed.data.employeeId,
+          userId: employeeId,
           status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] },
         },
         select: { status: true },
@@ -75,7 +88,7 @@ export async function GET(request: NextRequest) {
   return NextResponse.json({
     ok: true,
     data: scopeScheduleHealthToEmployee(data, {
-      employeeId: parsed.data.employeeId,
+      employeeId,
       activeVisitIds,
       pendingAcknowledgementVisitIds,
     }),
