@@ -183,7 +183,6 @@ export async function buildScheduleHealth(input: {
     }
   }
   const conflictKeys = new Set<string>()
-  const conflictingVisitIds = new Set<string>()
   for (const [userId, windows] of assignmentWindows) {
     const sorted = [...windows].sort((a, b) => a.visit.scheduledStart.getTime() - b.visit.scheduledStart.getTime())
     for (let left = 0; left < sorted.length; left += 1) {
@@ -195,8 +194,7 @@ export async function buildScheduleHealth(input: {
         const key = [userId, a.visit.id, b.visit.id].sort().join(':')
         if (conflictKeys.has(key)) continue
         conflictKeys.add(key)
-        conflictingVisitIds.add(a.visit.id)
-        conflictingVisitIds.add(b.visit.id)
+        summary.conflicts += 1
         const overlapMinutes = Math.max(1, Math.round((Math.min(a.visit.scheduledEnd.getTime(), b.visit.scheduledEnd.getTime()) - Math.max(a.visit.scheduledStart.getTime(), b.visit.scheduledStart.getTime())) / 60_000))
         const name = workerName(b.user)
         items.push({
@@ -230,7 +228,6 @@ export async function buildScheduleHealth(input: {
       }
     }
   }
-  summary.conflicts = conflictingVisitIds.size
 
   const pauseWindows = pauses as PauseWindow[]
   const keysByJob = new Map<string, Set<string>>()
