@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import ListControls from '../ui/ListControls'
 
 type SiteRisk = { id: string; name: string; city: string; client: { displayName: string }; score: number; level: 'critical' | 'high' | 'watch' | 'healthy'; reasons: string[]; nextVisit: string | null }
 type HealthComponent = { key: string; label: string; weight: number; value: number; direction: string }
@@ -68,7 +69,7 @@ export default function IntelligenceWorkspace() {
       <section className="intelligence-grid">
         <div className="risk-panel card">
           <div className="section-heading"><div><h2>Location risk radar</h2><span className="muted">Highest operational exposure first</span></div><span className="count-pill">{visibleSites.length}</span></div>
-          <div className="risk-filters" role="group" aria-label="Filter location risk">{(['all', 'critical', 'high', 'watch', 'healthy'] as const).map((value) => <button key={value} className={riskFilter === value ? 'selected' : ''} onClick={() => setRiskFilter(value)}>{value}</button>)}</div>
+	          <div className="risk-standard-filter"><ListControls query="" onQueryChange={()=>undefined} hideSearch hasActiveFilters={riskFilter!=='all'} onClear={()=>setRiskFilter('all')} options={[{label:'Risk level',value:riskFilter,defaultValue:'all',choices:[{value:'all',label:'All levels'},{value:'critical',label:'Critical'},{value:'high',label:'High'},{value:'watch',label:'Watch'},{value:'healthy',label:'Healthy'}],onChange:value=>setRiskFilter(value as typeof riskFilter)}]} /></div>
           <div className="risk-list">{visibleSites.map((site) => <article key={site.id} className="risk-row" data-risk={site.level}>
             <div className="risk-value"><strong>{site.score}</strong><span>{site.level}</span></div>
             <div className="risk-copy"><strong>{site.client.displayName} · {site.name}</strong><span>{site.city}{site.nextVisit ? ` · next ${new Date(site.nextVisit).toLocaleDateString('en-IE')}` : ''}</span><small>{site.reasons.slice(0, 3).join(' · ') || 'No active risk signals'}</small></div>

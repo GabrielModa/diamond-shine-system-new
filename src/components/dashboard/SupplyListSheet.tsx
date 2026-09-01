@@ -5,6 +5,7 @@ import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { timeAgo } from '../../lib/business-logic'
 import { isSupplyOverdue } from '../../lib/business-logic'
 import { useDialogFocus } from './useDialogFocus'
+import ListControls from '../ui/ListControls'
 
 type ListFilter = {
   priority?: SupplyPriority
@@ -43,7 +44,7 @@ export function SupplyListSheet({
   onSelect,
   onSendEmail,
 }: SupplyListSheetProps) {
-  const dialogRef = useDialogFocus(active)
+  const dialogRef = useDialogFocus(active, onClose)
   const [period, setPeriod] = useState('all')
   const [location, setLocation] = useState('all')
   const [employee, setEmployee] = useState('all')
@@ -179,6 +180,8 @@ export function SupplyListSheet({
           </button>
         </div>
         <div className="sheet-subtitle">Filter and manage supply requests</div>
+
+        <div className="supply-standard-filter"><ListControls query={applied.search} onQueryChange={(value) => setApplied((current) => ({ ...current, search: value }))} placeholder="Search supply requests…" hasActiveFilters={Boolean(applied.search || applied.period !== 'all' || applied.location !== 'all' || applied.employee !== 'all')} onClear={() => setApplied({ period: 'all', location: 'all', employee: 'all', search: '' })} options={[{ label: 'Period', value: applied.period, defaultValue: 'all', choices: [{ value: 'all', label: 'All time' }, { value: 'month', label: 'This month' }, { value: '7', label: 'Last 7 days' }, { value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }], onChange: (value) => setApplied((current) => ({ ...current, period: value })) }, { label: 'Location', value: applied.location, defaultValue: 'all', choices: [{ value: 'all', label: 'All locations' }, ...locations.map((value) => ({ value, label: value }))], onChange: (value) => setApplied((current) => ({ ...current, location: value })) }, { label: 'Employee', value: applied.employee, defaultValue: 'all', choices: [{ value: 'all', label: 'All employees' }, ...employees.map((value) => ({ value, label: value }))], onChange: (value) => setApplied((current) => ({ ...current, employee: value })) }]} /></div>
 
         <div className="filters-compact">
           <input

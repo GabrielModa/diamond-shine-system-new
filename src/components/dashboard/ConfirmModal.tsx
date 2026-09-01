@@ -11,7 +11,7 @@ type ConfirmModalProps = {
 }
 
 export function ConfirmModal({ open, active, message, onConfirm, onClose }: ConfirmModalProps) {
-  const dialogRef = useDialogFocus(active)
+  const dialogRef = useDialogFocus(active, onClose)
 
   return (
     <div

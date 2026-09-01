@@ -19,7 +19,7 @@ type FeedbackDetailSheetProps = {
 }
 
 export function FeedbackDetailSheet({ open, active, entry, onClose }: FeedbackDetailSheetProps) {
-  const dialogRef = useDialogFocus(active)
+  const dialogRef = useDialogFocus(active, onClose)
   if (!entry) return null
 
   const categoryEmoji = CATEGORY_EMOJI[entry.category] ?? ''

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import { createPortal } from 'react-dom'
 
 export type ScheduleTeamMember = {
   id: string
@@ -24,16 +25,23 @@ export default function TeamPicker({
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
+  const [draftIds, setDraftIds] = useState<string[]>(selectedIds)
   const pickerRef = useRef<HTMLDivElement>(null)
+
+  function dismissPicker() {
+    setDraftIds(selectedIds)
+    setQuery('')
+    setOpen(false)
+  }
 
   useEffect(() => {
     if (!open) return
-    const onMouseDown = (event: MouseEvent) => { if (pickerRef.current && !pickerRef.current.contains(event.target as Node)) setOpen(false) }
-    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') setOpen(false) }
-    document.addEventListener('mousedown', onMouseDown)
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+    const onKeyDown = (event: KeyboardEvent) => { if (event.key === 'Escape') dismissPicker() }
     document.addEventListener('keydown', onKeyDown)
-    return () => { document.removeEventListener('mousedown', onMouseDown); document.removeEventListener('keydown', onKeyDown) }
-  }, [open])
+    return () => { document.removeEventListener('keydown', onKeyDown); document.body.style.overflow = previousOverflow }
+  }, [open, selectedIds])
 
   const filtered = useMemo(() => {
     const needle = query.trim().toLowerCase()
@@ -49,14 +57,29 @@ export default function TeamPicker({
     onChange(selectedIds.includes(id) ? selectedIds.filter((value) => value !== id) : [...selectedIds, id])
   }
 
+  function toggleDraft(id: string) {
+    setDraftIds((current) => current.includes(id) ? current.filter((value) => value !== id) : [...current, id])
+  }
+
+  function togglePicker() {
+    if (open) { dismissPicker(); return }
+    setDraftIds(selectedIds); setQuery(''); setOpen(true)
+  }
+
+  function applyDraft() {
+    onChange(draftIds)
+    setQuery('')
+    setOpen(false)
+  }
+
   return <div ref={pickerRef} className="schedule-team-picker">
     <div className="schedule-team-picker-head">
       <div>
         <strong>{label}</strong>
         {helper ? <small>{helper}</small> : null}
       </div>
-      <button type="button" className="btn-secondary" onClick={() => setOpen((value) => !value)}>
-        {open ? 'Done' : selected.length ? `Change team · ${selected.length}` : '+ Select team'}
+      <button type="button" className="btn-secondary" onClick={togglePicker}>
+        {open ? 'Cancel' : selected.length ? `Change team · ${selected.length}` : '+ Select team'}
       </button>
     </div>
 
@@ -66,23 +89,21 @@ export default function TeamPicker({
       </button>)}
     </div> : <p className="muted schedule-team-empty">No cleaners selected.</p>}
 
-    {open ? <div className="schedule-team-popover">
-      <label className="schedule-team-search">
-        <span className="sr-only">Search team member</span>
-        <input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cleaner by name..." />
-      </label>
-
+    {open && typeof document !== 'undefined' ? createPortal(<div className="filter-dialog-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) dismissPicker() }}><section className="filter-dialog team-picker-dialog" role="dialog" aria-modal="true" aria-label={label}>
+      <header><div><h2>{label}</h2>{helper ? <p className="muted">{helper}</p> : null}</div><button type="button" className="filter-dialog-close" aria-label="Discard team changes" onClick={dismissPicker}>×</button></header>
+      <div className="filter-dialog-body"><label className="schedule-team-search"><span>Search</span><input autoFocus type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search cleaner by name..." /></label>
       <div className="schedule-team-options">
         {cleaners.length ? <section>
           <span className="schedule-team-group-label">Cleaners</span>
-          {cleaners.map((member) => <label key={member.id} className={selectedIds.includes(member.id) ? 'selected' : ''}>
-            <input type="checkbox" checked={selectedIds.includes(member.id)} onChange={() => toggle(member.id)} />
+          {cleaners.map((member) => <label key={member.id} className={draftIds.includes(member.id) ? 'selected' : ''}>
+            <input type="checkbox" checked={draftIds.includes(member.id)} onChange={() => toggleDraft(member.id)} />
             <span><b>{member.name ?? member.email}</b><small>{member.email}</small></span>
           </label>)}
         </section> : null}
 
         {!filtered.length ? <p className="muted">No team member matches “{query}”.</p> : null}
-      </div>
-    </div> : null}
+      </div></div>
+      <footer className="schedule-team-actions"><button type="button" className="text-button" onClick={() => setDraftIds([])}>Clear</button><button type="button" className="btn-primary" onClick={applyDraft}>Apply</button></footer>
+    </section></div>, document.body) : null}
   </div>
 }

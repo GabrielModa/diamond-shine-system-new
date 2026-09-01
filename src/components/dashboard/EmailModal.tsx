@@ -90,7 +90,7 @@ type EmailModalProps = {
 }
 
 export function EmailModal({ open, active, request, onClose, onSend }: EmailModalProps) {
-  const dialogRef = useDialogFocus(active)
+  const dialogRef = useDialogFocus(active, onClose)
   const [clientEmail, setClientEmail] = useState('')
   const [subject, setSubject] = useState('')
   const [body, setBody] = useState('')

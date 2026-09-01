@@ -25,7 +25,7 @@ export function SupplyDetailSheet({
   assignees,
   onAssign,
 }: SupplyDetailSheetProps) {
-  const dialogRef = useDialogFocus(active)
+  const dialogRef = useDialogFocus(active, onClose)
   if (!request) return null
   const overdue = isSupplyOverdue(request.dueAt, request.status)
 

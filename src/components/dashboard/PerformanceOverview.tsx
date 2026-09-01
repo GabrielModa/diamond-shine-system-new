@@ -22,7 +22,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
   const [profileOpen, setProfileOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null)
   const [mounted, setMounted] = useState(false)
-  const profileRef = useDialogFocus(profileOpen)
+  const profileRef = useDialogFocus(profileOpen, () => setProfileOpen(false))
 
   useEffect(() => {
     const timer = setTimeout(() => setDebounced(query.trim()), 300)

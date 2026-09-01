@@ -11,17 +11,27 @@ const FOCUSABLE = [
   '[tabindex]:not([tabindex="-1"])',
 ].join(',')
 
-export function useDialogFocus(active: boolean) {
+export function useDialogFocus(active: boolean, onClose?: () => void) {
   const dialogRef = useRef<HTMLDivElement>(null)
+  const onCloseRef = useRef(onClose)
+  onCloseRef.current = onClose
 
   useEffect(() => {
     if (!active) return
     const previous = document.activeElement as HTMLElement | null
+    const previousOverflow = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
     const dialog = dialogRef.current
     const focusables = () => Array.from(dialog?.querySelectorAll<HTMLElement>(FOCUSABLE) ?? [])
     const animationFrame = requestAnimationFrame(() => (focusables()[0] ?? dialog)?.focus())
 
     function trapFocus(event: KeyboardEvent) {
+      if (event.key === 'Escape' && onCloseRef.current) {
+        event.preventDefault()
+        event.stopPropagation()
+        onCloseRef.current()
+        return
+      }
       if (event.key !== 'Tab') return
       const items = focusables()
       if (!items.length) {
@@ -44,6 +54,7 @@ export function useDialogFocus(active: boolean) {
     return () => {
       cancelAnimationFrame(animationFrame)
       document.removeEventListener('keydown', trapFocus)
+      document.body.style.overflow = previousOverflow
       previous?.focus()
     }
   }, [active])

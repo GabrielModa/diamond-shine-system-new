@@ -170,9 +170,7 @@ export default function UsersPage() {
     <section className="card" aria-labelledby="directory-title">
       <div className="section-heading"><div><h2 id="directory-title">Organization directory</h2><p className="muted">{filtered.length} of {users.length} people shown</p></div></div>
       <div className="admin-toolbar access-toolbar">
-        <ListControls query={query} onQueryChange={setQuery} placeholder="Search name, email or role…" hasActiveFilters={Boolean(query.trim() || status !== 'all' || role !== 'all')} onClear={() => { setQuery(''); setStatus('all'); setRole('all') }} />
-        <select aria-label="Filter by status" value={status} onChange={(event) => setStatus(event.target.value as typeof status)}><option value="all">All statuses</option><option value="pending">Pending</option><option value="active">Active</option><option value="inactive">Inactive</option></select>
-        <select aria-label="Filter by operational role" value={role} onChange={(event) => setRole(event.target.value as typeof role)}><option value="all">All roles</option>{ROLE_OPTIONS.map((item) => <option key={item.value} value={item.value}>{item.label}</option>)}</select>
+        <ListControls query={query} onQueryChange={setQuery} placeholder="Search name, email or role…" hasActiveFilters={Boolean(query.trim() || status !== 'all' || role !== 'all')} onClear={() => { setQuery(''); setStatus('all'); setRole('all') }} options={[{ label: 'Status', value: status, defaultValue: 'all', choices: [{ value: 'all', label: 'All statuses' }, { value: 'pending', label: 'Pending' }, { value: 'active', label: 'Active' }, { value: 'inactive', label: 'Inactive' }], onChange: (value) => setStatus(value as typeof status) }, { label: 'Operational role', value: role, defaultValue: 'all', choices: [{ value: 'all', label: 'All roles' }, ...ROLE_OPTIONS], onChange: (value) => setRole(value as typeof role) }]} />
       </div>
       {loading ? <div role="status" className="empty-state">Loading people…</div> : null}
       {!loading && !filtered.length ? <div className="empty-state">No people match these filters.</div> : null}
