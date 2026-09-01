@@ -70,6 +70,15 @@ function secondaryLine(employee: LiveEmployee, timezone: string) {
   return employee.expectedContext.temporaryReason ?? 'Off operational map'
 }
 
+function mapSource(employee: LiveEmployee) {
+  if (employee.mapPoint?.kind === 'live_gps') {
+    return employee.signal.state === 'fresh' ? `Live work GPS · ${formatAge(employee.signal.ageSeconds)}` : `Last known work GPS · ${formatAge(employee.signal.ageSeconds)}`
+  }
+  if (employee.mapPoint?.kind === 'expected_visit_site') return 'Expected service site · not live GPS'
+  if (employee.mapPoint?.kind === 'expected_school') return 'Expected school · study schedule'
+  return 'Not mapped in Live now'
+}
+
 export default function WorkforceLiveNow() {
   const [data, setData] = useState<LiveData | null>(null)
   const [loading, setLoading] = useState(true)
@@ -186,11 +195,11 @@ export default function WorkforceLiveNow() {
       <div className={styles.layout}>
         <section className={styles.mapCard}>
           <header className={styles.mapHeader}>
-            <div><h2>Live operations map</h2><p>On-job pins are anchored to the assigned service site; freshness and verification come from the active work session.</p></div>
+            <div><h2>Live operations map</h2><p>Active work uses the latest work-session GPS when available. Expected visit and school positions are shown separately and never presented as live GPS.</p></div>
             <span className={styles.updated}>{mapEmployees.length} mapped</span>
           </header>
           <WorkforceLiveMap employees={mapEmployees} selectedId={selectedId} onSelect={(employee) => setSelectedId(employee.id)} />
-          <div className={styles.privacy}>Live work-location checks are used only while a visit timer is active. Home is not shown in Live now; planning origins stay in Plan ahead.</div>
+          <div className={styles.privacy}>Work GPS is surfaced only from an active visit timer. A stale signal remains visible only as last known work GPS. Home stays in Plan ahead.</div>
         </section>
 
         <aside className={styles.activityCard}>
@@ -218,6 +227,7 @@ export default function WorkforceLiveNow() {
               <div><span>Operational state</span><strong>{stateLabel(selected)}</strong></div>
               <div><span>Timer</span><strong>{selected.timer ? timerDuration(selected.timer.startedAt, clock) : 'Not running'}</strong></div>
               <div><span>Signal</span><strong className={selected.signal.state === 'fresh' ? styles.signalFresh : selected.signal.state === 'stale' ? styles.signalStale : selected.signal.state === 'missing' ? styles.signalMissing : ''}>{selected.signal.state === 'not_expected' ? 'Not expected' : `${selected.signal.state} · ${formatAge(selected.signal.ageSeconds)}`}</strong></div>
+              <div><span>Map source</span><strong>{mapSource(selected)}</strong></div>
               <div><span>Location check</span><strong>{selected.signal.classification ? selected.signal.classification.replaceAll('_', ' ') : '—'}{selected.signal.distanceM != null ? ` · ${selected.signal.distanceM}m from site` : ''}</strong></div>
             </div>
             {selected.currentVisit ? <div>
