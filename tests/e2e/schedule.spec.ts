@@ -29,7 +29,18 @@ test('health cards filter the calendar without forcing the details drawer', asyn
   }
 })
 
-test('conflicts are highlighted on the calendar and details are explicitly opt-in', async ({ page }) => {
+test('needs scheduling adopts the amber operational state in the calendar', async ({ page }) => {
+  const card = page.locator('[data-health-filter="scheduling"]')
+  await card.locator('.schedule-health-stat-main').click()
+
+  const firstVisit = page.locator('.visit-card').first()
+  if (await firstVisit.count()) {
+    const background = await firstVisit.evaluate((element) => getComputedStyle(element).backgroundColor)
+    expect(background).toBe('rgb(255, 248, 234)')
+  }
+})
+
+test('conflicts are highlighted on the calendar, counted as affected visits and details are explicitly opt-in', async ({ page }) => {
   const card = page.locator('[data-health-filter="conflicts"]')
   const count = Number(await card.locator('.schedule-health-stat-main strong').innerText())
 
@@ -41,6 +52,7 @@ test('conflicts are highlighted on the calendar and details are explicitly opt-i
     const conflictCards = page.locator('.visit-card.schedule-conflict')
     expect(await visibleCards.count()).toBeGreaterThan(0)
     expect(await conflictCards.count()).toBe(await visibleCards.count())
+    expect(await conflictCards.count()).toBe(count)
 
     await card.locator('.schedule-health-stat-details').click()
     const drawer = page.getByRole('dialog', { name: /Conflicts details/i })
