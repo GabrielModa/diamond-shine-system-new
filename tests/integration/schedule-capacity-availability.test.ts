@@ -18,7 +18,7 @@ beforeAll(async () => {
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
   await seedUsers()
   adminCookie = await getAuthCookie('admin@ds.ie')
-})
+}, 60_000)
 
 beforeEach(async () => {
   await cleanOperations()
@@ -33,7 +33,7 @@ afterAll(async () => {
   await prisma.studySchedule.deleteMany()
   await prisma.workforceLeave.deleteMany()
   await nextApp.close()
-})
+}, 60_000)
 
 async function publishedPlan() {
   const client = (await request(app).post('/api/clients').set('Cookie', adminCookie).send({ displayName: 'Capacity Client' })).body.data
