@@ -6,6 +6,7 @@ import { enqueueNotification } from '../../../../lib/notification-queue'
 import { visitUpdateSchema } from '../../../../modules/scheduling/schemas'
 import { ACTIVE_ASSIGNMENT_STATUSES, isActiveAssignmentStatus } from '../../../../modules/scheduling/assignment-lifecycle'
 import { workforceConstraintForWindow } from '../../../../modules/scheduling/workforce-constraints'
+import { visitMutationRequiresNewAcknowledgement } from '../../../../modules/scheduling/visit-mutation-policy'
 
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
 
@@ -74,6 +75,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const currentActiveIds = current.assignments.filter((item) => isActiveAssignmentStatus(item.status)).map((item) => item.userId)
   const assigneeIds = parsed.data.assigneeIds ? [...new Set(parsed.data.assigneeIds)] : currentActiveIds
+  const acknowledgementEligible = ['scheduled', 'dispatched', 'acknowledged'].includes(current.status)
+  const requiresNewAcknowledgement = !cancelling && acknowledgementEligible && visitMutationRequiresNewAcknowledgement({
+    scheduledStart: current.scheduledStart,
+    scheduledEnd: current.scheduledEnd,
+    dispatchNotes: current.dispatchNotes,
+    assigneeIds: currentActiveIds,
+  }, {
+    scheduledStart: start,
+    scheduledEnd: end,
+    dispatchNotes: parsed.data.dispatchNotes === undefined ? current.dispatchNotes : parsed.data.dispatchNotes,
+    assigneeIds,
+  })
 
   if (!cancelling && assigneeIds.length) {
     const members = await prisma.membership.findMany({
@@ -88,7 +101,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         user: {
           select: {
             id: true, name: true, email: true,
-            workforceProfile: { include: { studySchedules: true, leaves: true } },
+            workforceProfile: { include: { studySchedules: true, recurringUnavailability: true, leaves: true } },
           },
         },
       },
@@ -98,6 +111,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       error: 'Every assignee must be an active cleaner or field supervisor who can execute visits.',
       code: 'ASSIGNEE_NOT_EXECUTABLE',
     }, { status: 400 })
+
+    const setupRequired = members.filter((membership) => !membership.user.workforceProfile?.weeklyTargetConfigured)
+    if (setupRequired.length) return NextResponse.json({
+      ok: false,
+      error: `${humanList(setupRequired.map((membership) => membership.user.name ?? membership.user.email))} still needs workforce setup before being assigned to visits.`,
+      code: 'ASSIGNEE_WORKFORCE_SETUP_REQUIRED',
+      data: setupRequired.map((membership) => ({ userId: membership.user.id, user: membership.user.name ?? membership.user.email })),
+    }, { status: 409 })
 
     const [conflicts, availability] = await Promise.all([
       prisma.visitAssignment.findMany({
@@ -160,6 +181,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       const profile = membership.user.workforceProfile
       const conflict = workforceConstraintForWindow(profile ? {
         studySchedules: profile.studySchedules,
+        recurringUnavailability: profile.recurringUnavailability,
         leaves: profile.leaves.map((leave) => ({
           kind: leave.kind as 'school_holiday' | 'personal_leave',
           startsAt: leave.startsAt,
@@ -171,10 +193,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     })
     if (workforceConflicts.length) {
       const leaveConflicts = workforceConflicts.filter((item) => item.kind === 'personal_leave')
-      const schoolConflicts = workforceConflicts.filter((item) => item.kind !== 'personal_leave')
+      const recurringConflicts = workforceConflicts.filter((item) => item.kind === 'recurring_unavailability')
+      const schoolConflicts = workforceConflicts.filter((item) => item.kind === 'school')
       const error = leaveConflicts.length
         ? `${humanList(leaveConflicts.map((item) => item.user))} ${leaveConflicts.length === 1 ? 'is' : 'are'} on leave during this visit. Choose another cleaner or change the time.`
-        : `${humanList(schoolConflicts.map((item) => item.user))} ${schoolConflicts.length === 1 ? 'is' : 'are'} in school during this visit. Choose another cleaner or change the time.`
+        : recurringConflicts.length
+          ? `${humanList(recurringConflicts.map((item) => item.user))} ${recurringConflicts.length === 1 ? 'has' : 'have'} recurring unavailability during this visit. Choose another cleaner or change the time.`
+          : `${humanList(schoolConflicts.map((item) => item.user))} ${schoolConflicts.length === 1 ? 'is' : 'are'} in school during this visit. Choose another cleaner or change the time.`
       return NextResponse.json({
         ok: false,
         error,
@@ -184,15 +209,31 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
   }
 
+  const nextStatus = cancelling
+    ? 'cancelled'
+    : requiresNewAcknowledgement
+      ? assigneeIds.length ? 'dispatched' : 'scheduled'
+      : parsed.data.status === 'scheduled' && ['dispatched', 'acknowledged'].includes(current.status)
+        ? current.status
+        : parsed.data.status
+
   const updated = await prisma.$transaction(async (tx) => {
-    if (parsed.data.assigneeIds) {
+    if (parsed.data.assigneeIds || requiresNewAcknowledgement) {
       const selected = new Set(assigneeIds)
       for (const assignment of current.assignments) {
         if (selected.has(assignment.userId)) {
-          if (!isActiveAssignmentStatus(assignment.status)) {
+          if (!isActiveAssignmentStatus(assignment.status) || requiresNewAcknowledgement) {
             await tx.visitAssignment.update({
               where: { id: assignment.id },
-              data: { status: 'assigned', assignedAt: new Date(), declinedAt: null, declineReason: null },
+              data: {
+                status: 'assigned',
+                assignedAt: new Date(),
+                notifiedAt: null,
+                seenAt: null,
+                acknowledgedAt: null,
+                declinedAt: null,
+                declineReason: null,
+              },
             })
           }
         } else if (isActiveAssignmentStatus(assignment.status)) {
@@ -212,9 +253,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         scheduledStart: parsed.data.scheduledStart,
         scheduledEnd: parsed.data.scheduledEnd,
         dispatchNotes: parsed.data.dispatchNotes,
-        status: parsed.data.status,
+        status: nextStatus,
         cancellationReason: cancelling ? parsed.data.cancellationReason!.trim() : parsed.data.cancellationReason,
-        cancelledAt: parsed.data.status === 'cancelled' ? new Date() : parsed.data.status ? null : undefined,
+        cancelledAt: cancelling ? new Date() : nextStatus ? null : undefined,
         version: { increment: 1 },
       },
       include: { assignments: { include: { user: { select: { id: true, name: true, email: true } } } } },
@@ -223,7 +264,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
 
   const updatedActiveIds = updated.assignments.filter((item) => isActiveAssignmentStatus(item.status)).map((item) => item.userId)
   const notificationRecipients = [...new Set([...currentActiveIds, ...updatedActiveIds])]
-  if (notificationRecipients.length) {
+  if (notificationRecipients.length && (cancelling || requiresNewAcknowledgement)) {
     const title = cancelling ? 'Cleaning visit cancelled' : 'Visit schedule updated'
     const body = cancelling
       ? `${current.site.client.displayName} · ${current.site.name} on ${updated.scheduledStart.toLocaleString('en-IE', { timeZone: updated.timezone })} was cancelled. Reason: ${updated.cancellationReason}.`
@@ -259,6 +300,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     cancellationReason: updated.cancellationReason,
     previousAssigneeIds: currentActiveIds,
     assigneeIds: updatedActiveIds,
+    requiresNewAcknowledgement,
   }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: updated })
 }

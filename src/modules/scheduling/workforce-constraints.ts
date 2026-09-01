@@ -52,6 +52,22 @@ function dayMatches(day: Date, rule: StudyRule) {
   return rule.dayOfWeek === jsDay || (jsDay === 0 && rule.dayOfWeek === 7)
 }
 
+function schoolOverlapCoveredByHoliday(
+  visitStart: Date,
+  visitEnd: Date,
+  schoolStart: Date,
+  schoolEnd: Date,
+  leaves: WorkforceLeaveRule[],
+) {
+  const overlapStart = new Date(Math.max(visitStart.getTime(), schoolStart.getTime()))
+  const overlapEnd = new Date(Math.min(visitEnd.getTime(), schoolEnd.getTime()))
+  if (overlapEnd <= overlapStart) return false
+  return leaves.some((leave) =>
+    leave.kind === 'school_holiday'
+    && leave.startsAt <= overlapStart
+    && leave.endsAt >= overlapEnd)
+}
+
 export function workforceConstraintForWindow(
   profile: WorkforceConstraintProfile | null | undefined,
   start: Date,
@@ -83,9 +99,7 @@ export function workforceConstraintForWindow(
     for (const study of profile.studySchedules.filter((rule) => dayMatches(day, rule))) {
       const window = recurringWindow(day, study, timezone)
       if (!overlaps(start, end, window.start, window.end)) continue
-      const onSchoolHoliday = profile.leaves.some((leave) =>
-        leave.kind === 'school_holiday' && overlaps(window.start, window.end, leave.startsAt, leave.endsAt))
-      if (onSchoolHoliday) continue
+      if (schoolOverlapCoveredByHoliday(start, end, window.start, window.end, profile.leaves)) continue
       return { kind: 'school', startsAt: window.start, endsAt: window.end, reason: 'School / study schedule' }
     }
   }
