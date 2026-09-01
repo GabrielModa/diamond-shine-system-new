@@ -9,7 +9,26 @@ import {
 
 export const TEST_PASSWORD = 'password123'
 
+function assertIntegrationDatabaseSafe() {
+  if (process.env.CI === 'true' || process.env.ALLOW_INTEGRATION_DB_RESET === 'true') return
+  const raw = process.env.DATABASE_URL ?? ''
+  let fingerprint = raw.toLowerCase()
+  try {
+    const parsed = new URL(raw)
+    fingerprint = `${parsed.pathname} ${parsed.searchParams.get('schema') ?? ''}`.toLowerCase()
+  } catch {
+    // Keep the raw value. An invalid/empty URL must fail closed below.
+  }
+  if (/(^|[^a-z])(test|tests|testing|integration|ci)([^a-z]|$)/i.test(fingerprint)) return
+  throw new Error(
+    'Refusing destructive integration-test cleanup on the current DATABASE_URL. ' +
+    'Use a dedicated database/schema whose name contains "test" or "integration", ' +
+    'or explicitly set ALLOW_INTEGRATION_DB_RESET=true only when destroying that database is intentional.',
+  )
+}
+
 export async function seedUsers() {
+  assertIntegrationDatabaseSafe()
   await cleanOperations()
   await prisma.notificationJob.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
@@ -77,6 +96,7 @@ export async function getAuthCookie(email: string, password = TEST_PASSWORD): Pr
 }
 
 export async function cleanSupplies() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.supplyRequest.deleteMany()
   await prisma.materialStockCountLine.deleteMany()
@@ -86,11 +106,13 @@ export async function cleanSupplies() {
 }
 
 export async function cleanFeedback() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.feedbackEntry.deleteMany()
 }
 
 export async function cleanOperations() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.availability.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
