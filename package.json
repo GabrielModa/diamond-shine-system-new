@@ -43,7 +43,7 @@
     "test:integration:workforce": "vitest run tests/integration/workforce.test.ts",
     "test:e2e:workforce": "playwright test tests/e2e/workforce.spec.ts",
     "db:seed:scenarios": "npx tsx prisma/seed-scenario-matrix.ts",
-    "db:seed:lab": "npx tsx prisma/seed-operational-lab-v2.ts",
+    "db:seed:lab": "npx tsx prisma/seed-operational-lab-preflight.ts && npx tsx prisma/seed-operational-lab-v2.ts",
     "db:seed:demo": "npm run db:seed && npm run db:seed:workforce && npm run db:seed:scenarios && npm run db:seed:lab",
     "db:reset:demo": "npx prisma db push --force-reset && npm run db:seed:demo",
     "db:check:demo": "npx tsx scripts/demo-operational-check.ts",
