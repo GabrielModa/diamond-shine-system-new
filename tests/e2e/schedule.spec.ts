@@ -23,7 +23,6 @@ test('health cards filter the calendar without forcing the details drawer', asyn
   ] as const) {
     const card = page.locator(`[data-health-filter="${filter}"]`)
     await card.locator('.schedule-health-stat-main').click()
-
     await expect(page.locator('.schedule-health-active-filter')).toContainText(label)
     await expect(page.getByRole('dialog', { name: new RegExp(`${label} details`, 'i') })).toHaveCount(0)
   }
@@ -32,7 +31,6 @@ test('health cards filter the calendar without forcing the details drawer', asyn
 test('needs scheduling adopts the amber operational state in the calendar', async ({ page }) => {
   const card = page.locator('[data-health-filter="scheduling"]')
   await card.locator('.schedule-health-stat-main').click()
-
   const firstVisit = page.locator('.visit-card').first()
   if (await firstVisit.count()) {
     const background = await firstVisit.evaluate((element) => getComputedStyle(element).backgroundColor)
@@ -60,8 +58,6 @@ test('conflicts are highlighted on the calendar, counted as affected visits and 
     await expect(drawer.getByText(/Double booked/i).first()).toBeVisible()
     await drawer.getByRole('button', { name: 'Close' }).click()
     await expect(drawer).toBeHidden()
-
-    // Closing details must not lose the useful calendar filter.
     await expect(page.locator('.schedule-health-active-filter')).toContainText('Conflicts')
   } else {
     await expect(card.locator('.schedule-health-stat-details')).toBeDisabled()
@@ -75,7 +71,6 @@ test('conflicts are highlighted on the calendar, counted as affected visits and 
 test('week view always exposes Schedule work on every day', async ({ page }) => {
   await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
   await page.getByRole('button', { name: 'Week', exact: true }).click()
-
   const columns = page.locator('.week-column')
   await expect(columns.first()).toBeVisible()
   expect(await columns.count()).toBe(7)
@@ -94,8 +89,6 @@ test('capacity finder tolerates an empty date while the user edits with Backspac
   const originalDate = await dateInput.inputValue()
   expect(originalDate).toMatch(/^\d{4}-\d{2}-\d{2}$/)
 
-  // This reproduces the transient empty value produced while editing a native
-  // date field with Backspace. It must never reach availability calculations.
   await dateInput.fill('')
   await page.waitForTimeout(100)
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
@@ -111,7 +104,7 @@ test('capacity finder tolerates an empty date while the user edits with Backspac
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
 })
 
-test('a rejected occurrence save stays visibly failed instead of looking successful', async ({ page }) => {
+test('rejected occurrence save stays failed and stale error clears when the current team changes', async ({ page }) => {
   await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
   await page.getByRole('button', { name: 'Week', exact: true }).click()
 
@@ -119,16 +112,13 @@ test('a rejected occurrence save stays visibly failed instead of looking success
   await expect(firstVisit).toBeVisible()
   await firstVisit.click()
 
-  const editor = page.getByRole('dialog', { name: /Dispatch action/i })
+  const editor = page.locator('.schedule-edit-sheet')
   await expect(editor).toBeVisible()
 
-  // Remove selected cleaners so the client-side overlap guard cannot prevent
-  // the request. The network response below then exercises the 409 UX itself.
-  const selectedChips = editor.locator('.schedule-team-chips button')
-  while (await selectedChips.count()) await selectedChips.first().click()
-
+  let patchCount = 0
   await page.route('**/api/visits/*', async (route) => {
     if (route.request().method() !== 'PATCH') return route.continue()
+    patchCount += 1
     await route.fulfill({
       status: 409,
       contentType: 'application/json',
@@ -141,13 +131,14 @@ test('a rejected occurrence save stays visibly failed instead of looking success
   })
 
   await editor.getByRole('button', { name: 'Save occurrence', exact: true }).click()
+  await expect(editor.locator('.schedule-edit-error')).toContainText('Aisha Khan is in school during this visit')
+  expect(patchCount).toBe(1)
 
-  const failure = page.getByTestId('visit-save-error')
-  await expect(failure).toBeVisible()
-  await expect(failure).toContainText('Could not save this occurrence')
-  await expect(failure).toContainText('Aisha Khan is in school during this visit')
-  await expect(editor).toBeVisible()
+  await editor.getByRole('button', { name: /Change team/ }).click()
+  const picker = page.getByRole('dialog', { name: 'Assigned cleaning team' })
+  const firstCheckbox = picker.getByRole('checkbox').first()
+  await firstCheckbox.click()
+  await picker.getByRole('button', { name: 'Apply' }).click()
 
-  const legacyToast = page.locator('.toast.success').filter({ hasText: 'Aisha Khan is in school during this visit' })
-  if (await legacyToast.count()) await expect(legacyToast).toBeHidden()
+  await expect(editor.locator('.schedule-edit-error')).toHaveCount(0)
 })
