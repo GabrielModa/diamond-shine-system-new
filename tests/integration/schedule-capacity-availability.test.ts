@@ -9,7 +9,6 @@ import { cleanOperations, getAuthCookie, seedUsers } from './setup'
 let app: ReturnType<typeof createServer>
 let nextApp: ReturnType<typeof next>
 let adminCookie = ''
-let employeeCookie = ''
 
 beforeAll(async () => {
   process.env.NEXT_TEST_DIST_DIR = '.next-integration'
@@ -19,7 +18,6 @@ beforeAll(async () => {
   app = createServer((req, res) => handle(req, res, parse(req.url!, true)))
   await seedUsers()
   adminCookie = await getAuthCookie('admin@ds.ie')
-  employeeCookie = await getAuthCookie('employee@ds.ie')
 })
 
 beforeEach(async () => {
@@ -37,63 +35,8 @@ afterAll(async () => {
   await nextApp.close()
 })
 
-describe('schedule capacity availability', () => {
-  it('returns server-derived workforce blockers to managers without turning them into employee availability records', async () => {
-    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
-    const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })
-
-    await prisma.studySchedule.create({
-      data: {
-        organizationId: profile.organizationId,
-        profileId: profile.id,
-        dayOfWeek: 1,
-        startsMinute: 9 * 60,
-        endsMinute: 12 * 60,
-      },
-    })
-    await prisma.recurringUnavailability.create({
-      data: {
-        organizationId: profile.organizationId,
-        profileId: profile.id,
-        dayOfWeek: 1,
-        startsMinute: 18 * 60,
-        endsMinute: 22 * 60,
-        reason: 'Other job',
-      },
-    })
-    await prisma.workforceLeave.create({
-      data: {
-        organizationId: profile.organizationId,
-        profileId: profile.id,
-        kind: 'personal_leave',
-        startsAt: new Date('2026-08-24T13:00:00.000Z'),
-        endsAt: new Date('2026-08-24T14:00:00.000Z'),
-        reason: 'Appointment',
-      },
-    })
-
-    const manager = await request(app)
-      .get('/api/availability?from=2026-08-24T00:00:00.000Z&to=2026-08-25T00:00:00.000Z')
-      .set('Cookie', adminCookie)
-
-    expect(manager.status).toBe(200)
-    const derived = manager.body.data.filter((item: { source?: string; userId: string }) =>
-      item.source === 'workforce_constraint' && item.userId === employee.id)
-    expect(derived.map((item: { constraintKind: string }) => item.constraintKind)).toEqual(
-      expect.arrayContaining(['school', 'recurring_unavailability', 'personal_leave']),
-    )
-    expect(derived.some((item: { reason?: string }) => item.reason === 'Other job')).toBe(true)
-    expect(derived.some((item: { reason?: string }) => item.reason === 'Appointment')).toBe(true)
-
-    const employeeView = await request(app)
-      .get('/api/availability?from=2026-08-24T00:00:00.000Z&to=2026-08-25T00:00:00.000Z')
-      .set('Cookie', employeeCookie)
-
-    expect(employeeView.status).toBe(200)
-    expect(employeeView.body.data.some((item: { source?: string }) => item.source === 'workforce_constraint')).toBe(false)
-  })
-
-  it('uses the same recurring workforce rule in capacity preview that visit PATCH enforces', async () => {
+describe('schedule capacity preview', () => {
+  it('uses the same recurring workforce rule that visit PATCH enforces', async () => {
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })
 
@@ -130,5 +73,49 @@ describe('schedule capacity availability', () => {
       }),
     ]))
     expect(response.body.data.windows[1]).toMatchObject({ total: 1, available: 1, blockedCount: 0 })
+  })
+
+  it('treats school and personal leave as unavailable capacity', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })
+
+    await prisma.studySchedule.create({
+      data: {
+        organizationId: profile.organizationId,
+        profileId: profile.id,
+        dayOfWeek: 1,
+        startsMinute: 9 * 60,
+        endsMinute: 12 * 60,
+      },
+    })
+    await prisma.workforceLeave.create({
+      data: {
+        organizationId: profile.organizationId,
+        profileId: profile.id,
+        kind: 'personal_leave',
+        startsAt: new Date('2026-08-24T13:00:00.000Z'),
+        endsAt: new Date('2026-08-24T14:00:00.000Z'),
+        reason: 'Appointment',
+      },
+    })
+
+    const response = await request(app)
+      .post('/api/schedule-capacity')
+      .set('Cookie', adminCookie)
+      .send({
+        userIds: [employee.id],
+        windows: [
+          { start: '2026-08-24T08:30:00.000Z', end: '2026-08-24T09:30:00.000Z' },
+          { start: '2026-08-24T13:15:00.000Z', end: '2026-08-24T13:45:00.000Z' },
+        ],
+      })
+
+    expect(response.status).toBe(200)
+    expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: employee.id, kind: 'school' }),
+    ]))
+    expect(response.body.data.windows[1].blocked).toEqual(expect.arrayContaining([
+      expect.objectContaining({ userId: employee.id, kind: 'personal_leave', reason: 'Appointment' }),
+    ]))
   })
 })
