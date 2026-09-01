@@ -88,6 +88,41 @@
   color: #514a8d !important;
 }
 
+/* The health cards are calendar filters, so the calendar adopts the selected
+   operational state instead of keeping the generic green visit treatment. */
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="scheduling"] .schedule-health-stat-main[data-active="true"]) .calendar-visit,
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="scheduling"] .schedule-health-stat-main[data-active="true"]) .visit-card {
+  border-color: #e7bd72 !important;
+  background: #fff8ea !important;
+  color: #7e5418 !important;
+  box-shadow: inset 4px 0 0 #e2a93d, 0 5px 14px rgba(158,105,24,.05) !important;
+}
+
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="conflicts"] .schedule-health-stat-main[data-active="true"]) .calendar-visit,
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="conflicts"] .schedule-health-stat-main[data-active="true"]) .visit-card {
+  border-color: #e3a0a5 !important;
+  background: #fff0f1 !important;
+  color: #9f3038 !important;
+  box-shadow: inset 4px 0 0 #d54853, 0 5px 14px rgba(153,45,54,.06) !important;
+}
+
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="confirmation"] .schedule-health-stat-main[data-active="true"]) .calendar-visit,
+.schedule-page:has(.schedule-health-stat-wrap[data-health-filter="confirmation"] .schedule-health-stat-main[data-active="true"]) .visit-card {
+  border-color: #b4adef !important;
+  background: #f5f3ff !important;
+  color: #5549b8 !important;
+  box-shadow: inset 4px 0 0 #7568db, 0 5px 14px rgba(85,73,184,.05) !important;
+}
+
+/* Save/update feedback must remain visible above the occurrence sheet. */
+.schedule-page > .toast {
+  position: fixed !important;
+  z-index: 1700 !important;
+  top: 18px !important;
+  right: 18px !important;
+  max-width: min(460px, calc(100vw - 36px));
+}
+
 @media (max-width: 700px) {
   .schedule-health-stat-main {
     min-height: 92px !important;
@@ -102,5 +137,12 @@
   .schedule-health-active-filter {
     width: 100%;
     justify-content: space-between;
+  }
+
+  .schedule-page > .toast {
+    left: 12px !important;
+    right: 12px !important;
+    top: 12px !important;
+    max-width: none;
   }
 }
