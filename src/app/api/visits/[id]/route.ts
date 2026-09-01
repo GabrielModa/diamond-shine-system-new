@@ -9,6 +9,13 @@ import { workforceConstraintForWindow } from '../../../../modules/scheduling/wor
 
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
 
+function humanList(values: string[]) {
+  const unique = [...new Set(values.filter(Boolean))]
+  if (unique.length <= 1) return unique[0] ?? 'Selected cleaner'
+  if (unique.length === 2) return `${unique[0]} and ${unique[1]}`
+  return `${unique.slice(0, -1).join(', ')} and ${unique.at(-1)}`
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'schedule.read')
   if ('response' in auth) return auth.response
@@ -49,7 +56,11 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     include: { assignments: true, site: { include: { client: { select: { displayName: true } } } } },
   })
   if (!current) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  if (current.version !== parsed.data.version) return NextResponse.json({ ok: false, error: 'Visit changed. Refresh and try again.' }, { status: 409 })
+  if (current.version !== parsed.data.version) return NextResponse.json({
+    ok: false,
+    error: 'This visit changed since you opened it. Close it, reopen the latest version and try again.',
+    code: 'VISIT_VERSION_CONFLICT',
+  }, { status: 409 })
   if (current.status === 'completed') return NextResponse.json({ ok: false, error: 'Completed visits are immutable. Use the evidence review flow to request rework.', code: 'COMPLETED_VISIT_IMMUTABLE' }, { status: 409 })
 
   const cancelling = parsed.data.status === 'cancelled'
@@ -103,7 +114,14 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         },
         include: {
           user: { select: { name: true, email: true } },
-          visit: { select: { id: true, scheduledStart: true, scheduledEnd: true } },
+          visit: {
+            select: {
+              id: true,
+              scheduledStart: true,
+              scheduledEnd: true,
+              site: { select: { name: true, client: { select: { displayName: true } } } },
+            },
+          },
         },
       }),
       prisma.availability.findMany({
@@ -117,13 +135,26 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         include: { user: { select: { name: true, email: true } } },
       }),
     ])
-    if (conflicts.length) return NextResponse.json({ ok: false, error: 'Scheduling conflict', code: 'ASSIGNEE_OVERLAP', data: conflicts }, { status: 409 })
-    if (availability.length) return NextResponse.json({
-      ok: false,
-      error: 'An assignee is unavailable at this time.',
-      code: 'ASSIGNEE_UNAVAILABLE',
-      data: availability.map((entry) => ({ user: entry.user.name ?? entry.user.email, startsAt: entry.startsAt, endsAt: entry.endsAt, reason: entry.reason })),
-    }, { status: 409 })
+    if (conflicts.length) {
+      const names = humanList(conflicts.map((entry) => entry.user.name ?? entry.user.email))
+      const first = conflicts[0]
+      return NextResponse.json({
+        ok: false,
+        error: `${names} already ${conflicts.length === 1 ? 'has' : 'have'} overlapping work${first ? ` at ${first.visit.site.client.displayName} · ${first.visit.site.name}` : ''}. Choose another cleaner or change the time.`,
+        code: 'ASSIGNEE_OVERLAP',
+        data: conflicts,
+      }, { status: 409 })
+    }
+    if (availability.length) {
+      const names = humanList(availability.map((entry) => entry.user.name ?? entry.user.email))
+      const reason = availability.find((entry) => entry.reason)?.reason
+      return NextResponse.json({
+        ok: false,
+        error: `${names} ${availability.length === 1 ? 'is' : 'are'} unavailable during this visit${reason ? ` · ${reason}` : ''}. Choose another cleaner or change the time.`,
+        code: 'ASSIGNEE_UNAVAILABLE',
+        data: availability.map((entry) => ({ user: entry.user.name ?? entry.user.email, startsAt: entry.startsAt, endsAt: entry.endsAt, reason: entry.reason })),
+      }, { status: 409 })
+    }
 
     const workforceConflicts = members.flatMap((membership) => {
       const profile = membership.user.workforceProfile
@@ -138,14 +169,19 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       } : null, start, end, current.timezone)
       return conflict ? [{ userId: membership.user.id, user: membership.user.name ?? membership.user.email, ...conflict }] : []
     })
-    if (workforceConflicts.length) return NextResponse.json({
-      ok: false,
-      error: workforceConflicts.some((item) => item.kind === 'personal_leave')
-        ? 'An assignee is on personal leave at this time.'
-        : 'An assignee is in school at this time.',
-      code: 'ASSIGNEE_WORKFORCE_CONSTRAINT',
-      data: workforceConflicts,
-    }, { status: 409 })
+    if (workforceConflicts.length) {
+      const leaveConflicts = workforceConflicts.filter((item) => item.kind === 'personal_leave')
+      const schoolConflicts = workforceConflicts.filter((item) => item.kind !== 'personal_leave')
+      const error = leaveConflicts.length
+        ? `${humanList(leaveConflicts.map((item) => item.user))} ${leaveConflicts.length === 1 ? 'is' : 'are'} on leave during this visit. Choose another cleaner or change the time.`
+        : `${humanList(schoolConflicts.map((item) => item.user))} ${schoolConflicts.length === 1 ? 'is' : 'are'} in school during this visit. Choose another cleaner or change the time.`
+      return NextResponse.json({
+        ok: false,
+        error,
+        code: 'ASSIGNEE_WORKFORCE_CONSTRAINT',
+        data: workforceConflicts,
+      }, { status: 409 })
+    }
   }
 
   const updated = await prisma.$transaction(async (tx) => {
