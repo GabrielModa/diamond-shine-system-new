@@ -4,6 +4,8 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import DetailDialog from '../ui/DetailDialog'
 import OpsIcon from '../ui/OpsIcon'
+import StandardSelect from '../ui/StandardSelect'
+import GooglePlaceAutocomplete, { type PlaceSelection } from '../workforce/GooglePlaceAutocomplete'
 import { localDateTimeToUtc } from '../../modules/scheduling/recurrence'
 import './ClientsWorkspace.css'
 
@@ -78,10 +80,29 @@ type ServiceDraft = {
   instructions: string
 }
 type ChangeTarget = { site: Site; plan: ServicePlan } | null
+type ClientPlaceSelection = PlaceSelection & {
+  addressLine1: string
+  city: string | null
+  region: string | null
+  postalCode: string | null
+  countryCode: string | null
+}
 
 const WEEKDAYS = [
   { value: 1, short: 'Mon' }, { value: 2, short: 'Tue' }, { value: 3, short: 'Wed' },
   { value: 4, short: 'Thu' }, { value: 5, short: 'Fri' }, { value: 6, short: 'Sat' }, { value: 0, short: 'Sun' },
+]
+const CLIENT_TYPE_OPTIONS = [
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'residential', label: 'Residential' },
+  { value: 'public_sector', label: 'Public sector' },
+  { value: 'internal', label: 'Internal' },
+]
+const FREQUENCY_OPTIONS = [
+  { value: 'weekly', label: 'Every week' },
+  { value: 'fortnightly', label: 'Every 2 weeks' },
+  { value: 'daily', label: 'Every day' },
+  { value: 'once', label: 'One-off' },
 ]
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
@@ -167,6 +188,10 @@ function newServiceDraft(siteId = ''): ServiceDraft {
   }
 }
 
+function emptyLocationDraft() {
+  return { name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' }
+}
+
 export default function ClientAccountWorkspace({ canManageClients, canConfigureService }: { canManageClients: boolean; canConfigureService: boolean }) {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
@@ -180,7 +205,9 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   const [changeOpen, setChangeOpen] = useState(false)
   const [changeTarget, setChangeTarget] = useState<ChangeTarget>(null)
   const [setupHandled, setSetupHandled] = useState(false)
-  const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
+  const [locationDraft, setLocationDraft] = useState(emptyLocationDraft)
+  const [addressQuery, setAddressQuery] = useState('')
+  const [selectedPlace, setSelectedPlace] = useState<ClientPlaceSelection | null>(null)
   const [profileDraft, setProfileDraft] = useState({ displayName: '', legalName: '', type: 'commercial', billingEmail: '', phone: '' })
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(() => newServiceDraft())
   const [changeDraft, setChangeDraft] = useState<ServiceDraft>(() => ({ ...newServiceDraft(), startDate: localDateInput(1) }))
@@ -226,9 +253,27 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     }))
   }
 
+  function selectLocationAddress(place: PlaceSelection) {
+    const resolved = place as ClientPlaceSelection
+    setSelectedPlace(resolved)
+    setAddressQuery(resolved.formattedAddress)
+    setLocationDraft((current) => ({
+      ...current,
+      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || current.addressLine1,
+      city: resolved.city || current.city,
+      region: resolved.region || '',
+      postalCode: resolved.postalCode || current.postalCode,
+      countryCode: resolved.countryCode || 'IE',
+    }))
+  }
+
   async function addLocation(event: FormEvent) {
     event.preventDefault()
     if (!client) return
+    if (!selectedPlace) {
+      setNotice({ kind: 'error', text: 'Choose the service address from the Google Maps suggestions so routing and geofence checks use a verified location.' })
+      return
+    }
     setBusy(true)
     try {
       const site = await api<{ id: string }>('/api/sites', {
@@ -238,8 +283,12 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
           addressLine1: locationDraft.addressLine1,
           addressLine2: locationDraft.addressLine2 || null,
           city: locationDraft.city,
+          region: locationDraft.region || null,
           postalCode: locationDraft.postalCode,
-          countryCode: 'IE', timezone: 'Europe/Dublin',
+          countryCode: locationDraft.countryCode || 'IE', timezone: 'Europe/Dublin',
+          latitude: selectedPlace.latitude,
+          longitude: selectedPlace.longitude,
+          coordinateSource: 'geocoded',
           geofenceVerifiedM: 150, geofenceNearM: 250, geofenceSuspiciousM: 700,
           access: { entryInstructions: locationDraft.entryInstructions || null },
           areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
@@ -247,9 +296,11 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
         }),
       })
       setLocationOpen(false)
-      setLocationDraft({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
+      setLocationDraft(emptyLocationDraft())
+      setAddressQuery('')
+      setSelectedPlace(null)
       setServiceDraft(newServiceDraft(site.id))
-      setNotice({ kind: 'success', text: 'Location added. The account is ready for service setup.' })
+      setNotice({ kind: 'success', text: 'Verified location added. The account is ready for service setup.' })
       await refresh()
       if (canConfigureService) setServiceOpen(true)
     } catch (error) {
@@ -462,7 +513,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <form className="client-dialog-form" onSubmit={saveProfile}>
         <label>Client name<input required value={profileDraft.displayName} onChange={(event) => setProfileDraft({ ...profileDraft, displayName: event.target.value })} /></label>
         <label>Legal name <small>Optional</small><input value={profileDraft.legalName} onChange={(event) => setProfileDraft({ ...profileDraft, legalName: event.target.value })} /></label>
-        <label>Client type<select value={profileDraft.type} onChange={(event) => setProfileDraft({ ...profileDraft, type: event.target.value })}><option value="commercial">Commercial</option><option value="residential">Residential</option><option value="public_sector">Public sector</option><option value="internal">Internal</option></select></label>
+        <div className="client-form-field"><span>Client type</span><StandardSelect value={profileDraft.type} onChange={(value) => setProfileDraft({ ...profileDraft, type: value })} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div>
         <div className="client-form-pair"><label>Billing email<input type="email" value={profileDraft.billingEmail} onChange={(event) => setProfileDraft({ ...profileDraft, billingEmail: event.target.value })} /></label><label>Phone<input value={profileDraft.phone} onChange={(event) => setProfileDraft({ ...profileDraft, phone: event.target.value })} /></label></div>
         <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setProfileOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save changes</button></div>
       </form>
@@ -471,21 +522,33 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     <DetailDialog open={locationOpen} title="Add service location" eyebrow="Where we clean" onClose={() => setLocationOpen(false)}>
       <form className="client-dialog-form" onSubmit={addLocation}>
         <label>Location name <small>{client.type === 'residential' ? 'Example: Home' : 'Example: Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={client.type === 'residential' ? 'Home' : 'Site name'} /></label>
-        <label>Address<input required value={locationDraft.addressLine1} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine1: event.target.value })} /></label>
+        <GooglePlaceAutocomplete
+          kind="home"
+          label="Service address"
+          value={addressQuery}
+          placeholder="Start typing an address or Eircode…"
+          selected={selectedPlace}
+          onValueChange={(value) => {
+            setAddressQuery(value)
+            if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
+          }}
+          onSelect={selectLocationAddress}
+          helpText="Choose the Google Maps result. Its coordinates are saved for routing and geofence checks."
+        />
         <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} /></label>
-        <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
+        <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
         <label>Entry notes <small>Optional · door, reception, keys</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} /></label>
-        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setLocationOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save location</button></div>
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setLocationOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save verified location</button></div>
       </form>
     </DetailDialog>
 
     <DetailDialog open={serviceOpen} title="Set up cleaning service" eyebrow="Simple service setup" onClose={() => setServiceOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={activateService}>
         <div className="client-setup-note"><OpsIcon name="check" /><div><strong>One setup, one atomic operation</strong><span>Contract, service version, recurrence and future visits are created together. If setup fails, no partial service is left behind.</span></div></div>
-        <label>Location<select required value={serviceDraft.siteId} onChange={(event) => setServiceDraft({ ...serviceDraft, siteId: event.target.value })}>{client.sites.map((site) => <option key={site.id} value={site.id}>{site.name} · {site.city}</option>)}</select></label>
+        <div className="client-form-field"><span>Location</span><StandardSelect searchable={client.sites.length > 8} value={serviceDraft.siteId} onChange={(value) => setServiceDraft({ ...serviceDraft, siteId: value })} ariaLabel="Service location" placeholder="Select location" searchPlaceholder="Search location…" options={client.sites.map((site) => ({ value: site.id, label: site.name, description: `${site.city} · ${site.postalCode}` }))} /></div>
         <label>Service name<input required value={serviceDraft.serviceName} onChange={(event) => setServiceDraft({ ...serviceDraft, serviceName: event.target.value })} /></label>
         <div className="client-form-pair"><label>Service starts<input required type="date" value={serviceDraft.startDate} onChange={(event) => setServiceDraft({ ...serviceDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={serviceDraft.startDate} value={serviceDraft.endDate} onChange={(event) => setServiceDraft({ ...serviceDraft, endDate: event.target.value })} /></label></div>
-        <div className="client-form-pair"><label>Frequency<select value={serviceDraft.frequency} onChange={(event) => setServiceDraft({ ...serviceDraft, frequency: event.target.value as Frequency })}><option value="weekly">Every week</option><option value="fortnightly">Every 2 weeks</option><option value="daily">Every day</option><option value="once">One-off</option></select></label><label>Preferred time<input required type="time" value={serviceDraft.time} onChange={(event) => setServiceDraft({ ...serviceDraft, time: event.target.value })} /></label></div>
+        <div className="client-form-pair"><div className="client-form-field"><span>Frequency</span><StandardSelect value={serviceDraft.frequency} onChange={(value) => setServiceDraft({ ...serviceDraft, frequency: value as Frequency })} ariaLabel="Service frequency" options={FREQUENCY_OPTIONS} /></div><label>Preferred time<input required type="time" value={serviceDraft.time} onChange={(event) => setServiceDraft({ ...serviceDraft, time: event.target.value })} /></label></div>
         {(serviceDraft.frequency === 'weekly' || serviceDraft.frequency === 'fortnightly') ? <fieldset className="client-weekdays"><legend>Service days</legend><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} className={serviceDraft.weekdays.includes(day.value) ? 'selected' : ''} onClick={() => toggleWeekday(day.value, 'new')}>{day.short}</button>)}</div></fieldset> : null}
         <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={serviceDraft.requiredWorkers} onChange={(event) => setServiceDraft({ ...serviceDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={serviceDraft.durationMinutes} onChange={(event) => setServiceDraft({ ...serviceDraft, durationMinutes: Number(event.target.value) })} /></label></div>
         <label>Cleaning instructions <small>One task per line. Keep this practical for the cleaner.</small><textarea required rows={7} value={serviceDraft.instructions} onChange={(event) => setServiceDraft({ ...serviceDraft, instructions: event.target.value })} /></label>
@@ -498,7 +561,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
         <div className="client-change-note"><OpsIcon name="calendar" /><div><strong>Past work stays exactly as recorded</strong><span>The current service remains valid until the effective date. Only future planned visits from that point are replaced.</span></div></div>
         <div className="client-change-current"><span>Current service</span><strong>{changeTarget?.plan.name ?? ''}</strong><small>{changeTarget?.site.name ?? ''} · version {changeTarget?.plan.versions[0]?.versionNumber ?? '—'}</small></div>
         <div className="client-form-pair"><label>Effective from<input required type="date" min={localDateInput()} value={changeDraft.startDate} onChange={(event) => setChangeDraft({ ...changeDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={changeDraft.startDate} value={changeDraft.endDate} onChange={(event) => setChangeDraft({ ...changeDraft, endDate: event.target.value })} /></label></div>
-        <div className="client-form-pair"><label>Frequency<select value={changeDraft.frequency} onChange={(event) => setChangeDraft({ ...changeDraft, frequency: event.target.value as Frequency })}><option value="weekly">Every week</option><option value="fortnightly">Every 2 weeks</option><option value="daily">Every day</option><option value="once">One-off</option></select></label><label>Preferred time<input required type="time" value={changeDraft.time} onChange={(event) => setChangeDraft({ ...changeDraft, time: event.target.value })} /></label></div>
+        <div className="client-form-pair"><div className="client-form-field"><span>Frequency</span><StandardSelect value={changeDraft.frequency} onChange={(value) => setChangeDraft({ ...changeDraft, frequency: value as Frequency })} ariaLabel="Service frequency" options={FREQUENCY_OPTIONS} /></div><label>Preferred time<input required type="time" value={changeDraft.time} onChange={(event) => setChangeDraft({ ...changeDraft, time: event.target.value })} /></label></div>
         {(changeDraft.frequency === 'weekly' || changeDraft.frequency === 'fortnightly') ? <fieldset className="client-weekdays"><legend>Service days</legend><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} className={changeDraft.weekdays.includes(day.value) ? 'selected' : ''} onClick={() => toggleWeekday(day.value, 'change')}>{day.short}</button>)}</div></fieldset> : null}
         <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={changeDraft.requiredWorkers} onChange={(event) => setChangeDraft({ ...changeDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={changeDraft.durationMinutes} onChange={(event) => setChangeDraft({ ...changeDraft, durationMinutes: Number(event.target.value) })} /></label></div>
         <label>Cleaning instructions <small>One task per line. These become the new service version.</small><textarea required rows={7} value={changeDraft.instructions} onChange={(event) => setChangeDraft({ ...changeDraft, instructions: event.target.value })} /></label>
