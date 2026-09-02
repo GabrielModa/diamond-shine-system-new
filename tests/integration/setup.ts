@@ -1,4 +1,5 @@
 import { prisma } from '../../src/lib/prisma'
+import { assertIntegrationDatabaseSafe } from './database-safety'
 import bcrypt from 'bcryptjs'
 import { createSessionToken } from '../../src/lib/session'
 import {
@@ -9,23 +10,7 @@ import {
 
 export const TEST_PASSWORD = 'password123'
 
-function assertIntegrationDatabaseSafe() {
-  if (process.env.CI === 'true' || process.env.ALLOW_INTEGRATION_DB_RESET === 'true') return
-  const raw = process.env.DATABASE_URL ?? ''
-  let fingerprint = raw.toLowerCase()
-  try {
-    const parsed = new URL(raw)
-    fingerprint = `${parsed.pathname} ${parsed.searchParams.get('schema') ?? ''}`.toLowerCase()
-  } catch {
-    // Keep the raw value. An invalid/empty URL must fail closed below.
-  }
-  if (/(^|[^a-z])(test|tests|testing|integration|ci)([^a-z]|$)/i.test(fingerprint)) return
-  throw new Error(
-    'Refusing destructive integration-test cleanup on the current DATABASE_URL. ' +
-    'Use a dedicated database/schema whose name contains "test" or "integration", ' +
-    'or explicitly set ALLOW_INTEGRATION_DB_RESET=true only when destroying that database is intentional.',
-  )
-}
+export { assertIntegrationDatabaseSafe } from './database-safety'
 
 export async function seedUsers() {
   assertIntegrationDatabaseSafe()

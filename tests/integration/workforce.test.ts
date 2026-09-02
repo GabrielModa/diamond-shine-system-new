@@ -1,3 +1,4 @@
+import { assertIntegrationDatabaseSafe } from './database-safety'
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
@@ -21,6 +22,7 @@ function dublinDateKey(date = new Date()) {
 }
 
 async function resetWorkforceFixtures() {
+  assertIntegrationDatabaseSafe()
   await prisma.workforceLeave.deleteMany()
   await prisma.studySchedule.deleteMany()
   await prisma.workforceProfile.deleteMany()
@@ -114,6 +116,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
+  assertIntegrationDatabaseSafe()
   await resetWorkforceFixtures()
 })
 
