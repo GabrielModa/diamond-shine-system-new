@@ -13,6 +13,16 @@ import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Coordinates = { latitude: number; longitude: number; accuracyM?: number | null };
+type LocationAssessment = {
+  classification: 'verified' | 'near' | 'suspicious' | 'unavailable';
+  distanceM: number | null;
+  accuracyM: number | null;
+  risk: 'verified' | 'watch' | 'review';
+  reviewRequired: boolean;
+  reason: string | null;
+};
+type StartVisitResult = { location?: LocationAssessment | null };
+type StopVisitResult = { location?: LocationAssessment | null };
 const ACTIVE_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged']);
 
 export default function VisitScreen() {
@@ -100,8 +110,8 @@ export default function VisitScreen() {
       };
       if (!(await networkConnected())) return saveOffline();
       try {
-        await apiFetch(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(payload) });
-        setMessage(locationMessage(visit, location));
+        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(payload) });
+        setMessage(locationMessage('Timer started', result.location));
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -139,10 +149,10 @@ export default function VisitScreen() {
       if (!(await networkConnected())) return saveOffline();
       try {
         if (!activeEntry) return saveOffline();
-        await apiFetch(session, `/api/time-entries/${activeEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
+        const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${activeEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage('Timer stopped and saved.');
+        setMessage(locationMessage('Timer stopped', result.location));
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -252,14 +262,14 @@ export default function VisitScreen() {
   </Screen>;
 }
 
-function locationMessage(visit: Visit, location: Coordinates | null) {
-  if (!location || visit.site.latitude == null || visit.site.longitude == null) return 'Timer started. GPS was unavailable and was flagged for review.';
-  const meters = distanceM(location, { latitude: visit.site.latitude, longitude: visit.site.longitude });
-  if (meters <= (visit.site.geofenceVerifiedM ?? 150)) return `Timer started · location verified (${Math.round(meters)} m).`;
-  if (meters <= (visit.site.geofenceNearM ?? 250)) return `Timer started · near the site (${Math.round(meters)} m).`;
-  return `Timer started · ${Math.round(meters)} m from site and flagged for manager review.`;
+function locationMessage(action: 'Timer started' | 'Timer stopped', assessment?: LocationAssessment | null) {
+  if (!assessment || assessment.classification === 'unavailable') return `${action}. GPS could not verify the site and the record will need review.`;
+  const distance = assessment.distanceM == null ? 'distance unavailable' : `${assessment.distanceM}m from site`;
+  const accuracy = assessment.accuracyM == null ? 'GPS accuracy unknown' : `GPS ±${assessment.accuracyM}m`;
+  if (assessment.risk === 'verified') return `${action} · location verified (${distance} · ${accuracy}).`;
+  if (assessment.risk === 'watch') return `${action} · location watch (${distance} · ${accuracy}). No manager review required unless a reliable pattern repeats.`;
+  return `${action} · location needs review (${distance} · ${accuracy}).`;
 }
-function distanceM(a: Coordinates, b: Coordinates) { const radius = 6371000; const lat1 = a.latitude * Math.PI / 180; const lat2 = b.latitude * Math.PI / 180; const dLat = (b.latitude - a.latitude) * Math.PI / 180; const dLon = (b.longitude - a.longitude) * Math.PI / 180; const value = Math.sin(dLat / 2) ** 2 + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLon / 2) ** 2; return radius * 2 * Math.atan2(Math.sqrt(value), Math.sqrt(1 - value)); }
 
 const styles = StyleSheet.create({
   hero: { gap: 8, padding: 18, borderRadius: 20, backgroundColor: colors.ink }, statusRow: { flexDirection: 'row', justifyContent: 'space-between' }, status: { color: '#8DE1BE', fontSize: 11, fontWeight: '900', textTransform: 'uppercase' }, time: { color: '#D9E2EC', fontWeight: '700' }, client: { color: '#fff', fontSize: 27, lineHeight: 32, fontWeight: '900' }, job: { color: '#D9E2EC', fontSize: 15, fontWeight: '700' }, address: { color: '#B7C7D7', lineHeight: 20 },
