@@ -10,9 +10,20 @@ export type ResolvedPlace = {
   placeId: string
   displayName: string | null
   formattedAddress: string
+  addressLine1: string
+  city: string | null
+  region: string | null
+  postalCode: string | null
+  countryCode: string | null
   latitude: number
   longitude: number
   types: string[]
+}
+
+type AddressComponent = {
+  longText?: string
+  shortText?: string
+  types?: string[]
 }
 
 type AutocompleteResponse = {
@@ -35,6 +46,7 @@ type PlaceDetailsResponse = {
   displayName?: { text?: string }
   formattedAddress?: string
   location?: { latitude?: number; longitude?: number }
+  addressComponents?: AddressComponent[]
   types?: string[]
   error?: { message?: string }
 }
@@ -71,6 +83,32 @@ function key() {
     503,
   )
   return apiKey
+}
+
+function addressComponent(components: AddressComponent[] | undefined, ...types: string[]) {
+  const match = components?.find((component) => types.some((type) => component.types?.includes(type)))
+  return match?.longText?.trim() || null
+}
+
+function addressComponentShort(components: AddressComponent[] | undefined, ...types: string[]) {
+  const match = components?.find((component) => types.some((type) => component.types?.includes(type)))
+  return match?.shortText?.trim() || null
+}
+
+function structuredAddress(payload: PlaceDetailsResponse, formattedAddress: string) {
+  const components = payload.addressComponents
+  const streetNumber = addressComponent(components, 'street_number')
+  const route = addressComponent(components, 'route')
+  const premise = addressComponent(components, 'premise', 'subpremise')
+  const firstFormattedPart = formattedAddress.split(',')[0]?.trim() || formattedAddress
+  const addressLine1 = [streetNumber, route].filter(Boolean).join(' ').trim() || premise || firstFormattedPart
+  return {
+    addressLine1,
+    city: addressComponent(components, 'postal_town', 'locality') || addressComponent(components, 'administrative_area_level_2'),
+    region: addressComponent(components, 'administrative_area_level_1'),
+    postalCode: addressComponent(components, 'postal_code'),
+    countryCode: addressComponentShort(components, 'country')?.toUpperCase() || null,
+  }
 }
 
 export async function autocompleteGooglePlaces(
@@ -159,6 +197,11 @@ export async function resolveGooglePlace(
       placeId,
       displayName: kind === 'school' ? 'Test College' : null,
       formattedAddress: kind === 'school' ? 'Test College, Dublin, Ireland' : '10 Test Street, Dublin 8, Ireland',
+      addressLine1: kind === 'school' ? 'Test College' : '10 Test Street',
+      city: 'Dublin',
+      region: 'Dublin',
+      postalCode: 'D08 TEST',
+      countryCode: 'IE',
       latitude: 53.3478,
       longitude: -6.2597,
       types: kind === 'school' ? ['school', 'establishment'] : ['street_address'],
@@ -177,8 +220,8 @@ export async function resolveGooglePlace(
         'Content-Type': 'application/json',
         'X-Goog-Api-Key': key(),
         'X-Goog-FieldMask': kind === 'school'
-          ? 'id,displayName,formattedAddress,location,types'
-          : 'id,formattedAddress,location,types',
+          ? 'id,displayName,formattedAddress,addressComponents,location,types'
+          : 'id,formattedAddress,addressComponents,location,types',
       },
       cache: 'no-store',
     })
@@ -212,10 +255,12 @@ export async function resolveGooglePlace(
     throw new GooglePlacesError('Choose a school, college or university from the Google Maps suggestions.', 422)
   }
 
+  const address = structuredAddress(payload, formattedAddress)
   return {
     placeId: payload.id,
     displayName: payload.displayName?.text?.trim() || null,
     formattedAddress,
+    ...address,
     latitude,
     longitude,
     types,
