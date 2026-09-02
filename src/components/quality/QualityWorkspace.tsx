@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import StandardSelect from '../ui/StandardSelect'
 
 type Site = { id: string; name: string; client: { displayName: string } }
 type Visit = { id: string; scheduledStart: string; status: string; job: { name: string } }
@@ -254,9 +255,9 @@ export default function QualityWorkspace() {
         <article className="card quality-inspection-form">
           <div className="quality-form-head"><div><h2>Outcome inspection</h2><p className="muted">Issue requires a finding; failed checks create tracked actions.</p></div><div className={`quality-score large ${complete ? (score >= 80 ? 'pass' : 'fail') : ''}`}>{complete ? score : '—'}</div></div>
           <div className="quality-meta-grid">
-            <label>Client site<select value={siteId} onChange={(event) => setSiteId(event.target.value)}><option value="">Select site</option>{sites.map((site) => <option key={site.id} value={site.id}>{site.client.displayName} · {site.name}</option>)}</select></label>
-            <label>Related visit<select value={visitId} onChange={(event) => setVisitId(event.target.value)}><option value="">Site inspection (no visit)</option>{visits.map((visit) => <option key={visit.id} value={visit.id}>{formatDate(visit.scheduledStart)} · {visit.job.name}</option>)}</select></label>
-            <label>Inspection type<select value={inspectionType} onChange={(event) => setInspectionType(event.target.value)}><option value="routine">Routine</option><option value="spot_check">Spot check</option><option value="post_incident">Post incident</option><option value="client_complaint">Client complaint</option><option value="handover">Handover</option></select></label>
+            <div className="quality-select-field"><span>Client site</span><StandardSelect searchable value={siteId} onChange={setSiteId} ariaLabel="Client site" placeholder="Select site" searchPlaceholder="Search client or site…" options={sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))} /></div>
+            <div className="quality-select-field"><span>Related visit</span><StandardSelect searchable={visits.length > 8} value={visitId} onChange={setVisitId} ariaLabel="Related visit" options={[{ value: '', label: 'Site inspection', description: 'No related visit' }, ...visits.map((visit) => ({ value: visit.id, label: visit.job.name, description: formatDate(visit.scheduledStart) }))]} /></div>
+            <div className="quality-select-field"><span>Inspection type</span><StandardSelect value={inspectionType} onChange={setInspectionType} ariaLabel="Inspection type" options={[{ value: 'routine', label: 'Routine' }, { value: 'spot_check', label: 'Spot check' }, { value: 'post_incident', label: 'Post incident' }, { value: 'client_complaint', label: 'Client complaint' }, { value: 'handover', label: 'Handover' }]} /></div>
             <label className="quality-client-toggle"><input type="checkbox" checked={clientVisible} onChange={(event) => setClientVisible(event.target.checked)} /> Client-safe report</label>
           </div>
           {groupedChecks.map(([category, entries]) => <fieldset className="quality-check-group" key={category}><legend>{category}</legend>{entries.map(({ check, index }) => <div className={`quality-check ${check.result === 'fail' ? 'has-finding' : ''}`} key={check.title}>
