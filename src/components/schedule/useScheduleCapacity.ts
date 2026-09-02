@@ -42,6 +42,8 @@ export function useScheduleCapacity(
   finder: FinderState,
   team: ScheduleTeamMember[],
   timezone: string,
+  revision = 0,
+  enabled = true,
 ) {
   const requestedWindows = useMemo(() => {
     if (!/^\d{4}-\d{2}-\d{2}$/.test(finder.date)) return []
@@ -52,13 +54,13 @@ export function useScheduleCapacity(
     })
   }, [finder.date, finder.durationMinutes, timezone])
 
-  const [state, setState] = useState<{ key: string; slots: SuggestedTime[] }>({ key: '', slots: [] })
+  const [state, setState] = useState<{ key: string; slots: SuggestedTime[]; error: string }>({ key: '', slots: [], error: '' })
   const selectedIds = finder.assigneeIds.length ? finder.assigneeIds : team.map((member) => member.id)
-  const requestKey = `${requestedWindows.map((window) => window.start.toISOString()).join(',')}|${finder.durationMinutes}|${selectedIds.join(',')}`
+  const requestKey = `${requestedWindows.map((window) => window.start.toISOString()).join(',')}|${finder.durationMinutes}|${selectedIds.join(',')}|${revision}|${enabled}`
 
   useEffect(() => {
-    if (!requestedWindows.length) {
-      setState({ key: requestKey, slots: [] })
+    if (!enabled || !requestedWindows.length) {
+      setState({ key: requestKey, slots: [], error: '' })
       return
     }
     const controller = new AbortController()
@@ -74,6 +76,7 @@ export function useScheduleCapacity(
       if (controller.signal.aborted) return
       setState({
         key: requestKey,
+        error: '',
         slots: result.windows.map((window) => ({
           start: new Date(window.start),
           end: new Date(window.end),
@@ -83,11 +86,11 @@ export function useScheduleCapacity(
           blockerLabel: blockerLabel(window),
         })),
       })
-    }).catch(() => {
-      if (!controller.signal.aborted) setState({ key: requestKey, slots: [] })
+    }).catch((cause) => {
+      if (!controller.signal.aborted) setState({ key: requestKey, slots: [], error: cause instanceof Error ? cause.message : 'Could not check availability. Try again.' })
     })
     return () => controller.abort()
-  }, [finder.assigneeIds, requestKey, requestedWindows])
+  }, [enabled, finder.assigneeIds, requestKey, requestedWindows])
 
-  return state.key === requestKey ? state.slots : []
+  return { slots: state.key === requestKey ? state.slots : [], error: state.key === requestKey ? state.error : '', loading: enabled && requestedWindows.length > 0 && state.key !== requestKey }
 }

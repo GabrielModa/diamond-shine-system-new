@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { scopeScheduleHealthToEmployee } from '../../src/modules/scheduling/schedule-health-scope'
+import { scopeScheduleHealthToEmployee, scopeScheduleHealthToUnassigned } from '../../src/modules/scheduling/schedule-health-scope'
 import type { ScheduleHealthResult } from '../../src/modules/scheduling/schedule-health'
 
 function baseResult(): ScheduleHealthResult {
@@ -34,6 +34,11 @@ function baseResult(): ScheduleHealthResult {
 }
 
 describe('employee schedule health scope', () => {
+  it('unassigned scope excludes employee conflicts and global missing schedules', () => {
+    const scoped = scopeScheduleHealthToUnassigned(baseResult())
+    expect(scoped.items.map((item) => item.id)).toEqual(['coverage:c'])
+    expect(scoped.summary).toMatchObject({ visits: 1, unassigned: 1, conflicts: 0, missingSchedule: 0, unacknowledged: 0 })
+  })
   it('keeps only problems and coverage that belong to the selected employee', () => {
     const scoped = scopeScheduleHealthToEmployee(baseResult(), {
       employeeId: 'employee-1',

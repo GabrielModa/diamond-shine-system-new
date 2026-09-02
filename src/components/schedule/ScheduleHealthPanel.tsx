@@ -46,7 +46,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ScheduleHealthPanel({
-  from, to, timezone, canManage, closeSignal, refreshSignal, onChanged, onFocusChange, onOpenVisit, onOpenServicePlan,
+  from, to, timezone, canManage, closeSignal, refreshSignal, teamScope, focus, onChanged, onFocusChange, onOpenVisit, onOpenServicePlan,
 }: {
   from: string
   to: string
@@ -54,13 +54,20 @@ export default function ScheduleHealthPanel({
   canManage: boolean
   closeSignal: number
   refreshSignal: number
+  teamScope: string
+  focus: 'scheduling' | 'conflicts' | 'confirmation' | null
   onChanged: () => Promise<void> | void
   onFocusChange: (focus: 'scheduling' | 'conflicts' | 'confirmation' | null) => void
   onOpenVisit: (visitId: string) => void
   onOpenServicePlan: (servicePlanId: string) => void
 }) {
-  const [data, setData] = useState<Result | null>(null)
-  const [filter, setFilter] = useState<Filter>('problems')
+  const requestKey = `${from}|${to}|${teamScope}|${refreshSignal}`
+  const [response, setResponse] = useState<{ key: string; data: Result } | null>(null)
+  const data = response?.key === requestKey ? response.data : null
+  const filter: Filter = focus ?? 'problems'
+  const requestRef = useRef<AbortController | null>(null)
+  const contextRef = useRef(requestKey)
+  contextRef.current = requestKey
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState('')
@@ -75,12 +82,22 @@ export default function ScheduleHealthPanel({
   const returnFocusRef = useRef<HTMLElement | null>(null)
 
   const refresh = useCallback(async () => {
+    if (contextRef.current !== requestKey) return
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
     setLoading(true); setError('')
-    try { setData(await api<Result>(`/api/schedule-health?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load schedule health.') }
-    finally { setLoading(false) }
-  }, [from, to])
-  useEffect(() => { void refresh() }, [refresh, refreshSignal])
+    const query = new URLSearchParams({ from, to })
+    if (teamScope === 'unassigned') query.set('unassigned', 'true')
+    else if (teamScope !== 'all') query.set('employeeId', teamScope)
+    try {
+      const result = await api<Result>(`/api/schedule-health?${query}`, { signal: controller.signal })
+      if (!controller.signal.aborted && contextRef.current === requestKey) setResponse({ key: requestKey, data: result })
+    }
+    catch (cause) { if (!controller.signal.aborted) { setResponse(null); setError(cause instanceof Error ? cause.message : 'Could not load schedule health.') } }
+    finally { if (!controller.signal.aborted) setLoading(false) }
+  }, [from, to, teamScope, requestKey])
+  useEffect(() => { void refresh(); return () => requestRef.current?.abort() }, [refresh])
   useEffect(() => { setDrawerOpen(false) }, [closeSignal])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -109,11 +126,8 @@ export default function ScheduleHealthPanel({
   }, [drawerOpen])
 
   const visible = useMemo(() => (data?.items ?? []).filter((item) => {
-    if (filter === 'all') return true
     if (filter === 'problems') return PROBLEM_STATES.has(item.state)
-    if (filter === 'covered') return item.state === 'covered'
     if (filter === 'scheduling') return SCHEDULING_STATES.has(item.state)
-    if (filter === 'paused') return item.state === 'service_paused'
     if (filter === 'conflicts') return item.state === 'cleaner_overlap'
     return item.state === 'acknowledgement_pending'
   }), [data?.items, filter])
@@ -212,26 +226,23 @@ export default function ScheduleHealthPanel({
     { label: 'Conflicts', value: summary.conflicts, filter: 'conflicts' as Filter },
     { label: 'Awaiting confirmation', value: summary.unacknowledged, filter: 'confirmation' as Filter },
   ] : []
-  const drawerTitle = filter === 'scheduling' ? 'Needs scheduling' : filter === 'conflicts' ? 'Conflicts' : filter === 'confirmation' ? 'Awaiting confirmation' : filter === 'paused' ? 'Paused services' : filter === 'covered' ? 'Covered visits' : 'Schedule issues'
+  const drawerTitle = filter === 'scheduling' ? 'Needs scheduling' : filter === 'conflicts' ? 'Conflicts' : filter === 'confirmation' ? 'Awaiting confirmation' : 'Schedule issues'
   const activeStat = stats.find((stat) => stat.filter === filter)
   const healthFocus = (next: Filter) => next === 'scheduling' || next === 'conflicts' || next === 'confirmation' ? next : null
 
   const selectFilter = (next: Filter) => {
-    setFilter(next)
     setDrawerOpen(false)
     setDrawerQuery('')
     setDrawerDate('all')
     onFocusChange(healthFocus(next))
   }
   const openDetails = (next: Filter) => {
-    setFilter(next)
     setDrawerQuery('')
     setDrawerDate('all')
     setDrawerOpen(true)
     onFocusChange(healthFocus(next))
   }
   const clearFilter = () => {
-    setFilter('problems')
     onFocusChange(null)
   }
   const openVisit = (visitId: string) => {
@@ -250,7 +261,7 @@ export default function ScheduleHealthPanel({
       {drawerOpen ? <div className="schedule-health-drawer-tools"><label><span>Search</span><input type="search" value={drawerQuery} onChange={(event) => setDrawerQuery(event.target.value)} placeholder="Client, site or employee..." /></label><label><span>Date</span><select value={drawerDate} onChange={(event) => setDrawerDate(event.target.value)}><option value="all">All dates</option>{drawerDates.map((date) => <option value={date} key={date}>{new Date(`${date}T12:00:00`).toLocaleDateString('en-IE', { weekday: 'short', day: 'numeric', month: 'short' })}</option>)}</select></label></div> : null}
       <div className="schedule-health-results">
       {!loading && !displayedItems.length ? <div className={styles.empty}>{visible.length ? 'No items match these filters.' : filter === 'problems' ? 'No operational scheduling problems in this window.' : 'No items match this health filter.'}</div> : null}
-      {displayedItems.slice(0, 120).map((item) => {
+      {displayedItems.map((item) => {
         const start = item.scheduledStart ? new Date(item.scheduledStart) : null
         const zone = item.timezone ?? timezone
         const pauseable = canManage && item.jobId && item.state === 'covered'
@@ -265,7 +276,7 @@ export default function ScheduleHealthPanel({
             {canManage && item.state === 'unscheduled_service' && item.servicePlanId ? <button className="btn-primary" disabled={busy} onClick={() => onOpenServicePlan(item.servicePlanId!)}>Set schedule</button> : null}
             {canManage && (item.state === 'needs_staff' || item.state === 'unassigned') && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Assign team</button> : null}
             {canManage && item.state === 'cleaner_overlap' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Resolve conflict</button> : null}
-            {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void remindAcknowledgement(item)}>{busy ? 'Sending…' : 'Send reminder'}</button> : null}
+            {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-primary" disabled={busy} onClick={() => void remindAcknowledgement(item)}>{busy ? 'Sending…' : 'Remind pending visit team'}</button> : null}
             {canManage && item.state === 'acknowledgement_pending' && item.visitId ? <button className="btn-secondary" disabled={busy} onClick={() => openVisit(item.visitId!)}>Open visit</button> : null}
             {pauseable ? <button className="btn-secondary" disabled={busy} onClick={() => openPause(item)}>Pause service</button> : null}
             {canManage && item.state === 'service_paused' && item.pauseId ? <button className="btn-secondary" disabled={busy} onClick={() => void endPause(item)}>End pause early</button> : null}

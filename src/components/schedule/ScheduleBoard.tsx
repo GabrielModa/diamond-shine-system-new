@@ -7,6 +7,8 @@ import DateTimeField12h from '../ui/DateTimeField12h'
 import DurationField from '../ui/DurationField'
 import TeamPicker from './TeamPicker'
 import { useScheduleCapacity } from './useScheduleCapacity'
+import { useScheduleContext } from './useScheduleContext'
+import { isActiveAssignmentStatus as isActiveAssignment, isOperationalVisitStatus } from '../../modules/scheduling/assignment-lifecycle'
 import { formatDuration } from '../../lib/duration'
 import './ScheduleFocus.css'
 
@@ -30,40 +32,49 @@ function sameDay(instant: Date, calendarDate: Date, timezone = 'Europe/Dublin') 
 function initials(member: Member) { return (member.name ?? member.email).split(' ').map((part) => part[0]).slice(0, 2).join('').toUpperCase() }
 function visitLabel(visit: Visit) { return `${visit.site.client.displayName} · ${visit.job.name}` }
 function timeRange(start: Date, end: Date, timezone = 'Europe/Dublin') { return `${formatOperationalTime(start, timezone)}–${formatOperationalTime(end, timezone)}` }
-const ACTIVE_ASSIGNMENT_STATUSES = new Set(['assigned', 'notified', 'seen', 'acknowledged'])
-function isActiveAssignment(status: string) { return ACTIVE_ASSIGNMENT_STATUSES.has(status) }
 function isTerminalVisit(status: string) { return status === 'cancelled' || status === 'missed' }
 
 export default function ScheduleBoard({ canManage, timezone }: { canManage: boolean; timezone: string }) {
+  const { search, view, setView, anchorDate, setAnchorDate, teamFilter, setTeamFilter } = useScheduleContext(timezone)
   const [visits, setVisits] = useState<Visit[]>([]); const [plans, setPlans] = useState<Plan[]>([]); const [team, setTeam] = useState<Member[]>([]); const [availability, setAvailability] = useState<Availability[]>([])
-  const [view, setView] = useState<ScheduleView>('week'); const [anchorDate, setAnchorDate] = useState(() => operationalCalendarDate(new Date(), timezone)); const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('needs_scheduling'); const [healthFocus, setHealthFocus] = useState<HealthFocus>(null); const [healthRefreshSignal, setHealthRefreshSignal] = useState(0); const [teamFilter, setTeamFilter] = useState('all'); const [draftTeamFilter, setDraftTeamFilter] = useState('all'); const [teamQuery, setTeamQuery] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [noticeIsError, setNoticeIsError] = useState(false); const [showCreate, setShowCreate] = useState(false); const [showFindTime, setShowFindTime] = useState(false); const [showFilters, setShowFilters] = useState(false); const [healthCloseSignal, setHealthCloseSignal] = useState(0)
-  const [showPlanPicker, setShowPlanPicker] = useState(false); const [planQuery, setPlanQuery] = useState(''); const planPickerRef = useRef<HTMLDivElement>(null); const deepLinkAppliedRef = useRef(false)
+  const [loading, setLoading] = useState(true); const [busy, setBusy] = useState(false)
+  const [statusFilter, setStatusFilter] = useState('needs_scheduling'); const [healthFocus, setHealthFocus] = useState<HealthFocus>(null); const [healthRefreshSignal, setHealthRefreshSignal] = useState(0); const [draftTeamFilter, setDraftTeamFilter] = useState('all'); const [teamQuery, setTeamQuery] = useState(''); const [notice, setNotice] = useState<string | null>(null); const [noticeIsError, setNoticeIsError] = useState(false); const [showCreate, setShowCreate] = useState(false); const [showFindTime, setShowFindTime] = useState(false); const [showFilters, setShowFilters] = useState(false); const [healthCloseSignal, setHealthCloseSignal] = useState(0)
+  const [showPlanPicker, setShowPlanPicker] = useState(false); const [planQuery, setPlanQuery] = useState(''); const planPickerRef = useRef<HTMLDivElement>(null)
   const [selected, setSelected] = useState<Visit | null>(null); const [edit, setEdit] = useState({ scheduledStart: '', scheduledEnd: '', assigneeIds: [] as string[], dispatchNotes: '', cancellationReason: '' }); const [editError, setEditError] = useState<string | null>(null)
   const [draft, setDraft] = useState({ servicePlanId: '', name: '', startAt: operationalDateTimeInput(new Date(Date.now() + 86_400_000), timezone), endDate: '', durationMinutes: 120, frequency: 'once', interval: 1, weekdays: [1, 3, 5] as number[], assigneeIds: [] as string[] })
   const [finder, setFinder] = useState({ date: operationalDateKey(new Date(Date.now() + 86_400_000), timezone), durationMinutes: 120, assigneeIds: [] as string[] })
   const range = useMemo(() => { const start = startOfMonth(anchorDate); start.setDate(start.getDate() - 7); const end = new Date(start); end.setMonth(end.getMonth() + 3); return { from: operationalInputToUtc(`${calendarDateKey(start)}T00:00`, timezone).toISOString(), to: operationalInputToUtc(`${calendarDateKey(end)}T23:59`, timezone).toISOString() } }, [anchorDate, timezone])
-  const refresh = useCallback(async () => { setLoading(true); try { const [v, p, t, a] = await Promise.all([api<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&mode=all`), api<Plan[]>('/api/service-plans'), api<Member[]>('/api/team'), api<Availability[]>(`/api/availability?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)]); setVisits(v); setPlans(p.filter((plan) => plan.status === 'published')); setTeam(t); setAvailability(a); setDraft((current) => ({ ...current, servicePlanId: current.servicePlanId || p.find((plan) => plan.status === 'published')?.id || '' })) } catch (error) { setNoticeIsError(true); setNotice(error instanceof Error ? error.message : 'Could not load schedule.') } finally { setLoading(false) } }, [range])
-  useEffect(() => { void refresh() }, [refresh])
+  const boardRequestRef = useRef<AbortController | null>(null)
+  const currentRangeRef = useRef(range)
+  currentRangeRef.current = range
+  const [dataRevision, setDataRevision] = useState(0)
+  const refresh = useCallback(async () => {
+    if (currentRangeRef.current !== range) return
+    boardRequestRef.current?.abort()
+    const controller = new AbortController()
+    boardRequestRef.current = controller
+    setLoading(true)
+    try {
+      const options = { signal: controller.signal }
+      const [v, p, t, a] = await Promise.all([
+        api<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&mode=all`, options),
+        api<Plan[]>('/api/service-plans', options), api<Member[]>('/api/team', options),
+        api<Availability[]>(`/api/availability?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`, options),
+      ])
+      if (controller.signal.aborted || currentRangeRef.current !== range) return
+      setVisits(v); setPlans(p.filter((plan) => plan.status === 'published')); setTeam(t); setAvailability(a)
+      setDataRevision((value) => value + 1)
+      setDraft((current) => ({ ...current, servicePlanId: current.servicePlanId || p.find((plan) => plan.status === 'published')?.id || '' }))
+    } catch (error) {
+      if (!controller.signal.aborted) { setVisits([]); setAvailability([]); setNoticeIsError(true); setNotice(error instanceof Error ? error.message : 'Could not load schedule.') }
+    } finally { if (!controller.signal.aborted) setLoading(false) }
+  }, [range])
+  useEffect(() => { void refresh(); return () => boardRequestRef.current?.abort() }, [refresh])
   useEffect(() => {
-    if (deepLinkAppliedRef.current || !team.length) return
-    const params = new URLSearchParams(window.location.search)
-    const employeeId = params.get('employee')
-    const dateValue = params.get('date')
-    if (!employeeId && !dateValue) { deepLinkAppliedRef.current = true; return }
-    if (employeeId && team.some((member) => member.id === employeeId)) {
-      setTeamFilter(employeeId)
-      setDraftTeamFilter(employeeId)
-      setHealthFocus(null)
-      setStatusFilter('upcoming')
-      setView('week')
-    }
-    if (dateValue) {
-      const instant = new Date(dateValue)
-      if (!Number.isNaN(instant.getTime())) setAnchorDate(operationalCalendarDate(instant, timezone))
-    }
-    deepLinkAppliedRef.current = true
-  }, [team, timezone])
+    setDraftTeamFilter(teamFilter)
+    setHealthFocus(null)
+    if (teamFilter !== 'all') setStatusFilter('upcoming')
+  }, [teamFilter])
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
@@ -98,7 +109,7 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
     setShowPlanPicker(false)
     setPlanQuery('')
   }, [showCreate])
-  useEffect(() => { const visitId = new URLSearchParams(window.location.search).get('visit'); if (!visitId || selected?.id === visitId) return; const visit = visits.find((item) => item.id === visitId); if (!visit) return; setEditError(null); setSelected(visit); setEdit({ scheduledStart: operationalDateTimeInput(new Date(visit.scheduledStart), timezone), scheduledEnd: operationalDateTimeInput(new Date(visit.scheduledEnd), timezone), assigneeIds: visit.assignments.filter((assignment) => isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id), dispatchNotes: visit.dispatchNotes ?? '', cancellationReason: visit.cancellationReason ?? '' }) }, [selected?.id, timezone, visits])
+  useEffect(() => { const visitId = new URLSearchParams(window.location.search).get('visit'); if (!visitId || selected?.id === visitId) return; const visit = visits.find((item) => item.id === visitId); if (!visit) return; setEditError(null); setSelected(visit); setEdit({ scheduledStart: operationalDateTimeInput(new Date(visit.scheduledStart), timezone), scheduledEnd: operationalDateTimeInput(new Date(visit.scheduledEnd), timezone), assigneeIds: visit.assignments.filter((assignment) => isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id), dispatchNotes: visit.dispatchNotes ?? '', cancellationReason: visit.cancellationReason ?? '' }) }, [search, selected?.id, timezone, visits])
   useEffect(() => {
     if (!showCreate && !selected && !showFindTime && !showFilters) return
     const previousOverflow = document.body.style.overflow
@@ -122,17 +133,17 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   const visitsInVisibleRange = useMemo(() => visits.filter((visit) => { const start = new Date(visit.scheduledStart); return start >= visibleWindow.from && start < visibleWindow.to }), [visibleWindow, visits])
   const focusedEmployeeId = teamFilter !== 'all' && teamFilter !== 'unassigned' ? teamFilter : null
   const visitHasConflict = useCallback((visit: Visit, employeeId?: string | null) => {
-    if (['cancelled', 'completed', 'missed'].includes(visit.status)) return false
+    if (!isOperationalVisitStatus(visit.status)) return false
     const assignedIds = new Set(visit.assignments.filter((assignment) => isActiveAssignment(assignment.status) && (!employeeId || assignment.user.id === employeeId)).map((assignment) => assignment.user.id))
     if (!assignedIds.size) return false
     const start = new Date(visit.scheduledStart)
     const end = new Date(visit.scheduledEnd)
-    return visits.some((other) => other.id !== visit.id && !['cancelled', 'completed', 'missed'].includes(other.status) && new Date(other.scheduledStart) < end && new Date(other.scheduledEnd) > start && other.assignments.some((assignment) => assignedIds.has(assignment.user.id) && isActiveAssignment(assignment.status)))
+    return visits.some((other) => other.id !== visit.id && isOperationalVisitStatus(other.status) && new Date(other.scheduledStart) < end && new Date(other.scheduledEnd) > start && other.assignments.some((assignment) => assignedIds.has(assignment.user.id) && isActiveAssignment(assignment.status)))
   }, [visits])
   const visibleVisits = useMemo(() => visitsInVisibleRange.filter((visit) => {
     const activeAssignments = visit.assignments.filter((assignment) => isActiveAssignment(assignment.status))
     const activeCount = activeAssignments.length
-    const historical = ['completed', 'cancelled', 'missed'].includes(visit.status)
+    const historical = !isOperationalVisitStatus(visit.status)
     const statusMatch = healthFocus ? !historical : statusFilter === 'needs_scheduling' ? !historical && activeCount < visit.requiredWorkers : statusFilter === 'upcoming' ? !historical : statusFilter === 'history' ? historical : visit.status === statusFilter
     const selectedAssignment = focusedEmployeeId ? activeAssignments.find((assignment) => assignment.user.id === focusedEmployeeId) : null
     const healthMatch = healthFocus === 'scheduling' ? activeCount < visit.requiredWorkers : healthFocus === 'conflicts' ? visitHasConflict(visit, focusedEmployeeId) : healthFocus === 'confirmation' ? (focusedEmployeeId ? Boolean(selectedAssignment && selectedAssignment.status !== 'acknowledged') : activeAssignments.some((assignment) => assignment.status !== 'acknowledged')) : true
@@ -140,7 +151,7 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
     return statusMatch && healthMatch && teamMatch
   }), [focusedEmployeeId, healthFocus, statusFilter, teamFilter, visitHasConflict, visitsInVisibleRange])
   const needsSchedulingCount = useMemo(() => visitsInVisibleRange.filter((visit) => {
-    if (['completed', 'cancelled', 'missed'].includes(visit.status)) return false
+    if (!isOperationalVisitStatus(visit.status)) return false
     const activeAssignments = visit.assignments.filter((assignment) => isActiveAssignment(assignment.status))
     if (activeAssignments.length >= visit.requiredWorkers) return false
     if (teamFilter === 'all') return true
@@ -150,14 +161,14 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   const grouped = useMemo(() => visibleVisits.reduce<Record<string, Visit[]>>((acc, visit) => { const key = new Date(visit.scheduledStart).toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'short', timeZone: timezone }); (acc[key] ??= []).push(visit); return acc }, {}), [timezone, visibleVisits])
   const monthDays = useMemo(() => { const first = startOfMonth(anchorDate); const gridStart = new Date(first); gridStart.setDate(first.getDate() - first.getDay()); return Array.from({ length: 42 }, (_, index) => { const date = new Date(gridStart); date.setDate(gridStart.getDate() + index); return date }) }, [anchorDate])
   const weekDays = useMemo(() => { const start = new Date(anchorDate); start.setDate(anchorDate.getDate() - anchorDate.getDay()); return Array.from({ length: 7 }, (_, index) => { const date = new Date(start); date.setDate(start.getDate() + index); return date }) }, [anchorDate])
-  const title = view === 'month' ? anchorDate.toLocaleDateString('en-IE', { month: 'long', year: 'numeric' }) : view === 'week' ? `${weekDays[0].toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}` : anchorDate.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
-  const suggestedTimes = useScheduleCapacity(finder, team, timezone)
+  const title = view === 'month' || view === 'list' ? anchorDate.toLocaleDateString('en-IE', { month: 'long', year: 'numeric' }) : view === 'week' ? `${weekDays[0].toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}` : anchorDate.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
+  const capacity = useScheduleCapacity(finder, team, timezone, dataRevision, showFindTime)
   const assignmentState = useCallback((userId: string, startValue: string, endValue: string, ignoredVisitId?: string): AssignmentState | null => {
     const start = operationalInputToUtc(startValue, timezone); const end = operationalInputToUtc(endValue, timezone)
     if (Number.isNaN(start.getTime()) || Number.isNaN(end.getTime()) || end <= start) return null
     const unavailable = availability.find((entry) => entry.user.id === userId && new Date(entry.startsAt) < end && new Date(entry.endsAt) > start)
     if (unavailable) return { kind: 'unavailable', label: `Unavailable · ${timeRange(new Date(unavailable.startsAt), new Date(unavailable.endsAt), timezone)}` }
-    const visit = visits.find((item) => item.id !== ignoredVisitId && !['cancelled', 'completed', 'missed'].includes(item.status) && new Date(item.scheduledStart) < end && new Date(item.scheduledEnd) > start && item.assignments.some((assignment) => assignment.user.id === userId && isActiveAssignment(assignment.status)))
+    const visit = visits.find((item) => item.id !== ignoredVisitId && isOperationalVisitStatus(item.status) && new Date(item.scheduledStart) < end && new Date(item.scheduledEnd) > start && item.assignments.some((assignment) => assignment.user.id === userId && isActiveAssignment(assignment.status)))
     if (!visit) return null
     const visitStart = new Date(visit.scheduledStart)
     const visitEnd = new Date(visit.scheduledEnd)
@@ -196,20 +207,16 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
     window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
   }
   function prepareMajorSurface() { closeHealth(); setShowFindTime(false); setShowFilters(false); window.dispatchEvent(new Event('diamond:close-nav')) }
-  function movePeriod(direction: number) { const next = new Date(anchorDate); if (view === 'month') next.setMonth(next.getMonth() + direction); else if (view === 'week') next.setDate(next.getDate() + 7 * direction); else next.setDate(next.getDate() + direction); setAnchorDate(next) }
+  function movePeriod(direction: number) { const next = new Date(anchorDate); if (view === 'month' || view === 'list') next.setMonth(next.getMonth() + direction); else if (view === 'week') next.setDate(next.getDate() + 7 * direction); else next.setDate(next.getDate() + direction); setAnchorDate(next) }
   function dismissFilters() { setDraftTeamFilter(teamFilter); setTeamQuery(''); setShowFilters(false) }
   function toggleFilters() { closeHealth(); window.dispatchEvent(new Event('diamond:close-nav')); setShowFindTime(false); if (showFilters) dismissFilters(); else { setDraftTeamFilter(teamFilter); setTeamQuery(''); setShowFilters(true) } }
   function applyFilters() {
     setTeamFilter(draftTeamFilter)
     setTeamQuery('')
     setShowFilters(false)
-    const url = new URL(window.location.href)
-    if (draftTeamFilter !== 'all' && draftTeamFilter !== 'unassigned') url.searchParams.set('employee', draftTeamFilter)
-    else url.searchParams.delete('employee')
-    window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
     setHealthRefreshSignal((value) => value + 1)
   }
-  function openCreateFor(date: Date) { prepareMajorSurface(); setDraft((current) => ({ ...current, startAt: `${calendarDateKey(date)}T09:00` })); setAnchorDate(date); setShowCreate(true) }
+  function openCreateFor(date: Date) { prepareMajorSurface(); setDraft((current) => ({ ...current, startAt: `${calendarDateKey(date)}T09:00`, assigneeIds: focusedEmployeeId ? [focusedEmployeeId] : [] })); setAnchorDate(date); setShowCreate(true) }
   async function createJob(event: FormEvent) { event.preventDefault(); setBusy(true); try { const recurrence = draft.frequency === 'weekly' ? { frequency: 'weekly', interval: draft.interval, weekdays: draft.weekdays } : draft.frequency === 'daily' ? { frequency: 'daily', interval: draft.interval } : { frequency: 'once' }; const result = await api<{ generatedVisits: number }>('/api/jobs', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ servicePlanId: draft.servicePlanId, name: draft.name, startAt: operationalInputToUtc(draft.startAt, timezone).toISOString(), endDate: draft.endDate ? operationalInputToUtc(`${draft.endDate}T23:59:59`, timezone).toISOString() : null, durationMinutes: draft.durationMinutes, recurrence, assigneeIds: draft.assigneeIds }) }); setNoticeIsError(false); setNotice(draft.frequency === 'once' ? 'Visit scheduled.' : `${result.generatedVisits} visits generated for the initial horizon. Future service obligations will be maintained automatically.`); setShowCreate(false); await refresh(); setHealthRefreshSignal((value) => value + 1) } catch (error) { setNoticeIsError(true); setNotice(error instanceof Error ? error.message : 'Could not schedule job.') } finally { setBusy(false) } }
   function selectVisit(visit: Visit) { prepareMajorSurface(); setNotice(null); setEditError(null); setSelected(visit); setEdit({ scheduledStart: operationalDateTimeInput(new Date(visit.scheduledStart), timezone), scheduledEnd: operationalDateTimeInput(new Date(visit.scheduledEnd), timezone), assigneeIds: visit.assignments.filter((assignment) => isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id), dispatchNotes: visit.dispatchNotes ?? '', cancellationReason: visit.cancellationReason ?? '' }) }
   function openHealthVisit(visitId: string) {
@@ -236,12 +243,7 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
     }
 
     if (status !== 'cancelled') {
-      if (edit.assigneeIds.length < selected.requiredWorkers) {
-        const missing = selected.requiredWorkers - edit.assigneeIds.length
-        setEditError(`This visit needs ${selected.requiredWorkers} cleaners. Select ${missing} more cleaner${missing === 1 ? '' : 's'} before saving.`)
-        return
-      }
-
+      // Partial staffing is valid; Schedule Health retains the remaining gap.
       const blocked = edit.assigneeIds.flatMap((userId) => {
         const state = editStates.get(userId)
         if (!state) return []
@@ -290,16 +292,16 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
   }
 
   return <main className="page-shell schedule-page">
-    <header className="page-header schedule-hero"><div><span className="eyebrow">Dispatch control</span><h1>Schedule</h1><p className="muted">Assign work, see capacity and resolve exceptions without leaving the operating plan.</p></div>{canManage ? <button className="btn-primary" onClick={() => { prepareMajorSurface(); setShowCreate(true) }}>+ Create work</button> : null}</header>
+    <header className="page-header schedule-hero"><div><span className="eyebrow">Dispatch control</span><h1>Schedule</h1><p className="muted">Assign work, see capacity and resolve exceptions without leaving the operating plan.</p></div>{canManage ? <button className="btn-primary" onClick={() => openCreateFor(anchorDate)}>+ Create work</button> : null}</header>
     <section className="schedule-focus-tabs" aria-label="Schedule focus">
-      <button className={!healthFocus && statusFilter === 'needs_scheduling' ? 'selected' : ''} onClick={() => clearHealthFocus('needs_scheduling')}>Needs scheduling {needsSchedulingCount}</button>
+      <button className={!healthFocus && statusFilter === 'needs_scheduling' ? 'selected' : ''} onClick={() => clearHealthFocus('needs_scheduling')}>Visits needing staff {needsSchedulingCount}</button>
       <button className={!healthFocus && statusFilter === 'upcoming' ? 'selected' : ''} onClick={() => clearHealthFocus('upcoming')}>Upcoming</button>
       <button className={!healthFocus && statusFilter === 'history' ? 'selected' : ''} onClick={() => clearHealthFocus('history')}>History</button>
     </section>
     <section className="scheduler-controls" aria-label="Schedule controls"><div className="scheduler-period"><button aria-label="Previous period" className="btn-secondary" onClick={() => movePeriod(-1)}>←</button><button aria-label="Next period" className="btn-secondary" onClick={() => movePeriod(1)}>→</button><button className="btn-secondary" onClick={() => setAnchorDate(operationalCalendarDate(new Date(), timezone))}>Today</button><strong>{title}</strong></div><div className="scheduler-filters">
-      <div className="schedule-tool-anchor">{canManage ? <button aria-expanded={showFindTime} className={showFindTime ? 'btn-primary' : 'btn-secondary'} onClick={() => { closeHealth(); window.dispatchEvent(new Event('diamond:close-nav')); dismissFilters(); setShowFindTime((value) => !value) }}>Find a time</button> : null}
+      <div className="schedule-tool-anchor">{canManage ? <button aria-expanded={showFindTime} className={showFindTime ? 'btn-primary' : 'btn-secondary'} onClick={() => { closeHealth(); window.dispatchEvent(new Event('diamond:close-nav')); dismissFilters(); if (!showFindTime) setFinder((current) => ({ ...current, date: calendarDateKey(anchorDate), assigneeIds: focusedEmployeeId ? [focusedEmployeeId] : [] })); setShowFindTime((value) => !value) }}>Find a time</button> : null}
         {showFindTime ? <button type="button" className="schedule-layer-backdrop" aria-label="Close time finder" onClick={() => setShowFindTime(false)} /> : null}
-        {showFindTime ? <section className="schedule-popover find-time" aria-label="Find a workable visit window"><header><div><span className="eyebrow">Capacity finder</span><h2>Find a workable time</h2></div><button className="text-button" onClick={() => setShowFindTime(false)}>Close</button></header><div className="find-time-controls compact"><label>Date<input type="date" value={finder.date} aria-invalid={!finder.date} onChange={(event) => setFinder({ ...finder, date: event.target.value })} /></label><DurationField value={finder.durationMinutes} onChange={(durationMinutes) => setFinder({ ...finder, durationMinutes })} /></div><TeamPicker members={team} selectedIds={finder.assigneeIds} onChange={(assigneeIds) => setFinder({ ...finder, assigneeIds })} label="Check availability for" helper="Leave empty to check all assignable staff." />{!finder.date ? <div className="schedule-edit-error" role="alert"><span>Select a date to see workable times.</span></div> : null}<div className="find-time-slots compact">{suggestedTimes.map((slot) => <button key={slot.start.toISOString()} className={slot.conflicts ? 'has-conflict' : ''} onClick={() => { setDraft({ ...draft, startAt: operationalDateTimeInput(slot.start, timezone), durationMinutes: finder.durationMinutes, assigneeIds: finder.assigneeIds }); setAnchorDate(operationalCalendarDate(slot.start, timezone)); setView('day'); setShowFindTime(false); prepareMajorSurface(); setShowCreate(true) }}><b>{formatOperationalTime(slot.start, timezone)}–{formatOperationalTime(slot.end, timezone)}</b><span>{slot.free} available · {slot.conflicts ? `${slot.conflicts} conflict${slot.conflicts === 1 ? '' : 's'}` : 'clear window'}</span></button>)}</div></section> : null}
+        {showFindTime ? <section className="schedule-popover find-time" aria-label="Find a workable visit window"><header><div><span className="eyebrow">Capacity finder</span><h2>Find a workable time</h2></div><button className="text-button" onClick={() => setShowFindTime(false)}>Close</button></header><div className="find-time-controls compact"><label>Date<input type="date" value={finder.date} aria-invalid={!finder.date} onChange={(event) => setFinder({ ...finder, date: event.target.value })} /></label><DurationField value={finder.durationMinutes} onChange={(durationMinutes) => setFinder({ ...finder, durationMinutes })} /></div><TeamPicker members={team} selectedIds={finder.assigneeIds} onChange={(assigneeIds) => setFinder({ ...finder, assigneeIds })} label="Check availability for" helper="Leave empty to check all assignable staff." />{!finder.date ? <div className="schedule-edit-error" role="alert"><span>Select a date to see workable times.</span></div> : null}{capacity.loading ? <p role="status">Checking availability…</p> : null}{capacity.error ? <p role="alert">{capacity.error}</p> : null}<div className="find-time-slots compact">{capacity.slots.map((slot) => <button key={slot.start.toISOString()} className={slot.conflicts ? 'has-conflict' : ''} onClick={() => { setDraft({ ...draft, startAt: operationalDateTimeInput(slot.start, timezone), durationMinutes: finder.durationMinutes, assigneeIds: finder.assigneeIds }); setAnchorDate(operationalCalendarDate(slot.start, timezone)); setView('day'); setShowFindTime(false); prepareMajorSurface(); setShowCreate(true) }}><b>{formatOperationalTime(slot.start, timezone)}–{formatOperationalTime(slot.end, timezone)}</b><span>{slot.free} available · {slot.blockerLabel}</span></button>)}</div></section> : null}
       </div>
       <div className="schedule-tool-anchor"><button className={showFilters ? 'btn-primary' : 'btn-secondary'} onClick={toggleFilters}>Filters{teamFilter !== 'all' ? ' · 1' : ''}</button>
         {showFilters ? <button type="button" className="schedule-layer-backdrop" aria-label="Discard filter changes" onClick={dismissFilters} /> : null}
@@ -308,7 +310,7 @@ export default function ScheduleBoard({ canManage, timezone }: { canManage: bool
       <div className="segmented-control schedule-view-tabs">{(['week', 'day', 'month', 'list'] as const).map((item) => <button key={item} className={view === item ? 'selected' : ''} onClick={() => setView(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
     </div></section>
     {notice ? <div className={`toast ${noticeIsError ? 'error' : 'success'}`} role={noticeIsError ? 'alert' : 'status'}>{notice}<button className="notice-close" onClick={() => setNotice(null)}>×</button></div> : null}
-    {canManage ? <ScheduleHealthPanel from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} timezone={timezone} canManage={canManage} closeSignal={healthCloseSignal} refreshSignal={healthRefreshSignal} onChanged={refresh} onFocusChange={changeHealthFocus} onOpenVisit={openHealthVisit} onOpenServicePlan={(servicePlanId) => { prepareMajorSurface(); setDraft((current) => ({ ...current, servicePlanId })); setShowCreate(true) }} /> : null}
+    {canManage ? <ScheduleHealthPanel from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} timezone={timezone} teamScope={teamFilter} focus={healthFocus} canManage={canManage} closeSignal={healthCloseSignal} refreshSignal={healthRefreshSignal} onChanged={refresh} onFocusChange={changeHealthFocus} onOpenVisit={openHealthVisit} onOpenServicePlan={(servicePlanId) => { openCreateFor(anchorDate); setDraft((current) => ({ ...current, servicePlanId })) }} /> : null}
     {showCreate ? <div className="modal-overlay active schedule-overlay" style={{ zIndex: 50 }} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowCreate(false) }}><form className="schedule-create card schedule-sheet" onSubmit={createJob} role="dialog" aria-modal="true" aria-labelledby="recurring-job-title"><header><div><span className="eyebrow">Smart recurring schedule</span><h2 id="recurring-job-title">Schedule cleaning work</h2><p className="muted">Set the service obligation and default team once. The server maintains future occurrences; unavailable cleaners become staffing gaps, not missing work.</p></div><button type="button" className="btn-secondary" onClick={() => setShowCreate(false)}>Close</button></header><div className="service-plan-field"><span className="service-plan-label">Service plan</span><div className={`service-plan-picker${showPlanPicker ? ' open' : ''}`} ref={planPickerRef}><button type="button" className="service-plan-trigger" aria-haspopup="listbox" aria-expanded={showPlanPicker} onClick={() => { setPlanQuery(''); setShowPlanPicker((value) => !value) }}><span>{selectedPlan ? `${selectedPlan.site.client.displayName} · ${selectedPlan.site.name} · ${selectedPlan.name}` : 'Search service plan...'}</span><span aria-hidden="true">⌄</span></button>{showPlanPicker ? <div className="service-plan-menu"><input autoFocus type="search" value={planQuery} onChange={(event) => setPlanQuery(event.target.value)} placeholder="Type client, site or plan..." aria-label="Search service plans" /><div className="service-plan-options" role="listbox" aria-label="Service plans">{filteredPlans.map((plan) => <button type="button" role="option" aria-selected={draft.servicePlanId === plan.id} className={draft.servicePlanId === plan.id ? 'selected' : ''} key={plan.id} onClick={() => { setDraft((current) => ({ ...current, servicePlanId: plan.id, durationMinutes: plan.expectedDurationMinutes })); setShowPlanPicker(false); setPlanQuery('') }}><strong>{plan.site.client.displayName} · {plan.site.name}</strong><span>{plan.name}</span></button>)}{!filteredPlans.length ? <p className="muted">No service plans found.</p> : null}</div></div> : null}</div></div><label>Job name<input required value={draft.name} onChange={(event) => setDraft({ ...draft, name: event.target.value })} placeholder="e.g. Tuesday and Thursday office clean" /></label><div className="form-pair"><DateTimeField12h label="First visit" required value={draft.startAt} onChange={(value) => setDraft({ ...draft, startAt: value })} /><label>Service end (optional)<input type="date" min={draft.startAt.slice(0, 10)} value={draft.endDate} onChange={(event) => setDraft({ ...draft, endDate: event.target.value })} /></label></div><div className="form-pair"><label>Repeat<select value={draft.frequency} onChange={(event) => setDraft({ ...draft, frequency: event.target.value })}><option value="once">Once only</option><option value="daily">Every day</option><option value="weekly">Selected weekdays</option></select></label>{draft.frequency !== 'once' ? <label>Every<input type="number" min="1" max={draft.frequency === 'weekly' ? 12 : 30} value={draft.interval} onChange={(event) => setDraft({ ...draft, interval: Math.max(1, Number(event.target.value)) })} /></label> : <DurationField value={draft.durationMinutes} onChange={(durationMinutes) => setDraft({ ...draft, durationMinutes })} />}</div>{draft.frequency === 'weekly' ? <fieldset className="weekday-picker"><legend>Repeat on</legend>{['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, index) => <label key={day}><input type="checkbox" checked={draft.weekdays.includes(index)} onChange={() => setDraft((current) => ({ ...current, weekdays: current.weekdays.includes(index) ? current.weekdays.filter((value) => value !== index) : [...current.weekdays, index].sort() }))} />{day}</label>)}</fieldset> : null}<div className="schedule-team-field"><TeamPicker members={team} selectedIds={draft.assigneeIds} onChange={(assigneeIds) => setDraft((current) => ({ ...current, assigneeIds }))} label="Default cleaning team" helper="Used for each occurrence where the person is available." /></div><footer><span className="muted">{draft.frequency === 'weekly' ? `${draft.weekdays.length} day${draft.weekdays.length === 1 ? '' : 's'} per selected week` : draft.frequency === 'daily' ? `Every ${draft.interval} day${draft.interval === 1 ? '' : 's'}` : 'One visit'} · {draft.frequency === 'once' ? 'single occurrence' : draft.endDate ? `service ends ${new Date(`${draft.endDate}T12:00:00`).toLocaleDateString('en-IE')}` : 'ongoing service · future horizon maintained automatically'}</span><button className="btn-primary" disabled={busy || !plans.length || (draft.frequency === 'weekly' && !draft.weekdays.length)}>Generate schedule</button></footer></form></div> : null}
     {loading ? <section className="card empty-state">Loading schedule…</section> : null}
     {!loading && <>

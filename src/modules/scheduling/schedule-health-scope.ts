@@ -63,3 +63,8 @@ export function scopeScheduleHealthToEmployee(
     items,
   }
 }
+
+export function scopeScheduleHealthToUnassigned(result: ScheduleHealthResult): ScheduleHealthResult {
+  const items = result.items.filter((item) => item.state === 'unassigned')
+  return { ...result, items, summary: summaryFor(items) }
+}

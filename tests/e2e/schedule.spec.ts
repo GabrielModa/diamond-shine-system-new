@@ -173,6 +173,7 @@ test('rejected occurrence save stays failed and stale error clears when the curr
   await expect(editor).toBeVisible()
 
   let patchCount = 0
+  await editor.getByLabel('Dispatch note').fill('Keep this draft after a rejected save')
   await page.route('**/api/visits/*', async (route) => {
     if (route.request().method() !== 'PATCH') return route.continue()
     patchCount += 1
@@ -190,12 +191,80 @@ test('rejected occurrence save stays failed and stale error clears when the curr
   await editor.getByRole('button', { name: 'Save occurrence', exact: true }).click()
   await expect(editor.locator('.schedule-edit-error')).toContainText('Aisha Khan is in school during this visit')
   expect(patchCount).toBe(1)
+  await expect(editor.getByLabel('Dispatch note')).toHaveValue('Keep this draft after a rejected save')
+  await expect(page.getByText('Visit updated and the assigned team has been notified.', { exact: true })).toHaveCount(0)
 
-  await editor.getByRole('button', { name: /Change team/ }).click()
+  await editor.getByRole('button', { name: /(?:Select|Change) team/ }).click()
   const picker = page.getByRole('dialog', { name: 'Assigned cleaning team' })
   const firstCheckbox = picker.getByRole('checkbox').first()
   await firstCheckbox.click()
   await picker.getByRole('button', { name: 'Apply' }).click()
 
   await expect(editor.locator('.schedule-edit-error')).toHaveCount(0)
+})
+
+test('employee scope follows A to B to all and browser history, including health and capacity', async ({ page }, testInfo) => {
+  const members = [
+    { id: 'audit-a', name: 'Audit Alpha', email: 'alpha@example.test', role: 'employee' },
+    { id: 'audit-b', name: 'Audit Beta', email: 'beta@example.test', role: 'employee' },
+  ]
+  const visits = members.map((member, index) => ({
+    id: `audit-visit-${index}`, scheduledStart: '2026-09-02T09:00:00Z', scheduledEnd: '2026-09-02T11:00:00Z',
+    status: 'scheduled', version: 1, requiredWorkers: 2, site: { name: member.name, city: 'Dublin', client: { displayName: member.name } },
+    job: { name: 'Audit work' }, assignments: [{ status: 'acknowledged', user: member }],
+  }))
+  const reply = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
+  await page.route('**/api/team', (route) => route.fulfill(reply(members)))
+  await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
+  await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
+  let lastScope: string | null = null
+  await page.route('**/api/schedule-health?**', async (route) => {
+    const query = new URL(route.request().url()).searchParams
+    lastScope = query.get('employeeId')
+    const scoped = lastScope ? visits.filter((visit) => visit.assignments[0].user.id === lastScope) : visits
+    await route.fulfill(reply({ from: query.get('from'), to: query.get('to'), summary: {
+      visits: scoped.length, covered: 0, needsStaff: scoped.length, unassigned: 0, missingSchedule: 0,
+      unscheduledServices: 0, paused: 0, conflicts: 0, unacknowledged: 0,
+    }, items: scoped.map((visit) => ({ id: visit.id, visitId: visit.id, state: 'needs_staff', clientName: visit.site.client.displayName,
+      detail: '1/2 assigned', scheduledStart: visit.scheduledStart, scheduledEnd: visit.scheduledEnd })) }))
+  })
+  await page.goto('/schedule?employee=audit-a&date=2026-09-02&view=week')
+  await expect(page.locator('.visit-card')).toHaveCount(1)
+  await expect(page.locator('.visit-card')).toContainText('Audit Alpha')
+  await expect.poll(() => lastScope).toBe('audit-a')
+  await expect(page.getByRole('button', { name: 'Visits needing staff 1', exact: true })).toBeVisible()
+
+  let capacityIds: string[] = []
+  await page.route('**/api/schedule-capacity', async (route) => {
+    capacityIds = route.request().postDataJSON().userIds
+    await route.fulfill({ status: 503, contentType: 'application/json', body: JSON.stringify({ ok: false, error: 'Availability service unavailable. Try again.' }) })
+  })
+  await page.getByRole('button', { name: 'Find a time', exact: true }).click()
+  await expect.poll(() => capacityIds).toEqual(['audit-a'])
+  await expect(page.locator('.find-time').getByRole('alert')).toContainText('Availability service unavailable')
+  await expect(page.locator('.find-time input[type="date"]')).toHaveValue('2026-09-02')
+  await page.locator('.find-time').getByRole('button', { name: 'Close', exact: true }).click()
+
+  for (const [label, expectedScope, count] of [['Audit Beta', 'audit-b', 1], ['All team', null, 2]] as const) {
+    await page.getByRole('button', { name: /^Filters/ }).click()
+    const dialog = page.getByRole('dialog', { name: 'Schedule filters' })
+    await dialog.getByRole('button', { name: label, exact: true }).click()
+    await dialog.getByRole('button', { name: 'Apply', exact: true }).click()
+    await expect.poll(() => lastScope).toBe(expectedScope)
+    await expect(page.locator('.visit-card')).toHaveCount(count)
+    await expect(page.locator('[data-health-filter="scheduling"] strong')).toHaveText(String(count))
+  }
+  await page.goBack()
+  await expect(page).toHaveURL(/employee=audit-b/)
+  await expect.poll(() => lastScope).toBe('audit-b')
+  await expect(page.locator('.visit-card')).toHaveCount(1)
+  await expect(page.locator('.visit-card')).toContainText('Audit Beta')
+  await page.locator('[data-health-filter="scheduling"] .schedule-health-stat-details').click()
+  const drawer = page.getByRole('dialog', { name: /Needs scheduling details/i })
+  await expect(drawer.locator('article')).toHaveCount(1)
+  await expect(drawer).toContainText('Audit Beta')
+  await page.screenshot({ path: testInfo.outputPath('employee-scope.png') })
+  await drawer.getByRole('button', { name: 'Close', exact: true }).click()
+  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await expect(page.locator('.schedule-health-active-filter')).toHaveCount(0)
 })

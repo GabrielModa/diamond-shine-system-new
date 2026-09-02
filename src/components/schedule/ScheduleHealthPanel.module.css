@@ -20,7 +20,6 @@
 .list { display: grid; gap: 8px; }
 .list[data-open='false'] { display: none; }
 .list[data-open='true'] { position: fixed; z-index: 70; top: 7vh; left: 50%; transform: translateX(-50%); width: min(780px, calc(100vw - 32px)); max-height: 86vh; overflow: auto; align-content: start; padding: 68px 22px 24px; border: 1px solid rgba(210,217,229,.9); border-radius: 22px; background: rgba(248,250,252,.97); backdrop-filter: blur(18px); box-shadow: 0 28px 90px rgba(15,23,42,.28), 0 0 0 100vmax rgba(15,23,42,.24); }
-.list[data-open='true']::before { content: 'Schedule health details'; position: absolute; top: 23px; left: 22px; color: #172033; font-size: 18px; font-weight: 900; }
 .drawerClose { position: absolute; top: 17px; right: 20px; border: 1px solid var(--border, #dfe5e8); border-radius: 999px; background: #fff; padding: 8px 12px; font-weight: 800; cursor: pointer; }
 .filterHint { position: relative; display: inline-flex; align-items: center; gap: 8px; color: #687385; font-size: 12px; font-weight: 700; }
 .filterHint::before { content: ''; width: 7px; height: 7px; border-radius: 999px; background: #f2a72e; box-shadow: 0 0 0 4px rgba(242,167,46,.10); }

@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { requireCapability } from '../../../lib/auth'
 import { prisma } from '../../../lib/prisma'
 import { buildScheduleHealth } from '../../../modules/scheduling/schedule-health'
-import { scopeScheduleHealthToEmployee } from '../../../modules/scheduling/schedule-health-scope'
+import { scopeScheduleHealthToEmployee, scopeScheduleHealthToUnassigned } from '../../../modules/scheduling/schedule-health-scope'
 import { ensureScheduleContinuity } from '../../../modules/scheduling/continuity'
 import { ACTIVE_ASSIGNMENT_STATUSES, NON_OPERATIONAL_VISIT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 
@@ -13,6 +13,7 @@ const querySchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
   employeeId: z.string().min(1).optional(),
+  unassigned: z.enum(['true']).optional(),
 })
 
 const ensureSchema = z.object({
@@ -23,18 +24,6 @@ const ensureSchema = z.object({
 
 function managerHealthAllowed(role: string) {
   return role !== 'employee'
-}
-
-function employeeScopeFromReferer(request: NextRequest) {
-  const referer = request.headers.get('referer')
-  if (!referer) return null
-  try {
-    const url = new URL(referer)
-    if (url.pathname !== '/schedule') return null
-    return url.searchParams.get('employee')
-  } catch {
-    return null
-  }
 }
 
 export async function GET(request: NextRequest) {
@@ -53,7 +42,8 @@ export async function GET(request: NextRequest) {
     to: parsed.data.to,
   })
 
-  const employeeId = parsed.data.employeeId ?? employeeScopeFromReferer(request)
+  if (parsed.data.unassigned) return NextResponse.json({ ok: true, data: scopeScheduleHealthToUnassigned(data) })
+  const employeeId = parsed.data.employeeId
   if (!employeeId) return NextResponse.json({ ok: true, data })
 
   const employeeVisits = await prisma.visit.findMany({

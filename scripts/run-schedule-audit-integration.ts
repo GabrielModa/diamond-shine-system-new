@@ -19,6 +19,6 @@ function run(script: string, args: string[]) {
 }
 
 run('node_modules/prisma/build/index.js', ['db', 'push', '--skip-generate'])
-for (const spec of ['scheduling', 'workforce', 'schedule-hardening', 'schedule-capacity-availability']) {
+for (const spec of ['scheduling', 'workforce', 'schedule-hardening', 'schedule-capacity-availability', 'service-continuity', 'execution']) {
   run('node_modules/vitest/vitest.mjs', ['run', `tests/integration/${spec}.test.ts`, '--maxWorkers=1', '--testTimeout=30000'])
 }
