@@ -152,7 +152,7 @@ function recurrenceDraft(value: unknown) {
   if (rule.frequency === 'once') return { frequency: 'once' as Frequency, weekdays: [] as number[] }
   if (rule.frequency === 'daily') return { frequency: 'daily' as Frequency, weekdays: [] as number[] }
   if (rule.frequency === 'weekly') return { frequency: rule.interval === 2 ? 'fortnightly' as Frequency : 'weekly' as Frequency, weekdays: rule.weekdays ?? [1] }
-  return { frequency: 'weekly' as Frequency, weekdays: [1] as number[] }
+  return { frequency: 'weekly' as Frequency, weekdays: [1] }
 }
 
 function recurrencePayload(draft: Pick<ServiceDraft, 'frequency' | 'weekdays'>) {
@@ -189,7 +189,7 @@ function newServiceDraft(siteId = ''): ServiceDraft {
 }
 
 function emptyLocationDraft() {
-  return { name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' }
+  return { name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' }
 }
 
 export default function ClientAccountWorkspace({ canManageClients, canConfigureService }: { canManageClients: boolean; canConfigureService: boolean }) {
@@ -259,10 +259,10 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     setAddressQuery(resolved.formattedAddress)
     setLocationDraft((current) => ({
       ...current,
-      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || current.addressLine1,
-      city: resolved.city || current.city,
+      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || '',
+      city: resolved.city || '',
       region: resolved.region || '',
-      postalCode: resolved.postalCode || current.postalCode,
+      postalCode: resolved.postalCode || '',
       countryCode: resolved.countryCode || 'IE',
     }))
   }
@@ -274,12 +274,16 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       setNotice({ kind: 'error', text: 'Choose the service address from the Google Maps suggestions so routing and geofence checks use a verified location.' })
       return
     }
+    if (!locationDraft.addressLine1.trim() || !locationDraft.city.trim() || !locationDraft.postalCode.trim()) {
+      setNotice({ kind: 'error', text: 'The selected Google Maps address must include a street, city and Eircode/postcode before this location can be saved.' })
+      return
+    }
     setBusy(true)
     try {
       const site = await api<{ id: string }>('/api/sites', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           clientId: client.id,
-          name: locationDraft.name || (client.type === 'residential' ? 'Home' : client.displayName),
+          name: client.type === 'residential' ? 'Home' : locationDraft.name.trim() || client.displayName,
           addressLine1: locationDraft.addressLine1,
           addressLine2: locationDraft.addressLine2 || null,
           city: locationDraft.city,
@@ -359,10 +363,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       })
       setServiceOpen(false)
       setServiceDraft(newServiceDraft(site.id))
-      setNotice({
-        kind: 'success',
-        text: `Service activated as version ${result.versionNumber}. ${result.generatedVisits} future visit${result.generatedVisits === 1 ? '' : 's'} generated; staffing stays visible in Schedule.`,
-      })
+      setNotice({ kind: 'success', text: `Service activated as version ${result.versionNumber}. ${result.generatedVisits} future visit${result.generatedVisits === 1 ? '' : 's'} generated; staffing stays visible in Schedule.` })
       await refresh()
     } catch (error) {
       setNotice({ kind: 'error', text: `${error instanceof Error ? error.message : 'Could not activate this service.'} Nothing was partially created.` })
@@ -413,10 +414,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       })
       setChangeOpen(false)
       setChangeTarget(null)
-      setNotice({
-        kind: 'success',
-        text: `Future service updated. ${result.replacedFutureVisits} planned visit${result.replacedFutureVisits === 1 ? '' : 's'} replaced and ${result.generatedVisits} regenerated. Past work was preserved.`,
-      })
+      setNotice({ kind: 'success', text: `Future service updated. ${result.replacedFutureVisits} planned visit${result.replacedFutureVisits === 1 ? '' : 's'} replaced and ${result.generatedVisits} regenerated. Past work and manually-added extra visits were preserved.` })
       await refresh()
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not apply this future service change.' })
@@ -451,24 +449,11 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     </section>
 
     <div className="client-account-grid">
-      <section className="client-section client-profile-card">
-        <div className="client-section-head"><div><span className="client-eyebrow">Profile</span><h2>Client details</h2></div></div>
-        <div className="client-facts">
-          <div><span>Primary contact</span><strong>{primaryContact?.name ?? 'Not set'}</strong><small>{primaryContact?.email ?? primaryContact?.phone ?? 'No contact detail'}</small></div>
-          <div><span>Billing</span><strong>{client.billingEmail || 'Not set'}</strong><small>{client.phone || 'No client phone'}</small></div>
-        </div>
-      </section>
+      <section className="client-section client-profile-card"><div className="client-section-head"><div><span className="client-eyebrow">Profile</span><h2>Client details</h2></div></div><div className="client-facts"><div><span>Primary contact</span><strong>{primaryContact?.name ?? 'Not set'}</strong><small>{primaryContact?.email ?? primaryContact?.phone ?? 'No contact detail'}</small></div><div><span>Billing</span><strong>{client.billingEmail || 'Not set'}</strong><small>{client.phone || 'No client phone'}</small></div></div></section>
 
       <section className="client-section client-locations-section">
         <div className="client-section-head"><div><span className="client-eyebrow">Locations</span><h2>Where we clean</h2></div>{canManageClients ? <button className="client-text-button" onClick={() => setLocationOpen(true)}>Add location</button> : null}</div>
-        <div className="client-location-list">
-          {client.sites.map((site) => <article className="client-location-card" key={site.id}>
-            <div className="client-location-icon"><OpsIcon name="field" /></div>
-            <div className="client-location-copy"><strong>{site.name}</strong><span>{site.addressLine1}{site.addressLine2 ? `, ${site.addressLine2}` : ''}</span><small>{site.city} · {site.postalCode}</small>{site.access?.entryInstructions ? <p>{site.access.entryInstructions}</p> : null}</div>
-            <div className="client-location-meta"><span>{site.servicePlans.length} service{site.servicePlans.length === 1 ? '' : 's'}</span><small>{site.preferredAssignees.length ? `${site.preferredAssignees.length} preferred cleaner${site.preferredAssignees.length === 1 ? '' : 's'}` : 'Team managed in Schedule'}</small></div>
-          </article>)}
-          {!client.sites.length ? <div className="client-empty"><strong>No service location yet</strong><span>Add the address where cleaning will happen.</span>{canManageClients ? <button className="client-button" onClick={() => setLocationOpen(true)}>Add first location</button> : null}</div> : null}
-        </div>
+        <div className="client-location-list">{client.sites.map((site) => <article className="client-location-card" key={site.id}><div className="client-location-icon"><OpsIcon name="field" /></div><div className="client-location-copy"><strong>{site.name}</strong><span>{site.addressLine1}{site.addressLine2 ? `, ${site.addressLine2}` : ''}</span><small>{site.city} · {site.postalCode}</small>{site.access?.entryInstructions ? <p>{site.access.entryInstructions}</p> : null}</div><div className="client-location-meta"><span>{site.servicePlans.length} service{site.servicePlans.length === 1 ? '' : 's'}</span><small>{site.preferredAssignees.length ? `${site.preferredAssignees.length} preferred cleaner${site.preferredAssignees.length === 1 ? '' : 's'}` : 'Team managed in Schedule'}</small></div></article>)}{!client.sites.length ? <div className="client-empty"><strong>No service location yet</strong><span>Add the verified address where cleaning will happen.</span>{canManageClients ? <button className="client-button" onClick={() => setLocationOpen(true)}>Add first location</button> : null}</div> : null}</div>
       </section>
 
       <section className="client-section client-services-section">
@@ -476,67 +461,27 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
         <div className="client-service-list">
           {client.sites.flatMap((site) => site.servicePlans.map((plan) => {
             const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
-            return <article className="client-service-card" key={plan.id}>
-              <div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'active' ? 'active' : plan.status}`}>{job?.status === 'active' ? 'active' : plan.status}</span></div>
-              <div className="client-service-summary">
-                <div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div>
-                <div><span>Team size</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div>
-                <div><span>Expected</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div>
-                <div><span>Agreement</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div>
-              </div>
-              <div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div>
-              <div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && plan.versions[0] ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div>
-            </article>
+            return <article className="client-service-card" key={plan.id}><div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'active' ? 'active' : plan.status}`}>{job?.status === 'active' ? 'active' : plan.status}</span></div><div className="client-service-summary"><div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div><div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div><div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div><div><span>Contract</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div></div><div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div><div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && plan.versions[0] ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div></article>
           }))}
-          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, people required, duration and cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
+          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
         </div>
       </section>
 
-      <section className="client-section client-schedule-section">
-        <div className="client-section-head"><div><span className="client-eyebrow">Schedule</span><h2>Upcoming work</h2></div></div>
-        <div className="client-visit-list">
-          {data.upcomingVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><div><span>{visit.assignments?.length ?? 0}/{visit.requiredWorkers ?? 0} cleaners</span><small>{visit.status.replaceAll('_', ' ')}</small></div></article>)}
-          {!data.upcomingVisits.length ? <div className="client-empty compact"><strong>No upcoming visits</strong><span>Set up a service or schedule one-off work.</span></div> : null}
-        </div>
-      </section>
+      <section className="client-section client-schedule-section"><div className="client-section-head"><div><span className="client-eyebrow">Schedule</span><h2>Upcoming work</h2></div></div><div className="client-visit-list">{data.upcomingVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><div><span>{visit.assignments?.length ?? 0}/{visit.requiredWorkers ?? 0} cleaners</span><small>{visit.status.replaceAll('_', ' ')}</small></div></article>)}{!data.upcomingVisits.length ? <div className="client-empty compact"><strong>No upcoming visits</strong><span>Set up a service here, or add an extra Visit from Schedule.</span></div> : null}</div></section>
 
-      <section className="client-section client-activity-section">
-        <div className="client-section-head"><div><span className="client-eyebrow">Activity</span><h2>Recent completed work</h2></div></div>
-        <div className="client-visit-list">
-          {data.recentVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><span className="client-state active">completed</span></article>)}
-          {!data.recentVisits.length ? <div className="client-empty compact"><strong>No completed visits yet</strong><span>Completed work will build the client history here.</span></div> : null}
-        </div>
-      </section>
+      <section className="client-section client-activity-section"><div className="client-section-head"><div><span className="client-eyebrow">Activity</span><h2>Recent completed work</h2></div></div><div className="client-visit-list">{data.recentVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><span className="client-state active">completed</span></article>)}{!data.recentVisits.length ? <div className="client-empty compact"><strong>No completed visits yet</strong><span>Completed work will build the client history here.</span></div> : null}</div></section>
     </div>
 
     <DetailDialog open={profileOpen} title="Edit client profile" eyebrow="Client account" onClose={() => setProfileOpen(false)}>
-      <form className="client-dialog-form" onSubmit={saveProfile}>
-        <label>Client name<input required value={profileDraft.displayName} onChange={(event) => setProfileDraft({ ...profileDraft, displayName: event.target.value })} /></label>
-        <label>Legal name <small>Optional</small><input value={profileDraft.legalName} onChange={(event) => setProfileDraft({ ...profileDraft, legalName: event.target.value })} /></label>
-        <div className="client-form-field"><span>Client type</span><StandardSelect value={profileDraft.type} onChange={(value) => setProfileDraft({ ...profileDraft, type: value })} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div>
-        <div className="client-form-pair"><label>Billing email<input type="email" value={profileDraft.billingEmail} onChange={(event) => setProfileDraft({ ...profileDraft, billingEmail: event.target.value })} /></label><label>Phone<input value={profileDraft.phone} onChange={(event) => setProfileDraft({ ...profileDraft, phone: event.target.value })} /></label></div>
-        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setProfileOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save changes</button></div>
-      </form>
+      <form className="client-dialog-form" onSubmit={saveProfile}><label>Client name<input required value={profileDraft.displayName} onChange={(event) => setProfileDraft({ ...profileDraft, displayName: event.target.value })} /></label><label>Legal name <small>Optional</small><input value={profileDraft.legalName} onChange={(event) => setProfileDraft({ ...profileDraft, legalName: event.target.value })} /></label><div className="client-form-field"><span>Client type</span><StandardSelect value={profileDraft.type} onChange={(value) => setProfileDraft({ ...profileDraft, type: value })} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div><div className="client-form-pair"><label>Billing email<input type="email" value={profileDraft.billingEmail} onChange={(event) => setProfileDraft({ ...profileDraft, billingEmail: event.target.value })} /></label><label>Phone<input value={profileDraft.phone} onChange={(event) => setProfileDraft({ ...profileDraft, phone: event.target.value })} /></label></div><div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setProfileOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save changes</button></div></form>
     </DetailDialog>
 
     <DetailDialog open={locationOpen} title="Add service location" eyebrow="Where we clean" onClose={() => setLocationOpen(false)}>
       <form className="client-dialog-form" onSubmit={addLocation}>
-        <label>Location name <small>{client.type === 'residential' ? 'Example: Home' : 'Example: Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={client.type === 'residential' ? 'Home' : 'Site name'} /></label>
-        <GooglePlaceAutocomplete
-          kind="home"
-          label="Service address"
-          value={addressQuery}
-          placeholder="Start typing an address or Eircode…"
-          selected={selectedPlace}
-          onValueChange={(value) => {
-            setAddressQuery(value)
-            if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
-          }}
-          onSelect={selectLocationAddress}
-          helpText="Choose the Google Maps result. Its coordinates are saved for routing and geofence checks."
-        />
-        <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} /></label>
-        <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
+        {client.type === 'residential' ? <div className="client-setup-note"><OpsIcon name="map" /><div><strong>Location: Home</strong><span>Residential locations use Home automatically. Confirm the verified address below.</span></div></div> : <label>Location name <small>Optional · e.g. Ranelagh Clinic</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder="Site name" /></label>}
+        <GooglePlaceAutocomplete kind="home" label="Service address" value={addressQuery} placeholder="Start typing an address or Eircode…" selected={selectedPlace} onValueChange={(value) => { setAddressQuery(value); if (selectedPlace && value !== selectedPlace.formattedAddress) { setSelectedPlace(null); setLocationDraft((current) => ({ ...current, addressLine1: '', city: '', region: '', postalCode: '' })) } }} onSelect={selectLocationAddress} helpText="Required · choose the Google Maps result. Its verified coordinates power Map, routing and geofence checks." />
+        <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} placeholder="Unit, floor or building detail" /></label>
+        <div className="client-form-pair"><label>City <small>From Google Maps</small><input readOnly aria-readonly="true" value={locationDraft.city} placeholder="Select an address above" /></label><label>Eircode / postcode <small>From Google Maps</small><input readOnly aria-readonly="true" value={locationDraft.postalCode} placeholder="Select an address above" /></label></div>
         <label>Entry notes <small>Optional · door, reception, keys</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} /></label>
         <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setLocationOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>Save verified location</button></div>
       </form>
@@ -544,7 +489,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
 
     <DetailDialog open={serviceOpen} title="Set up cleaning service" eyebrow="Simple service setup" onClose={() => setServiceOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={activateService}>
-        <div className="client-setup-note"><OpsIcon name="check" /><div><strong>One setup, one atomic operation</strong><span>Contract, service version, recurrence and future visits are created together. If setup fails, no partial service is left behind.</span></div></div>
+        <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Define the service once</strong><span>Diamond creates the contract, protected service version and future Visits behind the scenes.</span></div></div>
         <div className="client-form-field"><span>Location</span><StandardSelect searchable={client.sites.length > 8} value={serviceDraft.siteId} onChange={(value) => setServiceDraft({ ...serviceDraft, siteId: value })} ariaLabel="Service location" placeholder="Select location" searchPlaceholder="Search location…" options={client.sites.map((site) => ({ value: site.id, label: site.name, description: `${site.city} · ${site.postalCode}` }))} /></div>
         <label>Service name<input required value={serviceDraft.serviceName} onChange={(event) => setServiceDraft({ ...serviceDraft, serviceName: event.target.value })} /></label>
         <div className="client-form-pair"><label>Service starts<input required type="date" value={serviceDraft.startDate} onChange={(event) => setServiceDraft({ ...serviceDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={serviceDraft.startDate} value={serviceDraft.endDate} onChange={(event) => setServiceDraft({ ...serviceDraft, endDate: event.target.value })} /></label></div>
@@ -558,7 +503,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
 
     <DetailDialog open={changeOpen} title="Change cleaning service" eyebrow="Future service change" onClose={() => setChangeOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={applyServiceChange}>
-        <div className="client-change-note"><OpsIcon name="calendar" /><div><strong>Past work stays exactly as recorded</strong><span>The current service remains valid until the effective date. Only future planned visits from that point are replaced.</span></div></div>
+        <div className="client-change-note"><OpsIcon name="calendar" /><div><strong>Past work and extra Visits stay exactly as recorded</strong><span>The current service remains valid until the effective date. Only future Visits generated by the recurring rule are replaced.</span></div></div>
         <div className="client-change-current"><span>Current service</span><strong>{changeTarget?.plan.name ?? ''}</strong><small>{changeTarget?.site.name ?? ''} · version {changeTarget?.plan.versions[0]?.versionNumber ?? '—'}</small></div>
         <div className="client-form-pair"><label>Effective from<input required type="date" min={localDateInput()} value={changeDraft.startDate} onChange={(event) => setChangeDraft({ ...changeDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={changeDraft.startDate} value={changeDraft.endDate} onChange={(event) => setChangeDraft({ ...changeDraft, endDate: event.target.value })} /></label></div>
         <div className="client-form-pair"><div className="client-form-field"><span>Frequency</span><StandardSelect value={changeDraft.frequency} onChange={(value) => setChangeDraft({ ...changeDraft, frequency: value as Frequency })} ariaLabel="Service frequency" options={FREQUENCY_OPTIONS} /></div><label>Preferred time<input required type="time" value={changeDraft.time} onChange={(event) => setChangeDraft({ ...changeDraft, time: event.target.value })} /></label></div>
