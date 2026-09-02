@@ -89,5 +89,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     locationRisk: assessment.risk,
     repeatedLocationPatternCount: pattern.count,
   }, user.organizationId)
-  return NextResponse.json({ ok: true, data: updated, location: assessment, pattern })
+  return NextResponse.json({
+    ok: true,
+    data: { ...updated, location: assessment, pattern },
+    location: assessment,
+    pattern,
+  })
 }
