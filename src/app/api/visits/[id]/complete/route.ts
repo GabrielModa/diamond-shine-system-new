@@ -4,8 +4,6 @@ import { requireCapability } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { assignedVisitFilter } from '../../../../../modules/execution/access'
-import { assessLocation } from '../../../../../modules/execution/location'
-import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { completeVisitSchema } from '../../../../../modules/execution/schemas'
 
 function evidencePhase(metadata: Prisma.JsonValue): string | null {
@@ -37,6 +35,40 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'This visit cannot be completed.', code: 'VISIT_NOT_COMPLETABLE' }, { status: 409 })
   }
 
+  // Clock-out and visit submission are intentionally separate product actions.
+  // A cleaner records their end location by stopping the timer first. Only when
+  // every visit timer is closed can the service itself be submitted for review.
+  const runningTimers = await prisma.timeEntry.findMany({
+    where: {
+      organizationId: auth.user.organizationId,
+      visitId: visit.id,
+      kind: 'visit',
+      status: 'running',
+    },
+    select: {
+      id: true,
+      userId: true,
+      startedAt: true,
+      user: { select: { name: true, email: true } },
+    },
+    orderBy: { startedAt: 'asc' },
+  })
+  if (runningTimers.length) {
+    const ownTimerRunning = runningTimers.some((timer) => timer.userId === auth.user.id)
+    return NextResponse.json({
+      ok: false,
+      error: ownTimerRunning
+        ? 'Stop your timer before submitting this visit.'
+        : 'A teammate still has an active timer. The visit can be submitted after every team timer is stopped.',
+      code: 'VISIT_TIMERS_STILL_RUNNING',
+      data: {
+        count: runningTimers.length,
+        ownTimerRunning,
+        workers: runningTimers.map((timer) => timer.user.name ?? timer.user.email),
+      },
+    }, { status: 409 })
+  }
+
   const resultByTaskId = new Map(visit.taskResults.map((result) => [result.versionTaskId, result]))
   const blockers: Array<{ code: string; taskId?: string; label: string }> = []
   for (const task of visit.servicePlanVersion.tasks) {
@@ -60,6 +92,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       blockers.push({ code: 'PROBLEM_PHOTO_REQUIRED', taskId: result.id, label: task.title })
     }
   }
+
   const policy = visit.job.servicePlan.evidencePolicy
   const photos = visit.evidenceAssets.filter((asset) => asset.kind === 'photo')
   if (policy) {
@@ -79,92 +112,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   for (const incident of visit.incidents.filter((item) => item.severity === 'critical')) {
     blockers.push({ code: 'CRITICAL_INCIDENT_OPEN', label: incident.title })
   }
+
   if (blockers.length) {
     if (visit.status !== 'completion_blocked') {
       await prisma.visit.update({ where: { id: visit.id }, data: { status: 'completion_blocked', version: { increment: 1 } } })
     }
     return NextResponse.json({
       ok: false,
-      error: 'Complete the required visit items before finishing.',
+      error: 'Complete the required visit items before submitting.',
       code: 'VISIT_COMPLETION_BLOCKED',
       blockers,
     }, { status: 409 })
   }
 
   const completedAt = parsed.data.completedAt ?? parsed.data.capturedAt ?? new Date()
-  const actorTimer = await prisma.timeEntry.findFirst({
-    where: { organizationId: auth.user.organizationId, visitId: visit.id, userId: auth.user.id, status: 'running' },
+  const updated = await prisma.visit.update({
+    where: { id: visit.id },
+    data: { status: 'completed', completedAt, version: { increment: 1 } },
+    include: { taskResults: true, evidenceAssets: true, incidents: true },
   })
-  const assessment = actorTimer ? assessLocation(visit.site, parsed.data) : null
-  const pattern = actorTimer && assessment
-    ? await repeatedLocationPattern({
-        organizationId: auth.user.organizationId,
-        userId: auth.user.id,
-        siteId: visit.siteId,
-        kind: 'clock_out',
-        capturedAt: completedAt,
-        coordinates: parsed.data,
-        assessment,
-      })
-    : null
-  const otherRunningTimers = await prisma.timeEntry.count({
-    where: { organizationId: auth.user.organizationId, visitId: visit.id, status: 'running', userId: { not: auth.user.id } },
-  })
-  const updated = await prisma.$transaction(async (tx) => {
-    if (actorTimer) {
-      const durationSeconds = Math.max(0, Math.round((completedAt.getTime() - actorTimer.startedAt.getTime()) / 1000))
-      const locationReviewReason = pattern?.triggered
-        ? 'REPEATED_LOCATION_PATTERN'
-        : assessment?.reviewRequired ? assessment.reason : null
-      const reviewReasons = [actorTimer.reviewReason, locationReviewReason].filter(Boolean)
-      await tx.timeEntry.update({
-        where: { id: actorTimer.id },
-        data: {
-          status: reviewReasons.length ? 'needs_review' : 'completed',
-          endedAt: completedAt,
-          durationSeconds,
-          endLatitude: parsed.data.latitude,
-          endLongitude: parsed.data.longitude,
-          endAccuracyM: parsed.data.accuracyM,
-          endDistanceM: assessment?.distanceM,
-          endLocationClass: assessment?.classification,
-          reviewReason: reviewReasons.join(', ') || null,
-        },
-      })
-      if (parsed.data.latitude != null && parsed.data.longitude != null && assessment) {
-        await tx.locationEvent.create({
-          data: {
-            organizationId: auth.user.organizationId,
-            visitId: visit.id,
-            timeEntryId: actorTimer.id,
-            kind: 'clock_out',
-            latitude: parsed.data.latitude,
-            longitude: parsed.data.longitude,
-            accuracyM: parsed.data.accuracyM,
-            distanceM: assessment.distanceM,
-            classification: assessment.classification,
-            capturedAt: completedAt,
-            source: parsed.data.source,
-          },
-        })
-      }
-    }
-    return tx.visit.update({
-      where: { id: visit.id },
-      data: { status: 'completed', completedAt, version: { increment: 1 } },
-      include: { taskResults: true, evidenceAssets: true, incidents: true },
-    })
-  })
+
   await logAudit(auth.user.email, 'complete_visit', 'visit', visit.id, {
-    actorTimeEntryId: actorTimer?.id,
-    otherRunningTimers,
-    endLocationClass: assessment?.classification,
-    locationRisk: assessment?.risk,
-    repeatedLocationPatternCount: pattern?.count ?? 0,
+    submittedAt: completedAt,
+    runningTimersAtSubmission: 0,
   }, auth.user.organizationId)
-  return NextResponse.json({
-    ok: true,
-    data: updated,
-    warnings: otherRunningTimers ? [{ code: 'TEAM_TIMERS_STILL_RUNNING', count: otherRunningTimers }] : [],
-  })
+
+  return NextResponse.json({ ok: true, data: updated }, { status: 200 })
 }
