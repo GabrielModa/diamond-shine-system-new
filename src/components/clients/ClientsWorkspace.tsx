@@ -34,6 +34,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
   const [step, setStep] = useState<1 | 2>(1)
+  const [createdClientId, setCreatedClientId] = useState<string | null>(null)
   const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '', phone: '' })
   const [locationDraft, setLocationDraft] = useState({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
 
@@ -58,6 +59,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
 
   function resetCreate() {
     setStep(1)
+    setCreatedClientId(null)
     setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '', phone: '' })
     setLocationDraft({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
   }
@@ -69,27 +71,32 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
       return
     }
     setBusy(true)
+    let clientId = createdClientId
     try {
-      const client = await api<{ id: string }>('/api/clients', {
-        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          displayName: clientDraft.displayName,
-          legalName: clientDraft.legalName || null,
-          type: clientDraft.type,
-          billingEmail: clientDraft.billingEmail || null,
-          phone: clientDraft.phone || null,
-          contacts: clientDraft.contactName ? [{
-            name: clientDraft.contactName,
-            email: clientDraft.contactEmail || null,
-            phone: clientDraft.contactPhone || null,
-            isPrimary: true,
-          }] : [],
-        }),
-      })
+      if (!clientId) {
+        const client = await api<{ id: string }>('/api/clients', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+            displayName: clientDraft.displayName,
+            legalName: clientDraft.legalName || null,
+            type: clientDraft.type,
+            billingEmail: clientDraft.billingEmail || null,
+            phone: clientDraft.phone || null,
+            contacts: clientDraft.contactName ? [{
+              name: clientDraft.contactName,
+              email: clientDraft.contactEmail || null,
+              phone: clientDraft.contactPhone || null,
+              isPrimary: true,
+            }] : [],
+          }),
+        })
+        clientId = client.id
+        setCreatedClientId(client.id)
+      }
 
       if (locationDraft.addNow) {
         await api('/api/sites', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            clientId: client.id,
+            clientId,
             name: locationDraft.name || (clientDraft.type === 'residential' ? 'Home' : clientDraft.displayName),
             addressLine1: locationDraft.addressLine1,
             addressLine2: locationDraft.addressLine2 || null,
@@ -104,11 +111,16 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         })
       }
 
+      const destination = `/clients/${clientId}${locationDraft.addNow ? '?setup=1' : ''}`
       resetCreate()
       setCreateOpen(false)
-      window.location.assign(`/clients/${client.id}${locationDraft.addNow ? '?setup=1' : ''}`)
+      window.location.assign(destination)
     } catch (error) {
-      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not create the client account.' })
+      setNotice({
+        kind: 'error',
+        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client was already saved; retry will continue from the location step without creating a duplicate.' : ''}`,
+      })
+      await refresh()
     } finally { setBusy(false) }
   }
 
@@ -155,6 +167,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
           <div className="client-form-pair"><label>Primary contact <small>Optional</small><input value={clientDraft.contactName} onChange={(event) => setClientDraft({ ...clientDraft, contactName: event.target.value })} /></label><label>Contact email <small>Optional</small><input type="email" value={clientDraft.contactEmail} onChange={(event) => setClientDraft({ ...clientDraft, contactEmail: event.target.value })} /></label></div>
           <div className="client-form-pair"><label>Contact phone <small>Optional</small><input value={clientDraft.contactPhone} onChange={(event) => setClientDraft({ ...clientDraft, contactPhone: event.target.value })} /></label><label>Billing email <small>Optional</small><input type="email" value={clientDraft.billingEmail} onChange={(event) => setClientDraft({ ...clientDraft, billingEmail: event.target.value })} /></label></div>
         </> : <>
+          {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client saved</strong><span>This step is resumable. Retrying only adds the location; it will not create the client twice.</span></div></div> : null}
           <label className="clients-create-option"><input type="checkbox" checked={locationDraft.addNow} onChange={(event) => setLocationDraft({ ...locationDraft, addNow: event.target.checked })} /><span><strong>Add the first service location now</strong><span>You can skip this and add locations later from the client account.</span></span></label>
           {locationDraft.addNow ? <>
             <label>Location name <small>{clientDraft.type === 'residential' ? 'Usually Home' : 'Example: Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={clientDraft.type === 'residential' ? 'Home' : 'Site name'} /></label>
@@ -164,7 +177,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
             <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
           </> : null}
         </>}
-        <div className="client-dialog-actions">{step === 2 ? <button type="button" className="client-button-secondary" onClick={() => setStep(1)}>Back</button> : <button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button>}<button className="client-button" disabled={busy}>{step === 1 ? 'Continue' : busy ? 'Creating…' : locationDraft.addNow ? 'Create & set up service' : 'Create client'}</button></div>
+        <div className="client-dialog-actions">{step === 2 && !createdClientId ? <button type="button" className="client-button-secondary" onClick={() => setStep(1)}>Back</button> : step === 1 ? <button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button> : <button type="button" className="client-button-secondary" onClick={() => createdClientId && window.location.assign(`/clients/${createdClientId}`)}>Finish later</button>}<button className="client-button" disabled={busy}>{step === 1 ? 'Continue' : busy ? 'Saving…' : locationDraft.addNow ? createdClientId ? 'Retry location' : 'Create & set up service' : 'Create client'}</button></div>
       </form>
     </DetailDialog>
   </main>
