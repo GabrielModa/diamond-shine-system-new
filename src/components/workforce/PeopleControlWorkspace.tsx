@@ -22,6 +22,6 @@ export default function PeopleControlWorkspace({ mode }: { mode: Mode }) {
 
     {mode === 'live'
       ? <main className="page-shell"><WorkforceLiveNow /></main>
-      : <WorkforceWorkspace initialTab="coverage" showViewTabs={false} />}
+      : <WorkforceWorkspace initialTab="coverage" showViewTabs={false} showHeader={false} />}
   </>
 }
