@@ -8,10 +8,10 @@ type NavSection = 'control' | 'analytics' | 'admin' | 'workspace'
 type NavItem = { label: string; href: string; section: NavSection }
 
 const groups: Array<{ section: NavSection; label: string; description: string }> = [
-  { section: 'control', label: 'Run operations', description: 'Plan the team, run today’s work, review execution, time and materials.' },
-  { section: 'analytics', label: 'Analytics', description: 'Service performance, quality, feedback and operational signals.' },
-  { section: 'admin', label: 'Manage business', description: 'Clients, people access and the audit trail.' },
-  { section: 'workspace', label: 'My workspace', description: 'Personal requests and follow-up.' },
+  { section: 'control', label: 'Run operations', description: 'Plan, cover and deliver work. Control materials and close recorded time.' },
+  { section: 'analytics', label: 'Quality & insights', description: 'Understand operational risk, team performance and delivered quality.' },
+  { section: 'admin', label: 'Manage business', description: 'Maintain clients, people access and governance records.' },
+  { section: 'workspace', label: 'My workspace', description: 'Your inbox, submitted requests and profile.' },
 ]
 
 export default function TopNav({ items }: { items: NavItem[] }) {
