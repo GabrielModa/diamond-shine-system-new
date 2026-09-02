@@ -2,6 +2,7 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import ListControls from '../ui/ListControls'
+import StandardSelect from '../ui/StandardSelect'
 
 type Tab = 'overview' | 'count' | 'request' | 'history'
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -86,7 +87,9 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
   </main>
 }
 
-function SiteSelect({ sites, siteId, setSiteId }: { sites: Site[]; siteId: string; setSiteId: (value: string) => void }) { return <label>Client site<select value={siteId} onChange={(event) => setSiteId(event.target.value)}>{sites.map((site) => <option key={site.id} value={site.id}>{site.client.displayName} · {site.name}</option>)}</select></label> }
+function SiteSelect({ sites, siteId, setSiteId }: { sites: Site[]; siteId: string; setSiteId: (value: string) => void }) {
+  return <div className="materials-select-field"><span>Client site</span><StandardSelect searchable={sites.length > 8} value={siteId} onChange={setSiteId} ariaLabel="Client site" placeholder="Select site" searchPlaceholder="Search client or site…" options={sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))} /></div>
+}
 function RequestList({ requests, canManage, onAdvance, onRepeat, busyId }: { requests: Supply[]; canManage: boolean; onAdvance: (request: Supply, status: string) => Promise<void>; onRepeat: (request: Supply) => void; busyId: string | null }) {
   if (!requests.length) return <p className="muted empty-copy">No requests in this view.</p>
   return <div className="materials-list scroll-list">{requests.map((request) => { const overdue = Boolean(request.dueAt && new Date(request.dueAt) < new Date() && !CLOSED.has(request.status)); const next = NEXT_STATUS[request.status]; return <article className={`request-row${overdue ? ' request-overdue' : ''}`} key={request.id}><div className="request-row-top"><span className={`priority-dot ${request.priority}`} /><strong>{request.clientLocation}</strong><span className={`status-chip supply-${request.status.toLowerCase().replaceAll(' ','-')}`}>{request.status}</span></div><p>{request.items.map((item) => `${item.product} × ${item.quantity}`).join(' · ')}</p><small>{request.source === 'stock_count' ? 'Auto-detected from count' : 'Manual request'} · {new Date(request.createdAt).toLocaleString('en-IE')}{request.assignedTo ? ` · owner ${request.assignedTo}` : ''}{overdue ? ' · OVERDUE' : ''}</small><div className="request-actions">{canManage && next ? <button type="button" className="btn-primary compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, next)}>{busyId === request.id ? 'Updating…' : `Mark ${next}`}</button> : null}{!CLOSED.has(request.status) && request.status === 'Requested' ? <button type="button" className="btn-ghost danger compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, 'Cancelled')}>Cancel</button> : null}<button type="button" className="btn-secondary compact" onClick={() => onRepeat(request)}>Repeat request</button></div>{request.history?.length ? <details className="request-history"><summary>History ({request.history.length})</summary>{request.history.map((event) => <div key={event.id}><b>{event.toStatus}</b><span>{new Date(event.createdAt).toLocaleString('en-IE')} · {event.actorEmail}</span>{event.note ? <small>{event.note}</small> : null}</div>)}</details> : null}</article> })}</div>
