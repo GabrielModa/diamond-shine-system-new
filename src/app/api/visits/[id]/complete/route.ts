@@ -5,6 +5,7 @@ import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { assignedVisitFilter } from '../../../../../modules/execution/access'
 import { assessLocation } from '../../../../../modules/execution/location'
+import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { completeVisitSchema } from '../../../../../modules/execution/schemas'
 
 function evidencePhase(metadata: Prisma.JsonValue): string | null {
@@ -95,16 +96,27 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     where: { organizationId: auth.user.organizationId, visitId: visit.id, userId: auth.user.id, status: 'running' },
   })
   const assessment = actorTimer ? assessLocation(visit.site, parsed.data) : null
+  const pattern = actorTimer && assessment
+    ? await repeatedLocationPattern({
+        organizationId: auth.user.organizationId,
+        userId: auth.user.id,
+        siteId: visit.siteId,
+        kind: 'clock_out',
+        capturedAt: completedAt,
+        coordinates: parsed.data,
+        assessment,
+      })
+    : null
   const otherRunningTimers = await prisma.timeEntry.count({
     where: { organizationId: auth.user.organizationId, visitId: visit.id, status: 'running', userId: { not: auth.user.id } },
   })
   const updated = await prisma.$transaction(async (tx) => {
     if (actorTimer) {
       const durationSeconds = Math.max(0, Math.round((completedAt.getTime() - actorTimer.startedAt.getTime()) / 1000))
-      const reviewReasons = [
-        actorTimer.reviewReason,
-        assessment?.reviewRequired ? assessment.reason : null,
-      ].filter(Boolean)
+      const locationReviewReason = pattern?.triggered
+        ? 'REPEATED_LOCATION_PATTERN'
+        : assessment?.reviewRequired ? assessment.reason : null
+      const reviewReasons = [actorTimer.reviewReason, locationReviewReason].filter(Boolean)
       await tx.timeEntry.update({
         where: { id: actorTimer.id },
         data: {
@@ -147,6 +159,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     actorTimeEntryId: actorTimer?.id,
     otherRunningTimers,
     endLocationClass: assessment?.classification,
+    locationRisk: assessment?.risk,
+    repeatedLocationPatternCount: pattern?.count ?? 0,
   }, auth.user.organizationId)
   return NextResponse.json({
     ok: true,
