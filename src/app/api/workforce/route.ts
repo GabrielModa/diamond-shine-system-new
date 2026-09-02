@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireCapability } from '../../../lib/auth'
-import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
+import { ACTIVE_ASSIGNMENT_STATUSES, activeAssignmentCount } from '../../../modules/scheduling/assignment-lifecycle'
 import { resolveWorkforcePeriod } from '../../../lib/workforce-period'
 import { prisma } from '../../../lib/prisma'
 import { haversineKm } from '../../../lib/workforce-profiles'
@@ -64,7 +64,7 @@ export async function GET(request: NextRequest) {
     prisma.visit.findMany({
       where: { organizationId, scheduledStart: { gte: visitQueryFrom, lte: visitQueryTo } },
       select: {
-        id: true, status: true, scheduledStart: true, scheduledEnd: true,
+        id: true, status: true, scheduledStart: true, scheduledEnd: true, requiredWorkers: true,
         site: {
           select: {
             id: true, name: true, city: true, addressLine1: true, latitude: true, longitude: true,
@@ -265,7 +265,7 @@ export async function GET(request: NextRequest) {
     const assignedEmployeeIds = Array.from(new Set(upcomingVisits.flatMap((visit) =>
       visit.assignments.filter((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status)).map((assignment) => assignment.userId))))
     const needsStaff = upcomingVisits.some((visit) =>
-      !visit.assignments.some((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status)))
+      activeAssignmentCount(visit.assignments) < visit.requiredWorkers)
 
     return {
       ...site,
@@ -279,6 +279,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({ ok: true, data: {
     generatedAt: now,
+    timezone,
     period: { from: period.from, to: period.to, preset: period.label, weekdays: periodWeekdays },
     summary: {
       employees: employees.length,

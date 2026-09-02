@@ -9,6 +9,7 @@ export type LiveVisitWindow = {
 
 export type LiveStatusInput = {
   now: Date
+  setupRequired?: boolean
   contextState: 'home' | 'school' | 'personal_leave' | 'recurring_unavailability' | 'temporary_unavailability'
   runningEntry?: {
     startedAt: Date
@@ -80,6 +81,10 @@ export function resolveWorkforceLiveStatus(input: LiveStatusInput) {
 
   if (input.contextState === 'school') {
     return { state: 'expected_school' as const, signalState: 'not_expected' as const, attention: false, attentionReason: null }
+  }
+
+  if (input.setupRequired) {
+    return { state: 'unavailable' as const, signalState: 'not_expected' as const, attention: false, attentionReason: 'Workforce setup is required before scheduling.' }
   }
 
   if (['personal_leave', 'recurring_unavailability', 'temporary_unavailability'].includes(input.contextState)) {

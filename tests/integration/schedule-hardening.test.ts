@@ -70,6 +70,26 @@ async function createOneOff(planId: string, input?: { assigneeIds?: string[]; st
 }
 
 describe('schedule hardening', () => {
+  it('People site coverage agrees with Schedule Health for a partially staffed visit', async () => {
+    const plan = await publishedPlan(2)
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const start = new Date(Date.now() + 86_400_000)
+    const visit = await createOneOff(plan.id, { startAt: start.toISOString(), assigneeIds: [employee.id] })
+    const updated = await request(app).patch(`/api/visits/${visit.id}`).set('Cookie', adminCookie).send({ version: visit.version, assigneeIds: [employee.id], dispatchNotes: 'One cleaner confirmed; still recruiting the second.' })
+    expect(updated.status).toBe(200)
+    const people = await request(app).get('/api/workforce?range=week').set('Cookie', adminCookie)
+    expect(people.status).toBe(200)
+    expect(people.body.data.sites.find((site: { id: string }) => site.id === visit.siteId).coverageState).toBe('needs_staff')
+    const health = await request(app).get(`/api/schedule-health?from=${start.toISOString()}&to=${new Date(start.getTime() + 86_400_000).toISOString()}&employeeId=${employee.id}`).set('Cookie', adminCookie)
+    expect(health.status).toBe(200)
+    expect(health.body.data.summary.needsStaff).toBe(1)
+    await createOneOff(plan.id, { startAt: new Date(start.getTime() + 3_600_000).toISOString() })
+    const global = await request(app).get(`/api/schedule-health?from=${start.toISOString()}&to=${new Date(start.getTime() + 86_400_000).toISOString()}`)
+      .set('Cookie', adminCookie).set('Referer', `http://localhost/schedule?employee=${employee.id}`)
+    expect(global.body.data.summary.unassigned).toBe(1)
+    const unassigned = await request(app).get(`/api/schedule-health?from=${start.toISOString()}&to=${new Date(start.getTime() + 86_400_000).toISOString()}&unassigned=true`).set('Cookie', adminCookie)
+    expect(unassigned.body.data.summary).toMatchObject({ visits: 1, unassigned: 1, needsStaff: 0, conflicts: 0 })
+  })
   it('rejects manual visit assignment during recurring weekly unavailability', async () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })

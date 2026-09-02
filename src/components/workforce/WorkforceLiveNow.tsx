@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import WorkforceLiveMap from './WorkforceLiveMap'
 import WorkforceLiveIcon, { type WorkforceLiveIconName } from './WorkforceLiveIcon'
 import type { LiveData, LiveEmployee, LiveFilter } from './live-types'
@@ -99,23 +99,29 @@ export default function WorkforceLiveNow() {
   const [query, setQuery] = useState('')
   const [selectedId, setSelectedId] = useState('')
   const [clock, setClock] = useState(() => Date.now())
+  const requestRef = useRef<AbortController | null>(null)
 
   const refresh = useCallback(async (quiet = false) => {
+    requestRef.current?.abort()
+    const controller = new AbortController()
+    requestRef.current = controller
     if (!quiet) setLoading(true)
     setError('')
     try {
-      const response = await fetch('/api/workforce/live', { cache: 'no-store', credentials: 'include' })
+      const response = await fetch('/api/workforce/live', { cache: 'no-store', credentials: 'include', signal: controller.signal })
       const body = await response.json()
       if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not load live workforce status.')
-      setData(body.data as LiveData)
+      if (!controller.signal.aborted) setData(body.data as LiveData)
     } catch (caught) {
+      if (controller.signal.aborted) return
+      setData(null)
       setError(caught instanceof Error ? caught.message : 'Could not load live workforce status.')
     } finally {
-      if (!quiet) setLoading(false)
+      if (!controller.signal.aborted) setLoading(false)
     }
   }, [])
 
-  useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => { void refresh(); return () => requestRef.current?.abort() }, [refresh])
   useEffect(() => {
     const timer = window.setInterval(() => void refresh(true), 20_000)
     const onFocus = () => void refresh(true)

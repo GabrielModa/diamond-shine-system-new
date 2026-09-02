@@ -177,6 +177,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       }, { status: 409 })
     }
 
+    const organization = await prisma.organization.findUnique({ where: { id: auth.user.organizationId }, select: { timezone: true } })
+    const workforceTimezone = organization?.timezone ?? 'Europe/Dublin'
     const workforceConflicts = members.flatMap((membership) => {
       const profile = membership.user.workforceProfile
       const conflict = workforceConstraintForWindow(profile ? {
@@ -188,7 +190,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
           endsAt: leave.endsAt,
           reason: leave.reason,
         })),
-      } : null, start, end, current.timezone)
+      } : null, start, end, workforceTimezone)
       return conflict ? [{ userId: membership.user.id, user: membership.user.name ?? membership.user.email, ...conflict }] : []
     })
     if (workforceConflicts.length) {

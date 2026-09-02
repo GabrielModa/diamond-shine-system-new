@@ -9,6 +9,9 @@ const visit = {
 }
 
 describe('workforce live status', () => {
+  it('does not advertise unconfigured workforce as available to schedule', () => {
+    expect(resolveWorkforceLiveStatus({ now, contextState: 'home', setupRequired: true })).toMatchObject({ state: 'unavailable' })
+  })
   it('keeps an active timer on job while surfacing stale-signal attention separately', () => {
     expect(resolveWorkforceLiveStatus({
       now,

@@ -226,6 +226,7 @@ export async function GET(request: NextRequest) {
 
     const live = resolveWorkforceLiveStatus({
       now,
+      setupRequired,
       contextState,
       runningEntry: running ? {
         startedAt: running.startedAt,

@@ -57,6 +57,24 @@ async function publishedPlan() {
 }
 
 describe('schedule capacity preview', () => {
+  it('uses the organization school timezone in both capacity and PATCH even when visit timezone differs', async () => {
+    const plan = await publishedPlan()
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })
+    await prisma.studySchedule.create({ data: { organizationId: profile.organizationId, profileId: profile.id, dayOfWeek: 1, startsMinute: 540, endsMinute: 720 } })
+    const start = '2026-08-24T08:30:00.000Z'
+    const end = '2026-08-24T09:30:00.000Z'
+    const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({ servicePlanId: plan.id, name: 'Different site timezone', startAt: start, durationMinutes: 60, recurrence: { frequency: 'once' }, assigneeIds: [] })
+    expect(created.status).toBe(201)
+    const visit = await prisma.visit.findFirstOrThrow({ where: { scheduledStart: new Date(start) } })
+    await prisma.visit.update({ where: { id: visit.id }, data: { timezone: 'America/New_York' } })
+    const capacity = await request(app).post('/api/schedule-capacity').set('Cookie', adminCookie).send({ userIds: [employee.id], windows: [{ start, end }] })
+    expect(capacity.status).toBe(200)
+    expect(capacity.body.data.windows[0].available).toBe(0)
+    const updated = await request(app).patch(`/api/visits/${visit.id}`).set('Cookie', adminCookie).send({ version: visit.version, assigneeIds: [employee.id] })
+    expect(updated.status).toBe(409)
+    expect(updated.body.code).toBe('ASSIGNEE_WORKFORCE_CONSTRAINT')
+  })
   it('uses the same recurring workforce rule that visit PATCH enforces', async () => {
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const profile = await prisma.workforceProfile.findUniqueOrThrow({ where: { userId: employee.id } })

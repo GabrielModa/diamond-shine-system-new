@@ -39,7 +39,7 @@ export async function buildDefaultTeamAllocator(
     }
   }
 
-  const [memberships, availability, assignments] = await Promise.all([
+  const [memberships, availability, assignments, organization] = await Promise.all([
     db.membership.findMany({
       where: {
         organizationId: input.organizationId,
@@ -80,6 +80,7 @@ export async function buildDefaultTeamAllocator(
       },
       select: { userId: true, visit: { select: { scheduledStart: true, scheduledEnd: true } } },
     }),
+    db.organization.findUnique({ where: { id: input.organizationId }, select: { timezone: true } }),
   ])
 
   const byUser = new Map((memberships as Member[]).map((membership) => [membership.user.id, membership]))
@@ -105,7 +106,7 @@ export async function buildDefaultTeamAllocator(
         endsAt: leave.endsAt,
         reason: leave.reason,
       })),
-    }, start, end, input.timezone)
+    }, start, end, organization?.timezone ?? 'Europe/Dublin')
     if (workforceConflict) return false
     return !(occupied.get(userId) ?? []).some((window) => intervalsOverlap(start, end, window.start, window.end))
   }
