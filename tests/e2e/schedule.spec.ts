@@ -11,6 +11,62 @@ async function loginAsAdmin(page: Page) {
   await expect(page.locator('[data-health-filter="conflicts"] .schedule-health-stat-main')).toBeVisible({ timeout: 15_000 })
 }
 
+test('attention overview deduplicates visits, preserves colours and exposes work without a date', async ({ page }, testInfo) => {
+  const worker = (id: string) => ({ id, name: id, email: `${id}@example.test`, role: 'employee' })
+  const makeVisit = (id: string, start: number, employee: string, status = 'acknowledged', requiredWorkers = 1) => ({
+    id, scheduledStart: `2026-09-02T${start}:00:00Z`, scheduledEnd: `2026-09-02T${start + 2}:00:00Z`,
+    status: 'scheduled', version: 1, requiredWorkers, site: { name: id, city: 'Dublin', client: { displayName: id } },
+    job: { name: 'Attention test' }, assignments: [{ status, user: worker(employee) }],
+  })
+  const visits = [makeVisit('Shared gap', 10, 'a', 'notified', 2), makeVisit('Overlap', 11, 'a'), makeVisit('Pending', 14, 'b', 'notified'), makeVisit('Healthy', 17, 'c')]
+  const reply = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
+  await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
+  await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
+  await page.route('**/api/team', (route) => route.fulfill(reply(['a', 'b', 'c'].map(worker))))
+  await page.route('**/api/schedule-health?**', (route) => route.fulfill(reply({ summary: { visits: 4, covered: 1, needsStaff: 1, unassigned: 0, missingSchedule: 0, unscheduledServices: 1, paused: 0, conflicts: 1, unacknowledged: 2 }, items: [
+    { id: 'gap', visitId: 'Shared gap', state: 'needs_staff', clientName: 'Shared gap', detail: '1/2 assigned' },
+    { id: 'conflict', visitId: 'Shared gap', state: 'cleaner_overlap', clientName: 'Shared gap', detail: 'Shared worker', conflict: { workerId: 'a', workerName: 'a', otherVisitId: 'Overlap', otherClientName: 'Overlap', otherSiteName: 'Overlap', otherScheduledStart: visits[1].scheduledStart, otherScheduledEnd: visits[1].scheduledEnd, overlapMinutes: 60 } },
+    { id: 'unscheduled', state: 'unscheduled_service', servicePlanId: 'plan-without-date', clientName: 'Undated service', detail: 'Schedule setup needed' },
+  ] })))
+  await page.goto('/schedule?date=2026-09-02&view=week')
+  await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toHaveClass(/selected/)
+  await expect(page.locator('.visit-card')).toHaveCount(3)
+  await expect(page.getByText('3 visits need attention · each visit is counted once', { exact: true })).toBeVisible()
+  const gap = page.locator('.visit-card').filter({ hasText: 'Shared gap' })
+  await expect(gap).toHaveCount(1)
+  await expect(gap).toContainText('Conflict')
+  await expect(gap).toContainText('Team needed')
+  await expect(gap).toContainText('Awaiting confirmation')
+  const originalColour = await gap.evaluate((element) => getComputedStyle(element).backgroundColor)
+  await expect(page.locator('[data-health-filter="conflicts"]')).toContainText('2 visits affected')
+  for (const indicator of await page.locator('.schedule-health-stat-wrap').all()) {
+    const bounds = await indicator.boundingBox()
+    const action = await indicator.locator('.schedule-health-stat-details').boundingBox()
+    expect(bounds).not.toBeNull()
+    expect(action).not.toBeNull()
+    expect(action!.x).toBeGreaterThanOrEqual(bounds!.x)
+    expect(action!.x + action!.width).toBeLessThanOrEqual(bounds!.x + bounds!.width + 1)
+  }
+  const pending = page.getByRole('region', { name: 'Work not yet on calendar' })
+  await expect(pending).toContainText('Undated service')
+  await expect(pending).toContainText('No date set')
+  await pending.getByRole('button', { name: 'Set schedule' }).click()
+  await expect(page.getByRole('dialog', { name: 'Schedule cleaning work' })).toBeVisible()
+  await page.getByRole('dialog', { name: 'Schedule cleaning work' }).getByRole('button', { name: 'Close', exact: true }).click()
+  for (const [filter, count] of [['scheduling', 1], ['conflicts', 2], ['confirmation', 2]] as const) {
+    await page.locator(`[data-health-filter="${filter}"] .schedule-health-stat-main`).click()
+    await expect(page.locator('.visit-card')).toHaveCount(count)
+    expect(await gap.evaluate((element) => getComputedStyle(element).backgroundColor)).toBe(originalColour)
+    await page.locator('.schedule-health-active-filter').getByRole('button', { name: 'Clear', exact: true }).click()
+    await expect(page.locator('.visit-card')).toHaveCount(3)
+  }
+  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await expect(page.locator('.visit-card')).toHaveCount(4)
+  await expect(pending).toHaveCount(0)
+  await page.getByRole('button', { name: 'Needs attention', exact: true }).click()
+  await page.screenshot({ path: testInfo.outputPath('attention-overview.png'), fullPage: true })
+})
+
 test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page)
 })
@@ -28,13 +84,14 @@ test('health cards filter the calendar without forcing the details drawer', asyn
   }
 })
 
-test('needs scheduling adopts the amber operational state in the calendar', async ({ page }) => {
+test('staffing gaps keep their status colour when filtered', async ({ page }) => {
   const card = page.locator('[data-health-filter="scheduling"]')
   await card.locator('.schedule-health-stat-main').click()
   const firstVisit = page.locator('.visit-card').first()
   if (await firstVisit.count()) {
     const background = await firstVisit.evaluate((element) => getComputedStyle(element).backgroundColor)
-    expect(background).toBe('rgb(255, 248, 234)')
+    const tone = await firstVisit.getAttribute('data-attention')
+    expect(background).toBe(tone === 'conflicts' ? 'rgb(255, 240, 241)' : 'rgb(255, 248, 234)')
   }
 })
 
@@ -65,7 +122,7 @@ test('conflict count represents actionable overlap cases while all affected visi
 
   await page.locator('.schedule-health-active-filter').getByRole('button', { name: 'Clear' }).click()
   await expect(page.locator('.schedule-health-active-filter')).toHaveCount(0)
-  await expect(page.getByRole('button', { name: 'Upcoming', exact: true })).toHaveClass(/selected/)
+  await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toHaveClass(/selected/)
 })
 
 test('week view always exposes Schedule work on every day', async ({ page }) => {
@@ -232,7 +289,7 @@ test('employee scope follows A to B to all and browser history, including health
   await expect(page.locator('.visit-card')).toHaveCount(1)
   await expect(page.locator('.visit-card')).toContainText('Audit Alpha')
   await expect.poll(() => lastScope).toBe('audit-a')
-  await expect(page.getByRole('button', { name: 'Visits needing staff 1', exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toBeVisible()
 
   let capacityIds: string[] = []
   await page.route('**/api/schedule-capacity', async (route) => {

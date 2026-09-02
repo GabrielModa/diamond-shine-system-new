@@ -46,7 +46,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ScheduleHealthPanel({
-  from, to, timezone, canManage, closeSignal, refreshSignal, teamScope, focus, onChanged, onFocusChange, onOpenVisit, onOpenServicePlan,
+  from, to, timezone, canManage, closeSignal, refreshSignal, teamScope, focus, attentionView, attentionVisitCount, onChanged, onFocusChange, onOpenVisit, onOpenServicePlan,
 }: {
   from: string
   to: string
@@ -56,6 +56,8 @@ export default function ScheduleHealthPanel({
   refreshSignal: number
   teamScope: string
   focus: 'scheduling' | 'conflicts' | 'confirmation' | null
+  attentionView: boolean
+  attentionVisitCount: number
   onChanged: () => Promise<void> | void
   onFocusChange: (focus: 'scheduling' | 'conflicts' | 'confirmation' | null) => void
   onOpenVisit: (visitId: string) => void
@@ -221,6 +223,8 @@ export default function ScheduleHealthPanel({
   }
 
   const summary = data?.summary
+  const affectedConflictVisits = new Set((data?.items ?? []).filter((item) => item.state === 'cleaner_overlap').flatMap((item) => [item.visitId, item.conflict?.otherVisitId].filter((id): id is string => Boolean(id)))).size
+  const notOnCalendar = (data?.items ?? []).filter((item) => !item.visitId && SCHEDULING_STATES.has(item.state))
   const stats = summary ? [
     { label: 'Needs scheduling', value: summary.needsStaff + summary.unassigned + summary.missingSchedule + summary.unscheduledServices, filter: 'scheduling' as Filter },
     { label: 'Conflicts', value: summary.conflicts, filter: 'conflicts' as Filter },
@@ -251,8 +255,9 @@ export default function ScheduleHealthPanel({
   }
 
   return <section className={`${styles.panel} schedule-health-panel`} aria-label="Schedule intelligence and service continuity">
-    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <div key={stat.label} className="schedule-health-stat-wrap" data-health-filter={stat.filter}><button className={`${styles.stat} schedule-health-stat-main`} data-active={filter === stat.filter} aria-pressed={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span></button><button type="button" className="schedule-health-stat-details" disabled={stat.value === 0} onClick={() => openDetails(stat.filter)}>View details <span aria-hidden="true">→</span></button></div>)}</div> : null}
-    <div className={styles.filters}>{activeStat ? <div className="schedule-health-active-filter"><span>Showing: <strong>{activeStat.label}</strong> · {activeStat.value}</span><button type="button" onClick={clearFilter}>Clear</button></div> : <span className={styles.filterHint}>Everything here needs an operational action.</span>}<button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    {summary ? <div className={styles.healthBar}>{stats.map((stat) => <div key={stat.label} className="schedule-health-stat-wrap" data-health-filter={stat.filter}><button className={`${styles.stat} schedule-health-stat-main`} data-active={filter === stat.filter} aria-pressed={filter === stat.filter} onClick={() => selectFilter(stat.filter)}><strong>{stat.value}</strong><span>{stat.label}</span>{stat.filter === 'conflicts' ? <small className="schedule-health-stat-context">{affectedConflictVisits} visits affected</small> : stat.filter === 'confirmation' ? <small className="schedule-health-stat-context">Follow up before the visit starts</small> : null}</button><button type="button" className="schedule-health-stat-details" disabled={stat.value === 0} onClick={() => openDetails(stat.filter)}>View details <span aria-hidden="true">→</span></button></div>)}</div> : null}
+    <div className={styles.filters}>{activeStat ? <div className="schedule-health-active-filter"><span>Showing: <strong>{activeStat.label}</strong> · {activeStat.value}{focus === 'conflicts' ? ` · ${affectedConflictVisits} visits affected` : ''}</span><button type="button" onClick={clearFilter}>Clear</button></div> : <span className={styles.filterHint}>{attentionView ? `${attentionVisitCount} visits need attention · each visit is counted once` : 'Health summary for the selected team and period.'}</span>}<button className={styles.sync} disabled={loading || busy} onClick={() => void refresh()}>{loading ? 'Checking…' : 'Refresh health'}</button></div>
+    {attentionView && (!focus || focus === 'scheduling') && notOnCalendar.length > 0 ? <section className="schedule-pending-work" aria-label="Work not yet on calendar"><header><h2>Not yet on calendar · {notOnCalendar.length}</h2><p>These services need scheduling separately from the visits shown below.</p></header>{notOnCalendar.map((item) => <article key={item.id}><div><strong>{item.clientName}{item.siteName ? ` · ${item.siteName}` : ''}</strong><p>{labels[item.state]} · {item.detail}</p>{item.scheduledStart ? <small>{new Date(item.scheduledStart).toLocaleString('en-IE', { timeZone: item.timezone ?? timezone })}</small> : <small>No date set</small>}</div>{item.state === 'expected_not_scheduled' && item.jobId ? <button type="button" className="btn-primary" disabled={busy} onClick={() => void ensureOccurrence(item)}>Create visit</button> : item.servicePlanId ? <button type="button" className="btn-primary" disabled={busy} onClick={() => onOpenServicePlan(item.servicePlanId!)}>Set schedule</button> : null}</article>)}</section> : null}
     {error ? <div className={styles.error} role="alert">{error}</div> : null}
     {message ? <div className="toast success" role="status">{message}<button className="notice-close" onClick={() => setMessage('')}>×</button></div> : null}
     {drawerOpen ? <button type="button" className="schedule-health-backdrop" aria-label="Close schedule health details" onClick={() => setDrawerOpen(false)} /> : null}
