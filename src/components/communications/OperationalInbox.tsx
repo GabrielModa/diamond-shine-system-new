@@ -36,6 +36,21 @@ function when(value: string) {
   return new Intl.DateTimeFormat('en-IE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
+const NOTICE_TYPES = [
+  { value: 'schedule_change', label: 'Schedule change' },
+  { value: 'site_instruction', label: 'Site instruction' },
+  { value: 'incident', label: 'Incident' },
+  { value: 'materials', label: 'Materials' },
+  { value: 'quality', label: 'Quality' },
+  { value: 'general', label: 'General' },
+]
+const PRIORITIES = [
+  { value: 'low', label: 'Low' },
+  { value: 'normal', label: 'Normal' },
+  { value: 'high', label: 'High' },
+  { value: 'critical', label: 'Critical' },
+]
+
 export default function OperationalInbox({ canManage, canConfigure }: { canManage: boolean; canConfigure: boolean }) {
   const [tab, setTab] = useState<'inbox' | 'broadcast' | 'tracking' | 'delivery'>('inbox')
   const [mine, setMine] = useState<NoticeData>({ items: [], summary: {} })
@@ -54,7 +69,8 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
-    setBusy(true); setError('')
+    setBusy(true)
+    setError('')
     try {
       const ownData = await api<NoticeData>('/api/operational-notices?scope=mine')
       setMine(ownData)
@@ -64,7 +80,9 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
           api<Person[]>('/api/employees'),
           api<Site[]>('/api/sites'),
         ])
-        setAll(allData); setPeople(employeeData); setSites(siteData)
+        setAll(allData)
+        setPeople(employeeData)
+        setSites(siteData)
         setSelectedUsers((current) => current.filter((id) => employeeData.some((person) => person.id === id)))
       }
       if (canConfigure) {
@@ -73,17 +91,27 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
           api<QueueData>('/api/notifications'),
           api<Template[]>('/api/templates'),
         ])
-        setAlerts(alertData); setQueue(queueData); setTemplates(templateData)
+        setAlerts(alertData)
+        setQueue(queueData)
+        setTemplates(templateData)
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load the operational inbox.')
-    } finally { setBusy(false) }
+    } finally {
+      setBusy(false)
+    }
   }, [canConfigure, canManage])
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const unacknowledged = useMemo(() => mine.items.filter((item) => item.requiresAcknowledgement && !item.recipients[0]?.acknowledgedAt), [mine.items])
-  const recipientPeople = useMemo(() => { const needle = recipientQuery.trim().toLowerCase(); return people.filter((person) => !needle || `${person.name ?? ''} ${person.email}`.toLowerCase().includes(needle)) }, [people, recipientQuery])
+  const unacknowledged = useMemo(
+    () => mine.items.filter((item) => item.requiresAcknowledgement && !item.recipients[0]?.acknowledgedAt),
+    [mine.items],
+  )
+  const recipientPeople = useMemo(() => {
+    const needle = recipientQuery.trim().toLowerCase()
+    return people.filter((person) => !needle || `${person.name ?? ''} ${person.email}`.toLowerCase().includes(needle))
+  }, [people, recipientQuery])
 
   async function receipt(item: Notice, action: 'seen' | 'acknowledged') {
     const acknowledgement = action === 'acknowledged' ? acknowledgementNotes[item.id]?.trim() || null : null
@@ -91,13 +119,14 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     try {
       await api(`/api/operational-notices/${item.id}/receipt`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ action, acknowledgement: acknowledgement?.trim() || null }),
+        body: JSON.stringify({ action, acknowledgement }),
       })
       setNotice(action === 'acknowledged' ? 'Notice acknowledged.' : 'Marked as read.')
       if (action === 'acknowledged') setAcknowledgementNotes((current) => ({ ...current, [item.id]: '' }))
       await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update the notice.') }
-    finally { setBusy(false) }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not update the notice.')
+    } finally { setBusy(false) }
   }
 
   async function publish() {
@@ -109,10 +138,13 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         body: JSON.stringify({ ...draft, siteId: draft.siteId || null, userIds: selectedUsers }),
       })
       setNotice(`Published to ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'}.`)
-      setDraft((current) => ({ ...current, title: '', body: '' })); setSelectedUsers([])
-      await refresh(); setTab('tracking')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not publish the notice.') }
-    finally { setBusy(false) }
+      setDraft((current) => ({ ...current, title: '', body: '' }))
+      setSelectedUsers([])
+      await refresh()
+      setTab('tracking')
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not publish the notice.')
+    } finally { setBusy(false) }
   }
 
   async function saveDelivery() {
@@ -120,26 +152,36 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     try {
       await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alerts) })
       setNotice('Delivery recipients saved.')
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save recipients.') }
-    finally { setBusy(false) }
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save recipients.')
+    } finally { setBusy(false) }
   }
 
   async function processQueue() {
     setBusy(true); setError(''); setNotice('')
     try {
-      const data = await api<{ processed: number }>('/api/notifications/process', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 20 }) })
-      setNotice(`${data.processed} delivery job${data.processed === 1 ? '' : 's'} processed.`); await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not process delivery jobs.') }
-    finally { setBusy(false) }
+      const result = await api<{ processed: number }>('/api/notifications/process', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 20 }),
+      })
+      setNotice(`${result.processed} delivery job${result.processed === 1 ? '' : 's'} processed.`)
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not process delivery jobs.')
+    } finally { setBusy(false) }
   }
 
   async function saveTemplate(template: Template) {
     setBusy(true); setError(''); setNotice('')
     try {
-      await api('/api/templates', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ key: template.key, subject: template.subject, body: template.body }) })
-      setNotice('Template saved.'); await refresh()
-    } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not save the template.') }
-    finally { setBusy(false) }
+      await api('/api/templates', {
+        method: 'PUT', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ key: template.key, subject: template.subject, body: template.body }),
+      })
+      setNotice('Template saved.')
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not save the template.')
+    } finally { setBusy(false) }
   }
 
   const tabs = [
@@ -149,33 +191,84 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   ] as Array<[typeof tab, string]>
 
   return <main className="page-shell ops-inbox">
-    <section className="inbox-hero"><div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div><button className="secondary" type="button" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button></section>
-    {notice ? <div className="inline-message success" role="status">{notice}</div> : null}{error ? <div className="inline-message error" role="alert">{error}</div> : null}
-    <nav className="materials-tabs" aria-label="Inbox views">{tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}</nav>
+    <section className="inbox-hero">
+      <div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div>
+      <button className="secondary" type="button" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button>
+    </section>
+    {notice ? <div className="inline-message success" role="status">{notice}</div> : null}
+    {error ? <div className="inline-message error" role="alert">{error}</div> : null}
+    <nav className="materials-tabs" aria-label="Inbox views">
+      {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
+    </nav>
 
-    {tab === 'inbox' ? <section className="inbox-layout"><div className="inbox-stream">
-      {mine.items.map((item) => { const own = item.recipients[0]; return <article className={`inbox-message ${item.priority} ${own?.seenAt ? 'seen' : ''}`} key={item.id}>
-        <div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><span>{item.type.replaceAll('_', ' ')}</span><time>{when(item.publishedAt)}</time></div>
-        <h2>{item.title}</h2><p>{item.body}</p>
-        {item.site ? <div className="message-context"><strong>{item.site.client.displayName}</strong><span>{item.site.name}</span></div> : null}
-        <small>From {item.createdBy.name ?? item.createdBy.email}</small>
-        <div className="message-actions">{!own?.seenAt && !item.requiresAcknowledgement ? <button type="button" onClick={() => void receipt(item, 'seen')}>Mark read</button> : null}{item.requiresAcknowledgement && !own?.acknowledgedAt ? <><label className="acknowledgement-note"><span>Optional note to the manager</span><input value={acknowledgementNotes[item.id] ?? ''} onChange={(event) => setAcknowledgementNotes((current) => ({ ...current, [item.id]: event.target.value }))} maxLength={2000} placeholder="Add context if needed" /></label><button type="button" disabled={busy} onClick={() => void receipt(item, 'acknowledged')}>Acknowledge</button></> : null}{own?.acknowledgedAt ? <span>✓ Acknowledged {when(own.acknowledgedAt)}</span> : null}</div>
-      </article>})}{mine.items.length === 0 ? <div className="card empty-inbox"><strong>You are all caught up.</strong><span>No operational notices have been sent to you.</span></div> : null}
-    </div><aside className="card inbox-summary"><h2>Inbox health</h2><div><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></div><div><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></div><div><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></div></aside></section> : null}
+    {tab === 'inbox' ? <section className="inbox-layout">
+      <div className="inbox-stream">
+        {mine.items.map((item) => {
+          const own = item.recipients[0]
+          return <article className={`inbox-message ${item.priority} ${own?.seenAt ? 'seen' : ''}`} key={item.id}>
+            <div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><span>{item.type.replaceAll('_', ' ')}</span><time>{when(item.publishedAt)}</time></div>
+            <h2>{item.title}</h2><p>{item.body}</p>
+            {item.site ? <div className="message-context"><strong>{item.site.client.displayName}</strong><span>{item.site.name}</span></div> : null}
+            <small>From {item.createdBy.name ?? item.createdBy.email}</small>
+            <div className="message-actions">
+              {!own?.seenAt && !item.requiresAcknowledgement ? <button type="button" onClick={() => void receipt(item, 'seen')}>Mark read</button> : null}
+              {item.requiresAcknowledgement && !own?.acknowledgedAt ? <>
+                <label className="acknowledgement-note"><span>Optional note to the manager</span><input value={acknowledgementNotes[item.id] ?? ''} onChange={(event) => setAcknowledgementNotes((current) => ({ ...current, [item.id]: event.target.value }))} maxLength={2000} placeholder="Add context if needed" /></label>
+                <button type="button" disabled={busy} onClick={() => void receipt(item, 'acknowledged')}>Acknowledge</button>
+              </> : null}
+              {own?.acknowledgedAt ? <span>✓ Acknowledged {when(own.acknowledgedAt)}</span> : null}
+            </div>
+          </article>
+        })}
+        {mine.items.length === 0 ? <div className="card empty-inbox"><strong>You are all caught up.</strong><span>No operational notices have been sent to you.</span></div> : null}
+      </div>
+      <aside className="card inbox-summary"><h2>Inbox health</h2><div><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></div><div><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></div><div><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></div></aside>
+    </section> : null}
 
-    {tab === 'broadcast' && canManage ? <section className="broadcast-layout"><article className="card broadcast-form"><h2>Publish operational notice</h2><div className="admin-form-grid two-columns">
-      <div className="inbox-select-field"><span>Type</span><StandardSelect value={draft.type} onChange={(value) => setDraft((current) => ({ ...current, type: value }))} ariaLabel="Notice type" options={[{ value: 'schedule_change', label: 'Schedule change' }, { value: 'site_instruction', label: 'Site instruction' }, { value: 'incident', label: 'Incident' }, { value: 'materials', label: 'Materials' }, { value: 'quality', label: 'Quality' }, { value: 'general', label: 'General' }]} /></div>
-      <div className="inbox-select-field"><span>Priority</span><StandardSelect value={draft.priority} onChange={(value) => setDraft((current) => ({ ...current, priority: value }))} ariaLabel="Notice priority" options={[{ value: 'low', label: 'Low' }, { value: 'normal', label: 'Normal' }, { value: 'high', label: 'High' }, { value: 'critical', label: 'Critical' }]} /></div>
-      <div className="inbox-select-field"><span>Site context</span><StandardSelect searchable={sites.length > 8} value={draft.siteId} onChange={(value) => setDraft((current) => ({ ...current, siteId: value }))} ariaLabel="Site context" searchPlaceholder="Search client or site…" options={[{ value: '', label: 'Organization-wide' }, ...sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))]} /></div>
-      <label className="ack-toggle"><input type="checkbox" checked={draft.requiresAcknowledgement} onChange={(event) => setDraft((current) => ({ ...current, requiresAcknowledgement: event.target.checked }))} /> Require acknowledgement</label>
-    </div><label><span>Title</span><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Tomorrow's start time changed" /></label><label><span>Message</span><textarea value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="State what changed, what the team must do and who to contact…" /></label>
-    <div className="recipient-picker"><div><strong>Recipients</strong><button type="button" className="text-button" onClick={() => { const shown = recipientPeople.map((person) => person.id); const allShown = shown.length > 0 && shown.every((id) => selectedUsers.includes(id)); setSelectedUsers((current) => allShown ? current.filter((id) => !shown.includes(id)) : Array.from(new Set([...current, ...shown]))) }}>{recipientPeople.length > 0 && recipientPeople.every((person) => selectedUsers.includes(person.id)) ? 'Clear shown' : 'Select shown'}</button></div><label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name or email…" /></label><span className="recipient-result-count">{recipientPeople.length} shown · {selectedUsers.length} selected</span>{recipientPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => setSelectedUsers((current) => current.includes(person.id) ? current.filter((id) => id !== person.id) : [...current, person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{person.email}</small></span></label>)}</div>
-    <button type="button" onClick={() => void publish()} disabled={busy || !draft.title.trim() || !draft.body.trim() || !selectedUsers.length}>Publish & track acknowledgement</button></article></section> : null}
+    {tab === 'broadcast' && canManage ? <section className="broadcast-layout"><article className="card broadcast-form">
+      <h2>Publish operational notice</h2>
+      <div className="admin-form-grid two-columns">
+        <div className="inbox-select-field"><span>Type</span><StandardSelect value={draft.type} onChange={(value) => setDraft((current) => ({ ...current, type: value }))} ariaLabel="Notice type" options={NOTICE_TYPES} /></div>
+        <div className="inbox-select-field"><span>Priority</span><StandardSelect value={draft.priority} onChange={(value) => setDraft((current) => ({ ...current, priority: value }))} ariaLabel="Notice priority" options={PRIORITIES} /></div>
+        <div className="inbox-select-field"><span>Site context</span><StandardSelect searchable={sites.length > 8} value={draft.siteId} onChange={(value) => setDraft((current) => ({ ...current, siteId: value }))} ariaLabel="Site context" searchPlaceholder="Search client or site…" options={[{ value: '', label: 'Organization-wide' }, ...sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))]} /></div>
+        <label className="ack-toggle"><input type="checkbox" checked={draft.requiresAcknowledgement} onChange={(event) => setDraft((current) => ({ ...current, requiresAcknowledgement: event.target.checked }))} /> Require acknowledgement</label>
+      </div>
+      <label><span>Title</span><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Tomorrow's start time changed" /></label>
+      <label><span>Message</span><textarea value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="State what changed, what the team must do and who to contact…" /></label>
+      <div className="recipient-picker">
+        <div><strong>Recipients</strong><button type="button" className="text-button" onClick={() => {
+          const shown = recipientPeople.map((person) => person.id)
+          const allShown = shown.length > 0 && shown.every((id) => selectedUsers.includes(id))
+          setSelectedUsers((current) => allShown ? current.filter((id) => !shown.includes(id)) : Array.from(new Set([...current, ...shown])))
+        }}>{recipientPeople.length > 0 && recipientPeople.every((person) => selectedUsers.includes(person.id)) ? 'Clear shown' : 'Select shown'}</button></div>
+        <label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name or email…" /></label>
+        <span className="recipient-result-count">{recipientPeople.length} shown · {selectedUsers.length} selected</span>
+        {recipientPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => setSelectedUsers((current) => current.includes(person.id) ? current.filter((id) => id !== person.id) : [...current, person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{person.email}</small></span></label>)}
+      </div>
+      <button type="button" onClick={() => void publish()} disabled={busy || !draft.title.trim() || !draft.body.trim() || !selectedUsers.length}>Publish & track acknowledgement</button>
+    </article></section> : null}
 
-    {tab === 'tracking' && canManage ? <section className="tracking-grid">{all.items.map((item) => { const seen = item.recipients.filter((receipt) => receipt.seenAt).length; const ack = item.recipients.filter((receipt) => receipt.acknowledgedAt).length; return <article className="card tracking-card" key={item.id}><div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><time>{when(item.publishedAt)}</time></div><h2>{item.title}</h2><p>{item.body}</p><div className="ack-progress"><div style={{ width: `${item.recipients.length ? (ack / item.recipients.length) * 100 : 0}%` }} /></div><strong>{ack}/{item.recipients.length} acknowledged · {seen}/{item.recipients.length} seen</strong><details><summary>Recipient status</summary>{item.recipients.map((receipt) => <div className="receipt-row" key={receipt.id}><span>{receipt.user.name ?? receipt.user.email}</span><span>{receipt.acknowledgedAt ? 'Acknowledged' : receipt.seenAt ? 'Seen' : 'Delivered'}</span></div>)}</details></article>})}{all.items.length === 0 ? <p className="empty-copy">No notices published yet.</p> : null}</section> : null}
+    {tab === 'tracking' && canManage ? <section className="tracking-grid">
+      {all.items.map((item) => {
+        const seen = item.recipients.filter((receipt) => receipt.seenAt).length
+        const ack = item.recipients.filter((receipt) => receipt.acknowledgedAt).length
+        return <article className="card tracking-card" key={item.id}>
+          <div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><time>{when(item.publishedAt)}</time></div>
+          <h2>{item.title}</h2><p>{item.body}</p>
+          <div className="ack-progress"><div style={{ width: `${item.recipients.length ? (ack / item.recipients.length) * 100 : 0}%` }} /></div>
+          <strong>{ack}/{item.recipients.length} acknowledged · {seen}/{item.recipients.length} seen</strong>
+          <details><summary>Recipient status</summary>{item.recipients.map((receipt) => <div className="receipt-row" key={receipt.id}><span>{receipt.user.name ?? receipt.user.email}</span><span>{receipt.acknowledgedAt ? 'Acknowledged' : receipt.seenAt ? 'Seen' : 'Delivered'}</span></div>)}</details>
+        </article>
+      })}
+      {all.items.length === 0 ? <p className="empty-copy">No notices published yet.</p> : null}
+    </section> : null}
 
-    {tab === 'delivery' && canConfigure ? <section className="delivery-stack"><article className="card"><h2>Email escalation recipients</h2><div className="admin-form-grid two-columns"><label><span>Supply alerts</span><input value={alerts.supplyAlerts} onChange={(event) => setAlerts((current) => ({ ...current, supplyAlerts: event.target.value }))} /></label><label><span>Quality alerts</span><input value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} /></label></div><button type="button" onClick={() => void saveDelivery()}>Save recipients</button></article>
-      <article className="card"><div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div><div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span></div>)}</article>
+    {tab === 'delivery' && canConfigure ? <section className="delivery-stack">
+      <article className="card"><h2>Email escalation recipients</h2><div className="admin-form-grid two-columns"><label><span>Supply alerts</span><input value={alerts.supplyAlerts} onChange={(event) => setAlerts((current) => ({ ...current, supplyAlerts: event.target.value }))} /></label><label><span>Quality alerts</span><input value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} /></label></div><button type="button" onClick={() => void saveDelivery()}>Save recipients</button></article>
+      <article className="card">
+        <div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div>
+        <div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span></div>)}</div>
+      </article>
       <section><h2>Email templates</h2><div className="communication-grid">{templates.map((template) => <article className="card communication-card" key={template.id}><strong>{template.key.replaceAll('_', ' ')}</strong><label><span>Subject</span><input value={template.subject} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, subject: event.target.value } : item))} /></label><label><span>HTML body</span><textarea value={template.body} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, body: event.target.value } : item))} /></label><button type="button" onClick={() => void saveTemplate(template)}>Save template</button></article>)}</div></section>
     </section> : null}
   </main>
