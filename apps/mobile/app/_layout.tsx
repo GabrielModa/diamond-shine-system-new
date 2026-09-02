@@ -1,3 +1,4 @@
+import VisitLocationPrecheck from '@/components/VisitLocationPrecheck';
 import VisitPresenceTracker from '@/components/VisitPresenceTracker';
 import { AuthProvider } from '@/lib/auth-context';
 import { isExpoGo } from '@/lib/runtime';
@@ -37,6 +38,7 @@ export default function RootLayout() {
   return <SafeAreaProvider>
     <AuthProvider>
       <VisitPresenceTracker />
+      <VisitLocationPrecheck />
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.ink, headerTitleStyle: { fontWeight: '800' }, contentStyle: { backgroundColor: colors.canvas } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
