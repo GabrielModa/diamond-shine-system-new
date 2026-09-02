@@ -52,7 +52,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const [createOpen, setCreateOpen] = useState(false)
   const [createdClientId, setCreatedClientId] = useState<string | null>(null)
   const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
-  const [locationDraft, setLocationDraft] = useState({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+  const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
   const [addressQuery, setAddressQuery] = useState('')
   const [selectedPlace, setSelectedPlace] = useState<ClientPlaceSelection | null>(null)
 
@@ -78,7 +78,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   function resetCreate() {
     setCreatedClientId(null)
     setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
-    setLocationDraft({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+    setLocationDraft({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
     setAddressQuery('')
     setSelectedPlace(null)
   }
@@ -100,8 +100,8 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   async function createClient(event: FormEvent) {
     event.preventDefault()
     setNotice(null)
-    if (locationDraft.addNow && !selectedPlace) {
-      setNotice({ kind: 'error', text: 'Choose the service address from the Google Maps suggestions so the location can be verified for routing and geofence checks.' })
+    if (!selectedPlace) {
+      setNotice({ kind: 'error', text: 'Select the service address from the Google Maps suggestions. Every operational client needs at least one verified service location.' })
       return
     }
 
@@ -128,40 +128,38 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         setCreatedClientId(client.id)
       }
 
-      if (locationDraft.addNow && selectedPlace) {
-        await api('/api/sites', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            clientId,
-            name: locationDraft.name || (clientDraft.type === 'residential' ? 'Home' : clientDraft.displayName),
-            addressLine1: locationDraft.addressLine1,
-            addressLine2: locationDraft.addressLine2 || null,
-            city: locationDraft.city,
-            region: locationDraft.region || null,
-            postalCode: locationDraft.postalCode,
-            countryCode: locationDraft.countryCode || 'IE',
-            timezone: 'Europe/Dublin',
-            latitude: selectedPlace.latitude,
-            longitude: selectedPlace.longitude,
-            coordinateSource: 'geocoded',
-            geofenceVerifiedM: 150,
-            geofenceNearM: 250,
-            geofenceSuspiciousM: 700,
-            access: { entryInstructions: locationDraft.entryInstructions || null },
-            areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
-            preferredAssigneeIds: [],
-            contractIds: [],
-          }),
-        })
-      }
+      await api('/api/sites', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          clientId,
+          name: locationDraft.name || (clientDraft.type === 'residential' ? 'Home' : clientDraft.displayName),
+          addressLine1: locationDraft.addressLine1,
+          addressLine2: locationDraft.addressLine2 || null,
+          city: locationDraft.city,
+          region: locationDraft.region || null,
+          postalCode: locationDraft.postalCode,
+          countryCode: locationDraft.countryCode || 'IE',
+          timezone: 'Europe/Dublin',
+          latitude: selectedPlace.latitude,
+          longitude: selectedPlace.longitude,
+          coordinateSource: 'geocoded',
+          geofenceVerifiedM: 150,
+          geofenceNearM: 250,
+          geofenceSuspiciousM: 700,
+          access: { entryInstructions: locationDraft.entryInstructions || null },
+          areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
+          preferredAssigneeIds: [],
+          contractIds: [],
+        }),
+      })
 
-      const destination = `/clients/${clientId}${locationDraft.addNow ? '?setup=1' : ''}`
+      const destination = `/clients/${clientId}?setup=1`
       resetCreate()
       setCreateOpen(false)
       window.location.assign(destination)
     } catch (error) {
       setNotice({
         kind: 'error',
-        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client account is already saved; retry will only finish the location.' : ''}`,
+        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client account is already saved; retry will only finish the service location.' : ''}`,
       })
       await refresh()
     } finally { setBusy(false) }
@@ -208,7 +206,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
 
     <DetailDialog open={createOpen} title="New client" eyebrow="Client setup" onClose={() => setCreateOpen(false)}>
       <form className="client-dialog-form" onSubmit={createClient}>
-        {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client account saved</strong><span>Finish the location below. Retrying will not create the client twice.</span></div></div> : null}
+        {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client account saved</strong><span>Finish the service location below. Retrying will not create the client twice.</span></div></div> : null}
 
         <section className="client-create-section">
           <div className="client-create-section-head"><span>Client</span><p>Who we are cleaning for.</p></div>
@@ -220,30 +218,27 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         </section>
 
         <section className="client-create-section location">
-          <div className="client-create-section-head"><span>Service location</span><p>Verified now so routing and geofence checks use the right place.</p></div>
-          <label className="clients-create-option"><input type="checkbox" checked={locationDraft.addNow} onChange={(event) => setLocationDraft({ ...locationDraft, addNow: event.target.checked })} /><span><strong>Add the first service location</strong><span>Turn this off only if the address is not known yet.</span></span></label>
-          {locationDraft.addNow ? <>
-            <label>Location name <small>{clientDraft.type === 'residential' ? 'Usually Home' : 'Example: Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={clientDraft.type === 'residential' ? 'Home' : 'Site name'} /></label>
-            <GooglePlaceAutocomplete
-              kind="home"
-              label="Service address"
-              value={addressQuery}
-              placeholder="Start typing an address or Eircode…"
-              selected={selectedPlace}
-              onValueChange={(value) => {
-                setAddressQuery(value)
-                if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
-              }}
-              onSelect={selectAddress}
-              helpText="Choose the correct Google Maps result. We save its coordinates for routing and geofence checks."
-            />
-            <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} placeholder="Unit, floor or building detail" /></label>
-            <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
-            <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
-          </> : null}
+          <div className="client-create-section-head"><span>Service location</span><p>Every operational client needs the address where cleaning will happen. Google Maps verification also gives routing and geofence coordinates.</p></div>
+          <label>Location name <small>{clientDraft.type === 'residential' ? 'Name shown to the team · e.g. Home' : 'Name shown to the team · e.g. Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={clientDraft.type === 'residential' ? 'Home' : 'Site name'} /></label>
+          <GooglePlaceAutocomplete
+            kind="home"
+            label="Service address"
+            value={addressQuery}
+            placeholder="Start typing an address or Eircode…"
+            selected={selectedPlace}
+            onValueChange={(value) => {
+              setAddressQuery(value)
+              if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
+            }}
+            onSelect={selectAddress}
+            helpText="Required · choose the correct Google Maps result. We save its coordinates for routing and geofence checks."
+          />
+          <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} placeholder="Unit, floor or building detail" /></label>
+          <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
+          <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
         </section>
 
-        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>{createdClientId ? 'Finish later' : 'Cancel'}</button><button className="client-button" disabled={busy}>{busy ? 'Saving…' : createdClientId ? 'Retry location' : locationDraft.addNow ? 'Create client & set up service' : 'Create client'}</button></div>
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Saving…' : createdClientId ? 'Retry service location' : 'Create client & continue to service setup'}</button></div>
       </form>
     </DetailDialog>
   </main>
