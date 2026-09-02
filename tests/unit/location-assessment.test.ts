@@ -49,8 +49,9 @@ describe('field location assessment', () => {
     expect(result.reason).toBe('GPS_UNAVAILABLE')
   })
 
-  it('accepts decimal accuracy values reported by real devices', () => {
+  it('accepts and normalizes decimal accuracy values reported by real devices', () => {
     const parsed = startVisitSchema.safeParse({ latitude: 53.35, longitude: -6.26, accuracyM: 12.7 })
     expect(parsed.success).toBe(true)
+    if (parsed.success) expect(parsed.data.accuracyM).toBe(13)
   })
 })
