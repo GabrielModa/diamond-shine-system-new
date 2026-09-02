@@ -69,6 +69,10 @@ function hasOpenChallenge(entry: Entry) {
   return entry.disputes.some((dispute) => dispute.status === 'open')
 }
 
+function hasOperationalException(entry: Entry) {
+  return entry.status === 'needs_review' || hasOpenChallenge(entry)
+}
+
 function hasLocationReview(entry: Entry) {
   return entry.locationEvents.some((event) => ['suspicious', 'outside', 'unavailable'].includes(event.classification ?? ''))
 }
@@ -213,12 +217,13 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     const approved = ended.filter((entry) => entry.status === 'approved')
     const pending = ended.filter((entry) => entry.status === 'completed' || entry.status === 'needs_review')
     const challenges = filtered.filter(hasOpenChallenge)
-    const reviewRequired = filtered.filter((entry) => entry.status === 'needs_review' || hasOpenChallenge(entry))
+    const reviewRequired = filtered.filter(hasOperationalException)
     return {
       recordedMs,
       approvedMs: approved.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
       pendingMs: pending.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
       pendingCount: pending.length,
+      blockedCount: filtered.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
       challengeCount: challenges.length,
       reviewCount: reviewRequired.length,
       runningCount: filtered.filter((entry) => entry.status === 'running').length,
@@ -226,7 +231,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   }, [filtered])
 
   const reviewQueueCount = useMemo(
-    () => entries.filter((entry) => ['completed', 'needs_review'].includes(entry.status) || hasOpenChallenge(entry)).length,
+    () => entries.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
     [entries],
   )
 
@@ -239,6 +244,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       pendingMs: number
       challenges: number
       needsReview: number
+      exceptions: number
       running: number
     }>()
     for (const entry of filtered) {
@@ -250,6 +256,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         pendingMs: 0,
         challenges: 0,
         needsReview: 0,
+        exceptions: 0,
         running: 0,
       }
       group.entries += 1
@@ -259,6 +266,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       if (entry.status === 'completed' || entry.status === 'needs_review') group.pendingMs += ms
       if (hasOpenChallenge(entry)) group.challenges += 1
       if (entry.status === 'needs_review') group.needsReview += 1
+      if (hasOperationalException(entry)) group.exceptions += 1
       if (entry.status === 'running') group.running += 1
       groups.set(entry.user.id, group)
     }
@@ -322,6 +330,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         pendingMs: number
         challengeCount: number
         reviewCount: number
+        exceptionCount: number
         runningCount: number
       }>()
       for (const entry of source) {
@@ -333,6 +342,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           pendingMs: 0,
           challengeCount: 0,
           reviewCount: 0,
+          exceptionCount: 0,
           runningCount: 0,
         }
         current.entries += 1
@@ -342,12 +352,13 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         if (entry.status === 'completed' || entry.status === 'needs_review') current.pendingMs += ms
         if (hasOpenChallenge(entry)) current.challengeCount += 1
         if (entry.status === 'needs_review') current.reviewCount += 1
+        if (hasOperationalException(entry)) current.exceptionCount += 1
         if (entry.status === 'running') current.runningCount += 1
         groups.set(entry.user.id, current)
       }
       const rows: unknown[][] = [[
         'Employee', 'Email', 'Recorded hours', 'Approved / payroll-ready hours', 'Pending hours',
-        'Challenges', 'Needs review', 'Running timers', 'Entries',
+        'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
       ]]
       for (const group of [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))) {
         rows.push([
@@ -356,6 +367,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           decimalHours(group.recordedMs),
           decimalHours(group.approvedMs),
           decimalHours(group.pendingMs),
+          group.exceptionCount,
           group.challengeCount,
           group.reviewCount,
           group.runningCount,
@@ -404,7 +416,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <article className="ts-metric"><span className="ts-metric-icon"><OpsIcon name="clock" /></span><span>Recorded hours</span><strong>{humanDuration(metrics.recordedMs)}</strong><small>{filtered.filter((entry) => Boolean(entry.endedAt)).length} ended entries</small></article>
       <article className="ts-metric approved"><span className="ts-metric-icon"><OpsIcon name="check" /></span><span>Approved hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Already reviewed</small></article>
       <article className="ts-metric pending"><span className="ts-metric-icon"><OpsIcon name="review" /></span><span>Awaiting approval</span><strong>{humanDuration(metrics.pendingMs)}</strong><small>{metrics.pendingCount} entries</small></article>
-      <article className="ts-metric challenge"><span className="ts-metric-icon"><OpsIcon name="alert" /></span><span>Challenges</span><strong>{metrics.challengeCount}</strong><small>{metrics.reviewCount} operational reviews</small></article>
+      <article className="ts-metric challenge"><span className="ts-metric-icon"><OpsIcon name="alert" /></span><span>Challenges</span><strong>{metrics.challengeCount}</strong><small>{metrics.reviewCount} unique operational exceptions</small></article>
       <article className="ts-metric running"><span className="ts-metric-icon"><OpsIcon name="activity" /></span><span>Running timers</span><strong>{metrics.runningCount}</strong><small>Not payroll-ready yet</small></article>
       <article className="ts-metric ready"><span className="ts-metric-icon"><OpsIcon name="payroll" /></span><span>Payroll ready</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Approved time only</small></article>
     </section>
@@ -431,7 +443,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <div className="ts-table">
         <div className="ts-head"><span>Employee</span><span>Work</span><span>Type</span><span>Start</span><span>Duration</span><span>Review</span></div>
         {filtered.map((entry) => {
-          const operationalException = entry.status === 'needs_review' || hasOpenChallenge(entry)
+          const operationalException = hasOperationalException(entry)
           return <div className={`ts-row ${focusedEntryId === entry.id ? 'is-focused' : ''}`} key={entry.id}>
             <span className="ts-person"><strong>{entry.user.name || entry.user.email}</strong><small>{entry.user.email}</small></span>
             <span className="ts-work"><strong>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General / non-visit time'}</strong><small>{entry.reviewReason ? entry.reviewReason.split(' | ')[0] : entry.visit ? 'Visit work' : 'Non-visit work'}</small></span>
@@ -441,7 +453,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
             <span className="ts-actions">
               <span className={`ts-status ${statusClass(entry)}`}>{statusLabel(entry)}</span>
               {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}>Open field context</a> : null}
-              {canManage && entry.status === 'completed' && !hasOpenChallenge(entry) ? <><button disabled={busyId === entry.id} className="ts-text-action" onClick={() => void reviewEntry(entry, 'approved')}>Approve</button><button disabled={busyId === entry.id} className="ts-text-action danger" onClick={() => void reviewEntry(entry, 'rejected')}>Reject</button></> : null}
+              {canManage && entry.status === 'completed' && !operationalException ? <><button disabled={busyId === entry.id} className="ts-text-action" onClick={() => void reviewEntry(entry, 'approved')}>Approve</button><button disabled={busyId === entry.id} className="ts-text-action danger" onClick={() => void reviewEntry(entry, 'rejected')}>Reject</button></> : null}
             </span>
           </div>
         })}
@@ -453,11 +465,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <div className="ts-payroll-summary">
         <article className="ts-payroll-card"><span>Employees in view</span><strong>{payrollRows.length}</strong><small>The table below follows the active filters.</small></article>
         <article className="ts-payroll-card"><span>Payroll-ready hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Only approved time is included.</small></article>
-        <article className="ts-payroll-card"><span>Still blocked</span><strong>{metrics.pendingCount + metrics.reviewCount}</strong><small>Pending approval or operational review.</small></article>
+        <article className="ts-payroll-card"><span>Still blocked</span><strong>{metrics.blockedCount}</strong><small>Unique entries awaiting approval or operational resolution.</small></article>
       </div>
       <div className="ts-payroll-list">
-        <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Approved</span><span>Pending</span><span>Challenges</span><span>Running</span></div>
-        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.challenges + row.needsReview}</span><span>{row.running}</span></div>)}
+        <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Approved</span><span>Pending</span><span>Exceptions</span><span>Running</span></div>
+        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
         {!payrollRows.length ? <div className="ts-empty">No payroll rows match this filter.</div> : null}
       </div>
     </section> : null}
