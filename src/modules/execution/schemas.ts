@@ -3,7 +3,7 @@ import { z } from 'zod'
 const locationFields = {
   latitude: z.number().min(-90).max(90).optional().nullable(),
   longitude: z.number().min(-180).max(180).optional().nullable(),
-  accuracyM: z.number().int().min(0).max(100_000).optional().nullable(),
+  accuracyM: z.number().min(0).max(100_000).optional().nullable(),
   capturedAt: z.coerce.date().optional(),
   source: z.enum(['online', 'offline', 'device', 'manual']).default('online'),
 }
