@@ -215,7 +215,7 @@ export default function StandardSelect({
     </div>
   </div> : null
 
-  return <div ref={rootRef} className={`standard-select ${className}`.trim()}>
+  return <div ref={rootRef} data-open={open ? 'true' : 'false'} className={`standard-select ${className}`.trim()}>
     <button
       ref={triggerRef}
       type="button"
@@ -264,6 +264,9 @@ export default function StandardSelect({
       .standard-select-option-side em{color:#747b8e;font-size:.78rem;font-style:normal;font-weight:700;white-space:nowrap}
       .standard-select-option-side b{font-size:.82rem}
       .standard-select-empty{margin:0;padding:15px;color:#7c8093;font-size:.82rem}
+      .filter-dialog-select-field,.quality-select-field,.materials-select-field{display:grid;gap:7px;min-width:0}
+      .filter-dialog-select-field>span{color:var(--surface-muted);font-weight:800}
+      .quality-select-field>span,.materials-select-field>span{font-weight:700}
       @media(max-width:640px){.standard-select-menu{border-radius:13px}.standard-select-options>button{padding:11px}}
     `}</style>
   </div>
