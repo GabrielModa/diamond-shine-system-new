@@ -36,21 +36,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: { reviewReason: [entry.reviewReason, reviewReason].filter(Boolean).join(', ') },
       })
     }
+
+    const locationData = {
+      latitude: parsed.data.latitude!,
+      longitude: parsed.data.longitude!,
+      accuracyM: parsed.data.accuracyM,
+      distanceM: assessment.distanceM,
+      classification: assessment.classification,
+      capturedAt,
+      source: parsed.data.source,
+    }
+
+    if (latest && latest.classification === assessment.classification) {
+      return tx.locationEvent.update({ where: { id: latest.id }, data: locationData })
+    }
+
     return tx.locationEvent.create({
       data: {
         organizationId: auth.user.organizationId,
         visitId: entry.visit.id,
         timeEntryId: entry.id,
         kind: 'heartbeat',
-        latitude: parsed.data.latitude!,
-        longitude: parsed.data.longitude!,
-        accuracyM: parsed.data.accuracyM,
-        distanceM: assessment.distanceM,
-        classification: assessment.classification,
-        capturedAt,
-        source: parsed.data.source,
+        ...locationData,
       },
     })
   })
-  return NextResponse.json({ ok: true, data: waypoint, location: assessment, warning: reviewReason }, { status: 201 })
+  return NextResponse.json({ ok: true, data: waypoint, location: assessment, warning: reviewReason }, { status: latest?.classification === assessment.classification ? 200 : 201 })
 }
