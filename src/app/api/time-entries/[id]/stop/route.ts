@@ -29,12 +29,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (endedAt < entry.startedAt) return NextResponse.json({ ok: false, error: 'End time cannot precede start time.' }, { status: 400 })
   const assessment = entry.visit
     ? assessLocation(entry.visit.site, parsed.data)
-    : { classification: 'unavailable' as const, distanceM: null, reviewRequired: false, reason: null }
+    : { classification: 'unavailable' as const, distanceM: null, accuracyM: null, confidence: 'low' as const, risk: 'watch' as const, reviewRequired: false, reason: null }
   const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - entry.startedAt.getTime()) / 1000))
-  const durationReview = entry.visit
-    ? durationSeconds > entry.visit.servicePlanVersion.expectedDurationMinutes * 60 * 2
-    : false
-  const reviewReasons = [entry.reviewReason, assessment.reviewRequired ? assessment.reason : null, durationReview ? 'DURATION_ANOMALY' : null].filter(Boolean)
+  const reviewReasons = [entry.reviewReason, assessment.reviewRequired ? assessment.reason : null].filter(Boolean)
 
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.timeEntry.update({
