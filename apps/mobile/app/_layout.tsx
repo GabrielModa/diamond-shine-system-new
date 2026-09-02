@@ -1,3 +1,4 @@
+import VisitPresenceTracker from '@/components/VisitPresenceTracker';
 import { AuthProvider } from '@/lib/auth-context';
 import { isExpoGo } from '@/lib/runtime';
 import { colors } from '@/lib/theme';
@@ -35,6 +36,7 @@ export default function RootLayout() {
 
   return <SafeAreaProvider>
     <AuthProvider>
+      <VisitPresenceTracker />
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.ink, headerTitleStyle: { fontWeight: '800' }, contentStyle: { backgroundColor: colors.canvas } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />
