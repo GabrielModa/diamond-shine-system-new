@@ -4,6 +4,11 @@ import { requireCapability } from '../../../../lib/auth'
 
 const TERMINAL_VISIT_STATUSES = ['cancelled', 'missed'] as const
 
+function isManualExtraRecurrence(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return (value as { source?: unknown }).source === 'manual_extra'
+}
+
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'clients.read')
   if ('response' in auth) return auth.response
@@ -38,7 +43,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
               jobs: {
                 where: { archivedAt: null },
                 orderBy: { startDate: 'desc' },
-                take: 10,
+                take: 25,
                 include: {
                   defaultAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } },
                   _count: { select: { visits: true } },
@@ -52,6 +57,18 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   })
 
   if (!client) return NextResponse.json({ ok: false, error: 'Client not found' }, { status: 404 })
+
+  const serviceClient = {
+    ...client,
+    sites: client.sites.map((site) => ({
+      ...site,
+      servicePlans: site.servicePlans.map((plan) => ({
+        ...plan,
+        // Manual extra visits are operational occurrences, not a new service rule.
+        jobs: plan.jobs.filter((job) => !isManualExtraRecurrence(job.recurrence)).slice(0, 10),
+      })),
+    })),
+  }
 
   const now = new Date()
   const [upcomingVisits, recentVisits] = await Promise.all([
@@ -89,5 +106,5 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     }),
   ])
 
-  return NextResponse.json({ ok: true, data: { client, upcomingVisits, recentVisits } })
+  return NextResponse.json({ ok: true, data: { client: serviceClient, upcomingVisits, recentVisits } })
 }
