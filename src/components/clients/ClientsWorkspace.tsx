@@ -52,7 +52,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const [createOpen, setCreateOpen] = useState(false)
   const [createdClientId, setCreatedClientId] = useState<string | null>(null)
   const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
-  const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+  const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
   const [addressQuery, setAddressQuery] = useState('')
   const [selectedPlace, setSelectedPlace] = useState<ClientPlaceSelection | null>(null)
 
@@ -78,7 +78,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   function resetCreate() {
     setCreatedClientId(null)
     setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
-    setLocationDraft({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+    setLocationDraft({ name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
     setAddressQuery('')
     setSelectedPlace(null)
   }
@@ -89,10 +89,10 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     setAddressQuery(resolved.formattedAddress)
     setLocationDraft((current) => ({
       ...current,
-      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || current.addressLine1,
-      city: resolved.city || current.city,
+      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || '',
+      city: resolved.city || '',
       region: resolved.region || '',
-      postalCode: resolved.postalCode || current.postalCode,
+      postalCode: resolved.postalCode || '',
       countryCode: resolved.countryCode || 'IE',
     }))
   }
@@ -102,6 +102,10 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     setNotice(null)
     if (!selectedPlace) {
       setNotice({ kind: 'error', text: 'Select the service address from the Google Maps suggestions. Every operational client needs at least one verified service location.' })
+      return
+    }
+    if (!locationDraft.addressLine1.trim() || !locationDraft.city.trim() || !locationDraft.postalCode.trim()) {
+      setNotice({ kind: 'error', text: 'The selected Google Maps address must include a street, city and Eircode/postcode before the client can be activated.' })
       return
     }
 
@@ -131,7 +135,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
       await api('/api/sites', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           clientId,
-          name: locationDraft.name || (clientDraft.type === 'residential' ? 'Home' : clientDraft.displayName),
+          name: clientDraft.type === 'residential' ? 'Home' : locationDraft.name.trim() || clientDraft.displayName,
           addressLine1: locationDraft.addressLine1,
           addressLine2: locationDraft.addressLine2 || null,
           city: locationDraft.city,
@@ -211,15 +215,15 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         <section className="client-create-section">
           <div className="client-create-section-head"><span>Client</span><p>Who we are cleaning for.</p></div>
           <label>Client name<input required autoFocus value={clientDraft.displayName} onChange={(event) => setClientDraft({ ...clientDraft, displayName: event.target.value })} placeholder="Merrion Dental Group" /></label>
-          <div className="client-form-field"><span>Client type</span><StandardSelect value={clientDraft.type} onChange={(value) => setClientDraft({ ...clientDraft, type: value })} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div>
+          <div className="client-form-field"><span>Client type</span><StandardSelect value={clientDraft.type} onChange={(value) => { setClientDraft({ ...clientDraft, type: value }); if (value === 'residential') setLocationDraft((current) => ({ ...current, name: '' })) }} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div>
           <label>Legal name <small>Optional</small><input value={clientDraft.legalName} onChange={(event) => setClientDraft({ ...clientDraft, legalName: event.target.value })} /></label>
           <div className="client-form-pair"><label>Primary contact <small>Optional</small><input value={clientDraft.contactName} onChange={(event) => setClientDraft({ ...clientDraft, contactName: event.target.value })} /></label><label>Contact email <small>Optional</small><input type="email" value={clientDraft.contactEmail} onChange={(event) => setClientDraft({ ...clientDraft, contactEmail: event.target.value })} /></label></div>
           <div className="client-form-pair"><label>Contact phone <small>Optional</small><input value={clientDraft.contactPhone} onChange={(event) => setClientDraft({ ...clientDraft, contactPhone: event.target.value })} /></label><label>Billing email <small>Optional</small><input type="email" value={clientDraft.billingEmail} onChange={(event) => setClientDraft({ ...clientDraft, billingEmail: event.target.value })} /></label></div>
         </section>
 
         <section className="client-create-section location">
-          <div className="client-create-section-head"><span>Service location</span><p>Every operational client needs the address where cleaning will happen. Google Maps verification also gives routing and geofence coordinates.</p></div>
-          <label>Location name <small>{clientDraft.type === 'residential' ? 'Name shown to the team · e.g. Home' : 'Name shown to the team · e.g. Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={clientDraft.type === 'residential' ? 'Home' : 'Site name'} /></label>
+          <div className="client-create-section-head"><span>Service location</span><p>Every operational client needs the verified address where cleaning will happen.</p></div>
+          {clientDraft.type === 'residential' ? <div className="client-setup-note"><OpsIcon name="map" /><div><strong>Location: Home</strong><span>Residential clients use Home automatically. You only need to confirm the address.</span></div></div> : <label>Location name <small>Optional · name shown to the team, e.g. Ranelagh Clinic</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder="Site name" /></label>}
           <GooglePlaceAutocomplete
             kind="home"
             label="Service address"
@@ -228,13 +232,16 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
             selected={selectedPlace}
             onValueChange={(value) => {
               setAddressQuery(value)
-              if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
+              if (selectedPlace && value !== selectedPlace.formattedAddress) {
+                setSelectedPlace(null)
+                setLocationDraft((current) => ({ ...current, addressLine1: '', city: '', region: '', postalCode: '' }))
+              }
             }}
             onSelect={selectAddress}
-            helpText="Required · choose the correct Google Maps result. We save its coordinates for routing and geofence checks."
+            helpText="Required · choose the correct Google Maps result. Its verified coordinates power Map, routing and geofence checks."
           />
           <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} placeholder="Unit, floor or building detail" /></label>
-          <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
+          <div className="client-form-pair"><label>City <small>From Google Maps</small><input readOnly aria-readonly="true" value={locationDraft.city} placeholder="Select an address above" /></label><label>Eircode / postcode <small>From Google Maps</small><input readOnly aria-readonly="true" value={locationDraft.postalCode} placeholder="Select an address above" /></label></div>
           <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
         </section>
 
