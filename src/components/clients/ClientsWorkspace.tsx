@@ -3,6 +3,8 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import DetailDialog from '../ui/DetailDialog'
 import OpsIcon from '../ui/OpsIcon'
+import StandardSelect from '../ui/StandardSelect'
+import GooglePlaceAutocomplete, { type PlaceSelection } from '../workforce/GooglePlaceAutocomplete'
 import './ClientsWorkspace.css'
 
 type Contact = { id: string; name: string; email?: string | null; phone?: string | null; isPrimary: boolean }
@@ -17,6 +19,21 @@ type Client = {
   contacts: Contact[]
   _count: { sites: number; contracts: number }
 }
+
+type ClientPlaceSelection = PlaceSelection & {
+  addressLine1: string
+  city: string | null
+  region: string | null
+  postalCode: string | null
+  countryCode: string | null
+}
+
+const CLIENT_TYPE_OPTIONS = [
+  { value: 'commercial', label: 'Commercial' },
+  { value: 'residential', label: 'Residential' },
+  { value: 'public_sector', label: 'Public sector' },
+  { value: 'internal', label: 'Internal' },
+]
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
@@ -33,10 +50,11 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
-  const [step, setStep] = useState<1 | 2>(1)
   const [createdClientId, setCreatedClientId] = useState<string | null>(null)
-  const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '', phone: '' })
-  const [locationDraft, setLocationDraft] = useState({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
+  const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
+  const [locationDraft, setLocationDraft] = useState({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+  const [addressQuery, setAddressQuery] = useState('')
+  const [selectedPlace, setSelectedPlace] = useState<ClientPlaceSelection | null>(null)
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -58,18 +76,35 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const residential = clients.filter((client) => client.type === 'residential').length
 
   function resetCreate() {
-    setStep(1)
     setCreatedClientId(null)
-    setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '', phone: '' })
-    setLocationDraft({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
+    setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
+    setLocationDraft({ addNow: true, name: '', addressLine1: '', addressLine2: '', city: 'Dublin', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
+    setAddressQuery('')
+    setSelectedPlace(null)
+  }
+
+  function selectAddress(place: PlaceSelection) {
+    const resolved = place as ClientPlaceSelection
+    setSelectedPlace(resolved)
+    setAddressQuery(resolved.formattedAddress)
+    setLocationDraft((current) => ({
+      ...current,
+      addressLine1: resolved.addressLine1 || resolved.formattedAddress.split(',')[0]?.trim() || current.addressLine1,
+      city: resolved.city || current.city,
+      region: resolved.region || '',
+      postalCode: resolved.postalCode || current.postalCode,
+      countryCode: resolved.countryCode || 'IE',
+    }))
   }
 
   async function createClient(event: FormEvent) {
     event.preventDefault()
-    if (step === 1) {
-      setStep(2)
+    setNotice(null)
+    if (locationDraft.addNow && !selectedPlace) {
+      setNotice({ kind: 'error', text: 'Choose the service address from the Google Maps suggestions so the location can be verified for routing and geofence checks.' })
       return
     }
+
     setBusy(true)
     let clientId = createdClientId
     try {
@@ -80,7 +115,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
             legalName: clientDraft.legalName || null,
             type: clientDraft.type,
             billingEmail: clientDraft.billingEmail || null,
-            phone: clientDraft.phone || null,
+            phone: clientDraft.contactPhone || null,
             contacts: clientDraft.contactName ? [{
               name: clientDraft.contactName,
               email: clientDraft.contactEmail || null,
@@ -93,7 +128,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         setCreatedClientId(client.id)
       }
 
-      if (locationDraft.addNow) {
+      if (locationDraft.addNow && selectedPlace) {
         await api('/api/sites', {
           method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
             clientId,
@@ -101,12 +136,20 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
             addressLine1: locationDraft.addressLine1,
             addressLine2: locationDraft.addressLine2 || null,
             city: locationDraft.city,
+            region: locationDraft.region || null,
             postalCode: locationDraft.postalCode,
-            countryCode: 'IE', timezone: 'Europe/Dublin',
-            geofenceVerifiedM: 150, geofenceNearM: 250, geofenceSuspiciousM: 700,
+            countryCode: locationDraft.countryCode || 'IE',
+            timezone: 'Europe/Dublin',
+            latitude: selectedPlace.latitude,
+            longitude: selectedPlace.longitude,
+            coordinateSource: 'geocoded',
+            geofenceVerifiedM: 150,
+            geofenceNearM: 250,
+            geofenceSuspiciousM: 700,
             access: { entryInstructions: locationDraft.entryInstructions || null },
             areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
-            preferredAssigneeIds: [], contractIds: [],
+            preferredAssigneeIds: [],
+            contractIds: [],
           }),
         })
       }
@@ -118,7 +161,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     } catch (error) {
       setNotice({
         kind: 'error',
-        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client was already saved; retry will continue from the location step without creating a duplicate.' : ''}`,
+        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client account is already saved; retry will only finish the location.' : ''}`,
       })
       await refresh()
     } finally { setBusy(false) }
@@ -141,7 +184,13 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
 
     <section className="clients-toolbar" aria-label="Client filters">
       <div className="clients-search"><OpsIcon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search client, contact, address or postcode…" /></div>
-      <select className="clients-filter" value={typeFilter} onChange={(event) => setTypeFilter(event.target.value)} aria-label="Client type"><option value="all">All client types</option><option value="commercial">Commercial</option><option value="residential">Residential</option><option value="public_sector">Public sector</option><option value="internal">Internal</option></select>
+      <StandardSelect
+        className="clients-filter-select"
+        value={typeFilter}
+        onChange={setTypeFilter}
+        ariaLabel="Client type"
+        options={[{ value: 'all', label: 'All client types' }, ...CLIENT_TYPE_OPTIONS]}
+      />
     </section>
 
     <section className="clients-list" aria-label="Client accounts">
@@ -157,27 +206,44 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
       {loading ? <div className="client-loading">Loading client portfolio…</div> : null}
     </section>
 
-    <DetailDialog open={createOpen} title={step === 1 ? 'New client' : 'Service location'} eyebrow={`Step ${step} of 2`} onClose={() => setCreateOpen(false)}>
+    <DetailDialog open={createOpen} title="New client" eyebrow="Client setup" onClose={() => setCreateOpen(false)}>
       <form className="client-dialog-form" onSubmit={createClient}>
-        <div className="clients-create-steps"><span className={step === 1 ? 'active' : ''}>1 · Client</span><span className={step === 2 ? 'active' : ''}>2 · Location</span></div>
-        {step === 1 ? <>
+        {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client account saved</strong><span>Finish the location below. Retrying will not create the client twice.</span></div></div> : null}
+
+        <section className="client-create-section">
+          <div className="client-create-section-head"><span>Client</span><p>Who we are cleaning for.</p></div>
           <label>Client name<input required autoFocus value={clientDraft.displayName} onChange={(event) => setClientDraft({ ...clientDraft, displayName: event.target.value })} placeholder="Merrion Dental Group" /></label>
-          <label>Client type<select value={clientDraft.type} onChange={(event) => setClientDraft({ ...clientDraft, type: event.target.value })}><option value="commercial">Commercial</option><option value="residential">Residential</option><option value="public_sector">Public sector</option><option value="internal">Internal</option></select></label>
+          <div className="client-form-field"><span>Client type</span><StandardSelect value={clientDraft.type} onChange={(value) => setClientDraft({ ...clientDraft, type: value })} ariaLabel="Client type" options={CLIENT_TYPE_OPTIONS} /></div>
           <label>Legal name <small>Optional</small><input value={clientDraft.legalName} onChange={(event) => setClientDraft({ ...clientDraft, legalName: event.target.value })} /></label>
           <div className="client-form-pair"><label>Primary contact <small>Optional</small><input value={clientDraft.contactName} onChange={(event) => setClientDraft({ ...clientDraft, contactName: event.target.value })} /></label><label>Contact email <small>Optional</small><input type="email" value={clientDraft.contactEmail} onChange={(event) => setClientDraft({ ...clientDraft, contactEmail: event.target.value })} /></label></div>
           <div className="client-form-pair"><label>Contact phone <small>Optional</small><input value={clientDraft.contactPhone} onChange={(event) => setClientDraft({ ...clientDraft, contactPhone: event.target.value })} /></label><label>Billing email <small>Optional</small><input type="email" value={clientDraft.billingEmail} onChange={(event) => setClientDraft({ ...clientDraft, billingEmail: event.target.value })} /></label></div>
-        </> : <>
-          {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client saved</strong><span>This step is resumable. Retrying only adds the location; it will not create the client twice.</span></div></div> : null}
-          <label className="clients-create-option"><input type="checkbox" checked={locationDraft.addNow} onChange={(event) => setLocationDraft({ ...locationDraft, addNow: event.target.checked })} /><span><strong>Add the first service location now</strong><span>You can skip this and add locations later from the client account.</span></span></label>
+        </section>
+
+        <section className="client-create-section location">
+          <div className="client-create-section-head"><span>Service location</span><p>Verified now so routing and geofence checks use the right place.</p></div>
+          <label className="clients-create-option"><input type="checkbox" checked={locationDraft.addNow} onChange={(event) => setLocationDraft({ ...locationDraft, addNow: event.target.checked })} /><span><strong>Add the first service location</strong><span>Turn this off only if the address is not known yet.</span></span></label>
           {locationDraft.addNow ? <>
             <label>Location name <small>{clientDraft.type === 'residential' ? 'Usually Home' : 'Example: Ranelagh Clinic'}</small><input value={locationDraft.name} onChange={(event) => setLocationDraft({ ...locationDraft, name: event.target.value })} placeholder={clientDraft.type === 'residential' ? 'Home' : 'Site name'} /></label>
-            <label>Address<input required value={locationDraft.addressLine1} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine1: event.target.value })} /></label>
-            <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} /></label>
-            <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
+            <GooglePlaceAutocomplete
+              kind="home"
+              label="Service address"
+              value={addressQuery}
+              placeholder="Start typing an address or Eircode…"
+              selected={selectedPlace}
+              onValueChange={(value) => {
+                setAddressQuery(value)
+                if (selectedPlace && value !== selectedPlace.formattedAddress) setSelectedPlace(null)
+              }}
+              onSelect={selectAddress}
+              helpText="Choose the correct Google Maps result. We save its coordinates for routing and geofence checks."
+            />
+            <label>Address line 2 <small>Optional</small><input value={locationDraft.addressLine2} onChange={(event) => setLocationDraft({ ...locationDraft, addressLine2: event.target.value })} placeholder="Unit, floor or building detail" /></label>
+            <div className="client-form-pair"><label>City<input required value={locationDraft.city} onChange={(event) => setLocationDraft({ ...locationDraft, city: event.target.value })} /></label><label>Eircode / postcode<input required value={locationDraft.postalCode} onChange={(event) => setLocationDraft({ ...locationDraft, postalCode: event.target.value })} /></label></div>
             <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
           </> : null}
-        </>}
-        <div className="client-dialog-actions">{step === 2 && !createdClientId ? <button type="button" className="client-button-secondary" onClick={() => setStep(1)}>Back</button> : step === 1 ? <button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button> : <button type="button" className="client-button-secondary" onClick={() => createdClientId && window.location.assign(`/clients/${createdClientId}`)}>Finish later</button>}<button className="client-button" disabled={busy}>{step === 1 ? 'Continue' : busy ? 'Saving…' : locationDraft.addNow ? createdClientId ? 'Retry location' : 'Create & set up service' : 'Create client'}</button></div>
+        </section>
+
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>{createdClientId ? 'Finish later' : 'Cancel'}</button><button className="client-button" disabled={busy}>{busy ? 'Saving…' : createdClientId ? 'Retry location' : locationDraft.addNow ? 'Create client & set up service' : 'Create client'}</button></div>
       </form>
     </DetailDialog>
   </main>
