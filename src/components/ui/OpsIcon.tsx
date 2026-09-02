@@ -1,4 +1,4 @@
-import type { SVGProps } from 'react'
+import type { ReactNode, SVGProps } from 'react'
 
 export type OpsIconName =
   | 'activity'
@@ -30,7 +30,7 @@ export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGEl
     'aria-hidden': true,
   }
 
-  const paths: Record<OpsIconName, React.ReactNode> = {
+  const paths: Record<OpsIconName, ReactNode> = {
     activity: <><path d="M3 12h4l2.1-6 4 12 2.2-6H21" /></>,
     alert: <><path d="M12 4 3.5 19h17L12 4Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></>,
