@@ -54,7 +54,7 @@ test('attention overview deduplicates visits, preserves colours and sends undate
   const pending = page.getByRole('region', { name: 'Work not yet on calendar' })
   await expect(pending).toContainText('Undated service')
   await expect(pending).toContainText('No date set')
-  await pending.getByRole('button', { name: 'Set schedule' }).click()
+  await pending.getByRole('button', { name: 'Configure service' }).click()
   await expect(page).toHaveURL(/\/clients\/client-undated/)
   await page.goBack()
   await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
