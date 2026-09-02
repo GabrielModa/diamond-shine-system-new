@@ -1,4 +1,4 @@
-import ClientAccount from '../../../../components/clients/ClientAccount'
+import ClientAccountWorkspace from '../../../../components/clients/ClientAccountWorkspace'
 import { currentUserCan } from '../../../../lib/server-access'
 
 export default async function ClientAccountPage() {
@@ -7,5 +7,5 @@ export default async function ClientAccountPage() {
     && await currentUserCan('sites.manage')
     && await currentUserCan('service_plans.manage')
     && await currentUserCan('schedule.manage')
-  return <ClientAccount canManageClients={canManageClients} canConfigureService={canConfigureService} />
+  return <ClientAccountWorkspace canManageClients={canManageClients} canConfigureService={canConfigureService} />
 }
