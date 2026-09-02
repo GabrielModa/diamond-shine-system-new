@@ -10,7 +10,6 @@ const querySchema = z.object({
   to: z.coerce.date().optional(),
 })
 
-
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'visits.review')
   if ('response' in auth) return auth.response
@@ -60,7 +59,7 @@ export async function GET(request: NextRequest) {
       take: 100,
     }),
     prisma.timeEntry.findMany({
-      where: { organizationId, status: 'running' },
+      where: { organizationId, status: 'running', kind: 'visit' },
       include: {
         user: { select: { id: true, name: true, email: true } },
         visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },

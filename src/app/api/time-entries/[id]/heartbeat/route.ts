@@ -14,7 +14,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
   const { id } = await params
   const entry = await prisma.timeEntry.findFirst({
-    where: { id, organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
+    where: { id, organizationId: auth.user.organizationId, userId: auth.user.id, kind: 'visit', status: 'running' },
     include: { visit: { include: { site: true } } },
   })
   if (!entry?.visit) return NextResponse.json({ ok: false, error: 'Active visit timer not found' }, { status: 404 })
@@ -26,22 +26,42 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (latest && capturedAt.getTime() - latest.capturedAt.getTime() < 60_000) {
     return NextResponse.json({ ok: true, ignored: true, data: latest })
   }
+
   const assessment = assessLocation(entry.visit.site, parsed.data)
-  const waypoint = await prisma.locationEvent.create({
-    data: {
-      organizationId: auth.user.organizationId,
-      visitId: entry.visit.id,
-      timeEntryId: entry.id,
-      kind: 'heartbeat',
-      latitude: parsed.data.latitude,
-      longitude: parsed.data.longitude,
+  const reviewReason = assessment.reviewRequired
+    ? ['PRESENCE_LOCATION_ANOMALY', assessment.reason].filter(Boolean).join(':')
+    : null
+  const waypoint = await prisma.$transaction(async (tx) => {
+    if (reviewReason && !entry.reviewReason?.includes('PRESENCE_LOCATION_ANOMALY')) {
+      await tx.timeEntry.update({
+        where: { id: entry.id },
+        data: { reviewReason: [entry.reviewReason, reviewReason].filter(Boolean).join(', ') },
+      })
+    }
+
+    const locationData = {
+      latitude: parsed.data.latitude!,
+      longitude: parsed.data.longitude!,
       accuracyM: parsed.data.accuracyM,
       distanceM: assessment.distanceM,
       classification: assessment.classification,
       capturedAt,
       source: parsed.data.source,
-    },
-  })
-  return NextResponse.json({ ok: true, data: waypoint, location: assessment }, { status: 201 })
-}
+    }
 
+    if (latest && latest.classification === assessment.classification) {
+      return tx.locationEvent.update({ where: { id: latest.id }, data: locationData })
+    }
+
+    return tx.locationEvent.create({
+      data: {
+        organizationId: auth.user.organizationId,
+        visitId: entry.visit.id,
+        timeEntryId: entry.id,
+        kind: 'heartbeat',
+        ...locationData,
+      },
+    })
+  })
+  return NextResponse.json({ ok: true, data: waypoint, location: assessment, warning: reviewReason }, { status: latest?.classification === assessment.classification ? 200 : 201 })
+}

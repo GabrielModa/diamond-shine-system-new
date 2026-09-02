@@ -55,6 +55,7 @@ export type TimeEntry = {
   startedAt: string;
   endedAt?: string | null;
   durationSeconds?: number | null;
+  user?: Person;
 };
 
 export type Visit = {
