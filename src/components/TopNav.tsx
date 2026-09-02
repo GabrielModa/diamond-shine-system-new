@@ -8,9 +8,9 @@ type NavSection = 'control' | 'analytics' | 'admin' | 'workspace'
 type NavItem = { label: string; href: string; section: NavSection }
 
 const groups: Array<{ section: NavSection; label: string; description: string }> = [
-  { section: 'control', label: 'Run operations', description: 'Dispatch, field execution, time, materials and communication.' },
-  { section: 'analytics', label: 'Analytics', description: 'Service performance, quality and operational signals.' },
-  { section: 'admin', label: 'Manage business', description: 'Clients, service design, work orders, people and audit.' },
+  { section: 'control', label: 'Run operations', description: 'Plan the team, run today’s work, review execution, time and materials.' },
+  { section: 'analytics', label: 'Analytics', description: 'Service performance, quality, feedback and operational signals.' },
+  { section: 'admin', label: 'Manage business', description: 'Clients, people access and the audit trail.' },
   { section: 'workspace', label: 'My workspace', description: 'Personal requests and follow-up.' },
 ]
 
@@ -41,8 +41,9 @@ export default function TopNav({ items }: { items: NavItem[] }) {
     return () => window.removeEventListener('diamond:close-nav', closeNavigation)
   }, [])
 
+  const matchesItem = (href: string) => pathname === href || (href === '/clients' && pathname.startsWith('/clients/'))
   const navLinks = (section: NavSection, className = '') => items.filter((item) => item.section === section).map((item) => {
-    const isActive = pathname === item.href
+    const isActive = matchesItem(item.href)
 
     return (
       <Link
@@ -57,7 +58,7 @@ export default function TopNav({ items }: { items: NavItem[] }) {
     )
   })
 
-  const sectionHasActivePage = (section: NavSection) => items.some((item) => item.section === section && pathname === item.href)
+  const sectionHasActivePage = (section: NavSection) => items.some((item) => item.section === section && matchesItem(item.href))
 
   return (
     <nav ref={navRef} className="top-nav" aria-label="Primary navigation">
