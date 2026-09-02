@@ -4,6 +4,7 @@ import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { canManageTeamTime } from '../../../../../modules/execution/access'
 import { assessLocation } from '../../../../../modules/execution/location'
+import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { stopTimeEntrySchema } from '../../../../../modules/execution/schemas'
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
@@ -30,8 +31,22 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const assessment = entry.visit
     ? assessLocation(entry.visit.site, parsed.data)
     : { classification: 'unavailable' as const, distanceM: null, accuracyM: null, confidence: 'low' as const, risk: 'watch' as const, reviewRequired: false, reason: null }
+  const pattern = entry.visit
+    ? await repeatedLocationPattern({
+        organizationId: user.organizationId,
+        userId: entry.userId,
+        siteId: entry.visit.siteId,
+        kind: 'clock_out',
+        capturedAt: endedAt,
+        coordinates: parsed.data,
+        assessment,
+      })
+    : { count: 0, triggered: false, windowDays: 30, clusterRadiusM: 175 }
   const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - entry.startedAt.getTime()) / 1000))
-  const reviewReasons = [entry.reviewReason, assessment.reviewRequired ? assessment.reason : null].filter(Boolean)
+  const locationReviewReason = pattern.triggered
+    ? 'REPEATED_LOCATION_PATTERN'
+    : assessment.reviewRequired ? assessment.reason : null
+  const reviewReasons = [entry.reviewReason, locationReviewReason].filter(Boolean)
 
   const updated = await prisma.$transaction(async (tx) => {
     const saved = await tx.timeEntry.update({
@@ -71,6 +86,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     status: updated.status,
     durationSeconds,
     reviewReason: updated.reviewReason,
+    locationRisk: assessment.risk,
+    repeatedLocationPatternCount: pattern.count,
   }, user.organizationId)
-  return NextResponse.json({ ok: true, data: updated, location: assessment })
+  return NextResponse.json({ ok: true, data: updated, location: assessment, pattern })
 }
