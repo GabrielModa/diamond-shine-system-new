@@ -13,6 +13,7 @@ type PageMeta = {
   label: string
   href: string
   section: NavSection
+  order: number
   any?: Capability[]
   roles?: MembershipRole[]
   excludedRoles?: MembershipRole[]
@@ -21,31 +22,37 @@ type PageMeta = {
 }
 
 const pageMeta: Record<string, PageMeta> = {
-  home: { label: 'Command centre', href: '/home', section: 'control', always: true },
-  schedule: { label: 'Schedule', href: '/schedule', section: 'control', any: ['schedule.read'] },
-  'live-operations': { label: 'Live operations', href: '/live-operations', section: 'control', any: ['schedule.manage'] },
-  people: { label: 'Plan coverage', href: '/people', section: 'control', any: ['schedule.manage'] },
-  'field-control': { label: 'Field control', href: '/field-control', section: 'control', any: ['visits.review'] },
-  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', any: ['time.own.manage', 'time.team.review'] },
-  supplies: { label: 'Supplies', href: '/supplies', section: 'control', any: ['supplies.request'] },
-  communications: {
-    label: 'Inbox', href: '/communications', section: 'control',
-    roles: ['organization_admin', 'field_supervisor', 'scheduler', 'employee', 'stock_controller', 'quality_inspector'],
-  },
-  'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', any: ['schedule.manage'] },
-  insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', any: ['visits.review'] },
-  quality: { label: 'Quality control', href: '/quality', section: 'analytics', any: ['quality.inspect'] },
-  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', any: ['quality.inspect'] },
-  dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics', roles: ['organization_admin', 'field_supervisor'] },
-  clients: { label: 'Clients', href: '/clients', section: 'admin', any: ['clients.read'], excludedRoles: ['employee'] },
+  // Run operations follows the operating lifecycle: overview -> plan -> cover -> live -> control -> support -> close.
+  home: { label: 'Command centre', href: '/home', section: 'control', order: 10, always: true },
+  schedule: { label: 'Schedule', href: '/schedule', section: 'control', order: 20, any: ['schedule.read'] },
+  people: { label: 'Plan coverage', href: '/people', section: 'control', order: 30, any: ['schedule.manage'] },
+  'live-operations': { label: 'Live workforce', href: '/live-operations', section: 'control', order: 40, any: ['schedule.manage'] },
+  'field-control': { label: 'Field control', href: '/field-control', section: 'control', order: 50, any: ['visits.review'] },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'] },
+  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 70, any: ['time.own.manage', 'time.team.review'] },
+
+  // Cross-operation outcomes and decision support. Legacy duplicate summaries remain addressable but stay out of primary nav.
+  insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
+  'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', order: 20, any: ['schedule.manage'] },
+  quality: { label: 'Quality control', href: '/quality', section: 'analytics', order: 30, any: ['quality.inspect'] },
+  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, any: ['quality.inspect'], nav: false },
+  dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics', order: 50, roles: ['organization_admin', 'field_supervisor'], nav: false },
+
+  clients: { label: 'Clients', href: '/clients', section: 'admin', order: 10, any: ['clients.read'], excludedRoles: ['employee'] },
+  users: { label: 'People & access', href: '/users', section: 'admin', order: 20, any: ['memberships.manage'], excludedRoles: ['employee'] },
+  audit: { label: 'Audit trail', href: '/audit', section: 'admin', order: 30, any: ['audit.read'], excludedRoles: ['employee'] },
   // Advanced operational registries remain permission-protected and directly addressable,
   // but the normal product flow is Client account -> Service -> Schedule.
-  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin', any: ['schedule.read', 'service_plans.read'], excludedRoles: ['employee'], nav: false },
-  operations: { label: 'Service setup', href: '/operations', section: 'admin', any: ['service_plans.read', 'sites.read'], excludedRoles: ['employee'], nav: false },
-  users: { label: 'People & access', href: '/users', section: 'admin', any: ['memberships.manage'], excludedRoles: ['employee'] },
-  audit: { label: 'Audit trail', href: '/audit', section: 'admin', any: ['audit.read'], excludedRoles: ['employee'] },
-  profile: { label: 'My profile', href: '/profile', section: 'workspace', always: true },
-  'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', any: ['supplies.request'] },
+  'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin', order: 90, any: ['schedule.read', 'service_plans.read'], excludedRoles: ['employee'], nav: false },
+  operations: { label: 'Service setup', href: '/operations', section: 'admin', order: 100, any: ['service_plans.read', 'sites.read'], excludedRoles: ['employee'], nav: false },
+
+  // Personal attention belongs together: communication first, then submitted work, then account settings.
+  communications: {
+    label: 'Inbox', href: '/communications', section: 'workspace', order: 10,
+    roles: ['organization_admin', 'field_supervisor', 'scheduler', 'employee', 'stock_controller', 'quality_inspector'],
+  },
+  'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', order: 20, any: ['supplies.request'] },
+  profile: { label: 'My profile', href: '/profile', section: 'workspace', order: 30, always: true },
 }
 
 export default async function ProtectedLayout({ children }: { children: ReactNode }) {
@@ -81,7 +88,9 @@ export default async function ProtectedLayout({ children }: { children: ReactNod
   const requestHeaders = await headers()
   const currentPage = requestHeaders.get('x-diamond-path')?.split('/').filter(Boolean)[0]
   if (currentPage && pageMeta[currentPage] && !allowed(pageMeta[currentPage])) redirect('/forbidden')
-  const items = Object.values(pageMeta).filter((meta) => allowed(meta) && meta.nav !== false)
+  const items = Object.values(pageMeta)
+    .filter((meta) => allowed(meta) && meta.nav !== false)
+    .sort((a, b) => a.order - b.order)
 
   return (
     <>
