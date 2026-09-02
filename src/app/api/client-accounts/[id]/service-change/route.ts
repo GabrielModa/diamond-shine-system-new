@@ -25,6 +25,11 @@ const changeSchema = z.object({
 
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
 
+function isManualExtraRecurrence(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return (value as { source?: unknown }).source === 'manual_extra'
+}
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const clientAuth = await requireCapability(request, 'clients.manage')
   if ('response' in clientAuth) return clientAuth.response
@@ -58,7 +63,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   })
   if (!current) return NextResponse.json({ ok: false, error: 'Service not found for this client.' }, { status: 404 })
 
-  const latestRuleJob = current.jobs[0]
+  const recurringJobs = current.jobs.filter((job) => !isManualExtraRecurrence(job.recurrence))
+  const manualExtraJobs = current.jobs.filter((job) => isManualExtraRecurrence(job.recurrence))
+  const latestRuleJob = recurringJobs[0]
+  const recurringJobIds = recurringJobs.map((job) => job.id)
   const requestedDefaultAssignees = [...new Set(latestRuleJob?.defaultAssignees.map((item) => item.userId) ?? [])]
   const eligibleMemberships = requestedDefaultAssignees.length ? await prisma.membership.findMany({
     where: {
@@ -164,10 +172,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     })()
     await tx.servicePlan.update({ where: { id: refreshed.id }, data: { status: 'published' } })
 
-    const replacedVisits = await tx.visit.updateMany({
+    const replacedVisits = recurringJobIds.length ? await tx.visit.updateMany({
       where: {
         organizationId,
-        job: { servicePlanId: refreshed.id },
+        jobId: { in: recurringJobIds },
         scheduledStart: { gte: parsed.data.effectiveFrom },
         status: { in: ['scheduled', 'dispatched', 'acknowledged'] },
       },
@@ -176,11 +184,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         cancellationReason: `Service configuration replaced effective ${parsed.data.effectiveFrom.toISOString()}`,
         version: { increment: 1 },
       },
-    })
-    await tx.job.updateMany({
-      where: { organizationId, servicePlanId: refreshed.id, status: { in: ['active', 'paused'] } },
-      data: { endDate: parsed.data.effectiveFrom, version: { increment: 1 } },
-    })
+    }) : { count: 0 }
+    if (recurringJobIds.length) {
+      await tx.job.updateMany({
+        where: { organizationId, id: { in: recurringJobIds }, status: { in: ['active', 'paused'] } },
+        data: { endDate: parsed.data.effectiveFrom, version: { increment: 1 } },
+      })
+    }
 
     const allocationEnd = new Date(Math.max(...occurrences.map((start) => start.getTime() + parsed.data.expectedDurationMinutes * 60_000)))
     const allocator = await buildDefaultTeamAllocator(tx, {
@@ -239,6 +249,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await logAudit(clientAuth.user.email, 'change_client_service', 'service_plan', current.id, {
     clientId, effectiveFrom: parsed.data.effectiveFrom.toISOString(), serviceVersion: result.version.versionNumber,
     replacedFutureVisits: result.replacedVisits, generatedVisits: result.visitIds.length,
+    preservedManualExtraJobs: manualExtraJobs.length,
   }, organizationId)
 
   return NextResponse.json({ ok: true, data: {
@@ -246,6 +257,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     versionNumber: result.version.versionNumber,
     replacedFutureVisits: result.replacedVisits,
     generatedVisits: result.visitIds.length,
+    preservedManualExtraJobs: manualExtraJobs.length,
     jobId: result.job.id,
   } })
 }
