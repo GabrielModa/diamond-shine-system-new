@@ -45,12 +45,12 @@ export async function repeatedLocationPattern(input: {
   const previous = await prisma.locationEvent.findMany({
     where: {
       organizationId: input.organizationId,
-      userId: input.userId,
-      siteId: input.siteId,
       kind: input.kind,
       capturedAt: { gte: from, lt: input.capturedAt },
       classification: { in: ['near', 'suspicious'] },
       accuracyM: { lte: LOCATION_PATTERN_MAX_ACCURACY_M },
+      timeEntry: { is: { userId: input.userId } },
+      visit: { is: { siteId: input.siteId } },
     },
     select: { latitude: true, longitude: true },
     orderBy: { capturedAt: 'desc' },
@@ -59,7 +59,7 @@ export async function repeatedLocationPattern(input: {
 
   const similar = previous.filter((event) => distanceInMeters(
     { latitude, longitude },
-    { latitude: event.latitude, longitude: event.longitude }
+    { latitude: Number(event.latitude), longitude: Number(event.longitude) }
   ) <= LOCATION_PATTERN_CLUSTER_RADIUS_M)
   const count = similar.length + 1
 
