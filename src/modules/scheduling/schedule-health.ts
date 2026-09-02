@@ -23,6 +23,11 @@ function workerName(user: { name: string | null; email: string }) {
   return user.name ?? user.email
 }
 
+function isManualExtraRecurrence(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return (value as { source?: unknown }).source === 'manual_extra'
+}
+
 export async function buildScheduleHealth(input: {
   organizationId: string
   from: Date
@@ -42,7 +47,7 @@ export async function buildScheduleHealth(input: {
         site: { select: { id: true, name: true, timezone: true, client: { select: { id: true, displayName: true } } } },
         jobs: {
           where: { archivedAt: null, status: { in: ['active', 'paused'] } },
-          select: { id: true },
+          select: { id: true, recurrence: true },
         },
       },
     }),
@@ -104,7 +109,7 @@ export async function buildScheduleHealth(input: {
   }
 
   for (const plan of plans) {
-    if (plan.jobs.length) continue
+    if (plan.jobs.some((job) => !isManualExtraRecurrence(job.recurrence))) continue
     summary.unscheduledServices += 1
     items.push({
       id: `plan:${plan.id}:unscheduled`,
@@ -246,6 +251,7 @@ export async function buildScheduleHealth(input: {
   }
 
   for (const job of jobs) {
+    if (isManualExtraRecurrence(job.recurrence)) continue
     const parsed = recurrenceSchema.safeParse(job.recurrence ?? { frequency: 'once' })
     if (!parsed.success) continue
     const contractualEnd = job.endDate && job.endDate < input.to ? job.endDate : input.to
