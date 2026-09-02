@@ -210,41 +210,60 @@ Recent completed work. This is customer operational history, not a duplicate of 
 
 ## Navigation policy
 
-Normal navigation:
+Primary navigation is grouped by the user's intent, not by the database or implementation layer.
 
 ### Run operations
+Answers: **What do we need to plan, deliver, support and close?**
+
+Order follows the operating lifecycle:
 - Command centre
 - Schedule
-- Live operations
 - Plan coverage
+- Live workforce
 - Field control
-- Timesheets
 - Supplies
-- Inbox
+- Timesheets
 
-### Analytics
+`Live workforce` answers who is working now, upcoming starts and workforce exceptions. `Field control` owns execution review such as timers, GPS evidence, visit proof and incidents. They must not be presented as interchangeable concepts.
+
+### Quality & insights
+Answers: **How are we performing and where is risk or corrective work emerging?**
+
 - Operations intelligence
 - Team performance
 - Quality control
-- Service feedback
-- Service performance
+
+`Service feedback` currently resolves to the same primary quality workspace and therefore is not a separate primary-navigation destination. `Service performance` is a legacy summary that overlaps Command centre, Supplies and Quality/Insights. Both routes may remain directly addressable during transition, but they are hidden from primary navigation until they provide a distinct user job.
 
 ### Manage business
+Answers: **What customer, access and governance records do we maintain?**
+
 - Clients
 - People & access
 - Audit trail
 
-`Work orders` and the existing technical `Service setup` workspace remain permission-protected and directly addressable as advanced/internal registries during the transition, but they are not part of normal manager navigation.
+`Work orders` and the technical `Service setup` workspace remain permission-protected and directly addressable as advanced/internal registries during the transition, but they are not part of normal manager navigation.
+
+### My workspace
+Answers: **What personally needs my attention or belongs to me?**
+
+- Inbox
+- My requests
+- My profile
+
+Inbox belongs here even though messages can contain operational information: receiving, reading and acknowledging communication is a personal attention workflow. Managers may still broadcast and track acknowledgements inside the Inbox workspace without turning communication into a Run operations destination.
 
 ## Module boundaries
 
 - Clients defines who the customer is, where cleaning happens and what service was sold.
 - Schedule operates concrete Visits and decides who executes them.
-- Live operations describes what is happening now.
 - Plan coverage helps plan workforce capacity and routing ahead.
-- Field Control verifies today's execution and operational exceptions.
+- Live workforce shows current workforce state and upcoming starts.
+- Field Control verifies today's execution, evidence and operational exceptions.
+- Supplies controls material availability and replenishment.
 - Timesheets closes recorded time for payroll.
-- Quality / Insights evaluate outcomes and trends.
+- Inbox owns operational communication, personal receipt and acknowledgement.
+- Quality & Insights evaluates outcomes, trends, risk and corrective work.
 
 No module should silently rebuild another module's responsibility.
 
@@ -257,7 +276,8 @@ No module should silently rebuild another module's responsibility.
 5. `Preferred time` belongs to service recurrence; `Visit start` belongs to a concrete Visit.
 6. Cleaning instructions belong to the service snapshot; Dispatch note is Visit-specific context only.
 7. A selected employee/date/filter must scope every visible count and action that claims to describe the current view.
-8. Backend validation remains authoritative for workforce eligibility and conflicts.
+8. Primary navigation labels must describe a distinct user job. Duplicate or legacy routes stay out of normal navigation until they own a distinct workflow.
+9. Backend validation remains authoritative for workforce eligibility and conflicts.
 
 ## Product principles
 
