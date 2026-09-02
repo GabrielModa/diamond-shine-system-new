@@ -1,7 +1,7 @@
 import { defineConfig } from '@playwright/test'
 import base from './playwright.config'
 
-// Targeted audit evidence without video-process teardown on the Windows host.
+// Targeted Schedule audit; screenshots provide evidence without recording video.
 export default defineConfig({
   ...base,
   testMatch: '**/schedule.spec.ts',
