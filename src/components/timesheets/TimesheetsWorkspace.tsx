@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatOperationalDateTime } from '../../lib/operational-time'
 import OpsIcon from '../ui/OpsIcon'
+import StandardSelect from '../ui/StandardSelect'
 import './TimesheetsWorkspace.css'
 
 type Entry = {
@@ -423,10 +424,10 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
 
     <section className="ts-filterbar" aria-label="Timesheet filters">
       <div className="ts-search"><OpsIcon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search employee, site or work…" /></div>
-      <label className="ts-field"><span>Employee</span><select value={employeeFilter} onChange={(event) => setEmployeeFilter(event.target.value)}><option value="all">All employees</option>{employeeOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label>
-      <label className="ts-field"><span>Status</span><select value={statusFilter} onChange={(event) => setStatusFilter(event.target.value as StatusFilter)}><option value="all">All statuses</option><option value="recorded">Recorded</option><option value="needs_review">Needs review</option><option value="approved">Approved</option><option value="rejected">Rejected</option><option value="running">Running</option><option value="challenge">Challenge open</option></select></label>
-      <label className="ts-field"><span>Work type</span><select value={kindFilter} onChange={(event) => setKindFilter(event.target.value)}><option value="all">All work types</option>{kindOptions.map((kind) => <option value={kind} key={kind}>{kind.replaceAll('_', ' ')}</option>)}</select></label>
-      <label className="ts-field"><span>Client</span><select value={clientFilter} onChange={(event) => setClientFilter(event.target.value)}><option value="all">All clients</option>{clientOptions.map(([id, label]) => <option value={id} key={id}>{label}</option>)}</select></label>
+      <div className="ts-field"><span>Employee</span><StandardSelect searchable value={employeeFilter} onChange={setEmployeeFilter} ariaLabel="Employee" searchPlaceholder="Search employee…" options={[{ value: 'all', label: 'All employees' }, ...employeeOptions.map(([id, label]) => ({ value: id, label }))]} /></div>
+      <div className="ts-field"><span>Status</span><StandardSelect value={statusFilter} onChange={(value) => setStatusFilter(value as StatusFilter)} ariaLabel="Timesheet status" options={[{ value: 'all', label: 'All statuses' }, { value: 'recorded', label: 'Recorded' }, { value: 'needs_review', label: 'Needs review' }, { value: 'approved', label: 'Approved' }, { value: 'rejected', label: 'Rejected' }, { value: 'running', label: 'Running' }, { value: 'challenge', label: 'Challenge open' }]} /></div>
+      <div className="ts-field"><span>Work type</span><StandardSelect value={kindFilter} onChange={setKindFilter} ariaLabel="Work type" options={[{ value: 'all', label: 'All work types' }, ...kindOptions.map((kind) => ({ value: kind, label: kind.replaceAll('_', ' ') }))]} /></div>
+      <div className="ts-field"><span>Client</span><StandardSelect searchable value={clientFilter} onChange={setClientFilter} ariaLabel="Client" searchPlaceholder="Search client…" options={[{ value: 'all', label: 'All clients' }, ...clientOptions.map(([id, label]) => ({ value: id, label }))]} /></div>
       <button className="ts-clear" onClick={clearFilters} disabled={!activeFilterLabels.length}>Clear filters</button>
     </section>
 
