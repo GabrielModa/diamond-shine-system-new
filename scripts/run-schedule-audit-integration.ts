@@ -4,6 +4,11 @@ import { loadEnvConfig } from '@next/env'
 import { assertIntegrationDatabaseSafe } from '../tests/integration/database-safety'
 
 // No reset/drop: each audit owns a new schema, never the development schema.
+const allowedSpecs = ['scheduling', 'workforce', 'schedule-hardening', 'schedule-capacity-availability', 'service-continuity', 'execution']
+const selectedSpecs = process.argv.slice(2)
+if (selectedSpecs.some((spec) => !allowedSpecs.includes(spec))) {
+  throw new Error(`Expected audit suite names: ${allowedSpecs.join(', ')}`)
+}
 loadEnvConfig(process.cwd())
 const url = new URL(process.env.DATABASE_URL ?? '')
 const schema = `integration_audit_${randomUUID().replaceAll('-', '')}`
@@ -19,6 +24,6 @@ function run(script: string, args: string[]) {
 }
 
 run('node_modules/prisma/build/index.js', ['db', 'push', '--skip-generate'])
-for (const spec of ['scheduling', 'workforce', 'schedule-hardening', 'schedule-capacity-availability', 'service-continuity', 'execution']) {
+for (const spec of selectedSpecs.length ? selectedSpecs : allowedSpecs) {
   run('node_modules/vitest/vitest.mjs', ['run', `tests/integration/${spec}.test.ts`, '--maxWorkers=1', '--testTimeout=30000'])
 }

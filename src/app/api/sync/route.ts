@@ -227,9 +227,11 @@ export async function GET(request: NextRequest) {
   const visits = await prisma.visit.findMany({
     where: {
       organizationId: auth.user.organizationId,
-      status: { notIn: ['cancelled', 'missed'] },
       scheduledStart: { gte: from, lte: to },
       ...assignedVisitFilter(auth.user),
+      // Bootstrap reconciles completed offline work too. Keep assignment access
+      // restrictions, but do not apply the mutation-only operational status gate.
+      status: { notIn: ['cancelled', 'missed'] },
     },
     include: {
       site: { include: { client: true, areas: { orderBy: { sortOrder: 'asc' } } } },

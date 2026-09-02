@@ -18,6 +18,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     include: { visit: { include: { site: true } } },
   })
   if (!entry?.visit) return NextResponse.json({ ok: false, error: 'Active visit timer not found' }, { status: 404 })
+  const visit = entry.visit
   const capturedAt = parsed.data.capturedAt ?? new Date()
   const latest = await prisma.locationEvent.findFirst({
     where: { organizationId: auth.user.organizationId, timeEntryId: entry.id, kind: 'heartbeat' },
@@ -27,7 +28,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: true, ignored: true, data: latest })
   }
 
-  const assessment = assessLocation(entry.visit.site, parsed.data)
+  const assessment = assessLocation(visit.site, parsed.data)
   const reviewReason = assessment.reviewRequired
     ? ['PRESENCE_LOCATION_ANOMALY', assessment.reason].filter(Boolean).join(':')
     : null
@@ -56,7 +57,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return tx.locationEvent.create({
       data: {
         organizationId: auth.user.organizationId,
-        visitId: entry.visit.id,
+        visitId: visit.id,
         timeEntryId: entry.id,
         kind: 'heartbeat',
         ...locationData,
