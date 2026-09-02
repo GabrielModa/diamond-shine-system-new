@@ -28,9 +28,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const assessment = assessLocation(entry.visit.site, parsed.data)
-  const reviewReason = assessment.reviewRequired ? 'PRESENCE_LOCATION_ANOMALY' : null
+  const reviewReason = assessment.reviewRequired
+    ? ['PRESENCE_LOCATION_ANOMALY', assessment.reason].filter(Boolean).join(':')
+    : null
   const waypoint = await prisma.$transaction(async (tx) => {
-    if (reviewReason && !entry.reviewReason?.includes(reviewReason)) {
+    if (reviewReason && !entry.reviewReason?.includes('PRESENCE_LOCATION_ANOMALY')) {
       await tx.timeEntry.update({
         where: { id: entry.id },
         data: { reviewReason: [entry.reviewReason, reviewReason].filter(Boolean).join(', ') },
