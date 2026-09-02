@@ -18,6 +18,7 @@ type CheckResult = {
   };
   geofence: { verifiedM: number; nearM: number; suspiciousM: number };
 };
+type RunningEntry = { id: string; kind: string; visit: { id: string } | null };
 
 function resultCopy(result: CheckResult) {
   const { assessment } = result;
@@ -35,11 +36,28 @@ export default function VisitLocationPrecheck() {
   const visitId = typeof params.id === 'string' ? params.id : null;
   const onVisit = pathname.startsWith('/visit/') && Boolean(visitId);
   const [checking, setChecking] = useState(false);
+  const [hasRunningTimer, setHasRunningTimer] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
   const [error, setError] = useState('');
 
-  useEffect(() => { setResult(null); setError(''); }, [visitId]);
-  if (!session || !onVisit || !visitId) return null;
+  useEffect(() => { setResult(null); setError(''); setHasRunningTimer(false); }, [visitId]);
+  useEffect(() => {
+    if (!session || !onVisit || !visitId) return;
+    let disposed = false;
+    const refreshTimerState = async () => {
+      try {
+        const entries = await apiFetch<RunningEntry[]>(session, '/api/time-entries?mine=true&status=running');
+        if (!disposed) setHasRunningTimer(entries.some((entry) => entry.kind === 'visit' && entry.visit?.id === visitId));
+      } catch {
+        // The visit screen remains the execution source of truth if this helper cannot refresh.
+      }
+    };
+    void refreshTimerState();
+    const timer = setInterval(() => void refreshTimerState(), 10_000);
+    return () => { disposed = true; clearInterval(timer); };
+  }, [onVisit, session, visitId]);
+
+  if (!session || !onVisit || !visitId || hasRunningTimer) return null;
 
   async function check() {
     setChecking(true); setError('');
