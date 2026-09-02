@@ -72,8 +72,20 @@ type Visit = {
   assignments?: Array<{ status: string; user: TeamMember }>
 }
 type AccountData = { client: Client; upcomingVisits: Visit[]; recentVisits: Visit[] }
-
 type Frequency = 'once' | 'daily' | 'weekly' | 'fortnightly'
+type ServiceDraft = {
+  siteId: string
+  serviceName: string
+  startDate: string
+  endDate: string
+  frequency: Frequency
+  weekdays: number[]
+  time: string
+  durationMinutes: number
+  requiredWorkers: number
+  instructions: string
+}
+type ChangeTarget = { site: Site; plan: ServicePlan } | null
 
 const WEEKDAYS = [
   { value: 1, short: 'Mon' }, { value: 2, short: 'Tue' }, { value: 3, short: 'Wed' },
@@ -120,6 +132,26 @@ function localStart(date: string, time: string, timezone: string) {
   return localDateTimeToUtc({ year, month, day, hour, minute, second: 0 }, timezone)
 }
 
+function timeInZone(value: string, timezone: string) {
+  const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value))
+  return `${parts.find((part) => part.type === 'hour')?.value ?? '09'}:${parts.find((part) => part.type === 'minute')?.value ?? '00'}`
+}
+
+function recurrenceDraft(value: unknown) {
+  if (!value || typeof value !== 'object') return { frequency: 'weekly' as Frequency, weekdays: [1] as number[] }
+  const rule = value as { frequency?: string; interval?: number; weekdays?: number[] }
+  if (rule.frequency === 'once') return { frequency: 'once' as Frequency, weekdays: [] as number[] }
+  if (rule.frequency === 'daily') return { frequency: 'daily' as Frequency, weekdays: [] as number[] }
+  if (rule.frequency === 'weekly') return { frequency: rule.interval === 2 ? 'fortnightly' as Frequency : 'weekly' as Frequency, weekdays: rule.weekdays ?? [1] }
+  return { frequency: 'weekly' as Frequency, weekdays: [1] as number[] }
+}
+
+function recurrencePayload(draft: Pick<ServiceDraft, 'frequency' | 'weekdays'>) {
+  if (draft.frequency === 'once') return { frequency: 'once' as const }
+  if (draft.frequency === 'daily') return { frequency: 'daily' as const, interval: 1 }
+  return { frequency: 'weekly' as const, interval: draft.frequency === 'fortnightly' ? 2 : 1, weekdays: draft.weekdays }
+}
+
 export default function ClientAccount({ canManageClients, canConfigureService }: { canManageClients: boolean; canConfigureService: boolean }) {
   const params = useParams<{ id: string }>()
   const searchParams = useSearchParams()
@@ -130,6 +162,8 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
   const [locationOpen, setLocationOpen] = useState(false)
   const [serviceOpen, setServiceOpen] = useState(false)
   const [editOpen, setEditOpen] = useState(false)
+  const [changeOpen, setChangeOpen] = useState(false)
+  const [changeTarget, setChangeTarget] = useState<ChangeTarget>(null)
   const [setupHandled, setSetupHandled] = useState(false)
   const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: 'Dublin', postalCode: '', entryInstructions: '' })
   const [profileDraft, setProfileDraft] = useState({ displayName: '', legalName: '', type: 'commercial', billingEmail: '', phone: '' })
@@ -138,10 +172,20 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
     const local = new Date(now.getTime() - now.getTimezoneOffset() * 60_000)
     return local.toISOString().slice(0, 10)
   }, [])
-  const [serviceDraft, setServiceDraft] = useState({
-    siteId: '', serviceName: 'Regular cleaning', startDate: today, endDate: '', frequency: 'weekly' as Frequency,
-    weekdays: [1] as number[], time: '09:00', durationMinutes: 120, requiredWorkers: 1,
+  const tomorrow = useMemo(() => {
+    const date = new Date()
+    date.setDate(date.getDate() + 1)
+    const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
+    return local.toISOString().slice(0, 10)
+  }, [])
+  const [serviceDraft, setServiceDraft] = useState<ServiceDraft>({
+    siteId: '', serviceName: 'Regular cleaning', startDate: today, endDate: '', frequency: 'weekly',
+    weekdays: [1], time: '09:00', durationMinutes: 120, requiredWorkers: 1,
     instructions: 'Vacuum floors\nClean bathrooms\nRemove waste',
+  })
+  const [changeDraft, setChangeDraft] = useState<ServiceDraft>({
+    siteId: '', serviceName: '', startDate: tomorrow, endDate: '', frequency: 'weekly',
+    weekdays: [1], time: '09:00', durationMinutes: 120, requiredWorkers: 1, instructions: '',
   })
 
   const refresh = useCallback(async () => {
@@ -159,9 +203,7 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
       setServiceDraft((current) => ({ ...current, siteId: current.siteId || account.client.sites[0]?.id || '' }))
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load this client.' })
-    } finally {
-      setLoading(false)
-    }
+    } finally { setLoading(false) }
   }, [params.id])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -265,12 +307,6 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
       await api(`/api/service-plans/${plan.id}/publish`, { method: 'POST' })
 
       const startAt = localStart(serviceDraft.startDate, serviceDraft.time, site.timezone || 'Europe/Dublin')
-      const recurrence = serviceDraft.frequency === 'once'
-        ? { frequency: 'once' }
-        : serviceDraft.frequency === 'daily'
-          ? { frequency: 'daily', interval: 1 }
-          : { frequency: 'weekly', interval: serviceDraft.frequency === 'fortnightly' ? 2 : 1, weekdays: serviceDraft.weekdays }
-
       await api('/api/jobs', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           servicePlanId: plan.id,
@@ -280,7 +316,7 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
           timezone: site.timezone || 'Europe/Dublin',
           durationMinutes: Number(serviceDraft.durationMinutes),
           requiredWorkers: Number(serviceDraft.requiredWorkers),
-          instructions: taskTitles.join('\n'), recurrence, assigneeIds: [],
+          instructions: taskTitles.join('\n'), recurrence: recurrencePayload(serviceDraft), assigneeIds: [],
         }),
       })
 
@@ -296,8 +332,60 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
     } finally { setBusy(false) }
   }
 
-  function toggleWeekday(day: number) {
-    setServiceDraft((current) => ({
+  function openServiceChange(site: Site, plan: ServicePlan) {
+    const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
+    const recurrence = recurrenceDraft(job?.recurrence)
+    setChangeTarget({ site, plan })
+    setChangeDraft({
+      siteId: site.id,
+      serviceName: plan.name,
+      startDate: tomorrow,
+      endDate: plan.contract?.endDate?.slice(0, 10) ?? '',
+      frequency: recurrence.frequency,
+      weekdays: recurrence.weekdays,
+      time: job ? timeInZone(job.startDate, site.timezone || 'Europe/Dublin') : '09:00',
+      durationMinutes: plan.expectedDurationMinutes,
+      requiredWorkers: plan.requiredWorkers,
+      instructions: plan.tasks.map((task) => task.title).join('\n'),
+    })
+    setChangeOpen(true)
+  }
+
+  async function changeService(event: FormEvent) {
+    event.preventDefault()
+    if (!changeTarget) return
+    const taskTitles = changeDraft.instructions.split('\n').map((line) => line.trim()).filter(Boolean)
+    if (!taskTitles.length) return setNotice({ kind: 'error', text: 'Add at least one cleaning instruction.' })
+    if ((changeDraft.frequency === 'weekly' || changeDraft.frequency === 'fortnightly') && !changeDraft.weekdays.length) {
+      return setNotice({ kind: 'error', text: 'Choose at least one service day.' })
+    }
+    setBusy(true)
+    try {
+      const effectiveFrom = localStart(changeDraft.startDate, changeDraft.time, changeTarget.site.timezone || 'Europe/Dublin')
+      const result = await api<{ versionNumber: number; replacedFutureVisits: number; generatedVisits: number }>(`/api/client-accounts/${data?.client.id}/service-change`, {
+        method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
+          servicePlanId: changeTarget.plan.id,
+          effectiveFrom: effectiveFrom.toISOString(),
+          endDate: changeDraft.endDate || null,
+          expectedDurationMinutes: Number(changeDraft.durationMinutes),
+          requiredWorkers: Number(changeDraft.requiredWorkers),
+          tasks: taskTitles,
+          instructions: taskTitles.join('\n'),
+          recurrence: recurrencePayload(changeDraft),
+        }),
+      })
+      setChangeOpen(false)
+      setChangeTarget(null)
+      setNotice({ kind: 'success', text: `Service version ${result.versionNumber} scheduled. ${result.replacedFutureVisits} future visit${result.replacedFutureVisits === 1 ? '' : 's'} replaced and ${result.generatedVisits} regenerated; past work was preserved.` })
+      await refresh()
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not apply the future service change.' })
+    } finally { setBusy(false) }
+  }
+
+  function toggleWeekday(day: number, target: 'new' | 'change' = 'new') {
+    const setter = target === 'new' ? setServiceDraft : setChangeDraft
+    setter((current) => ({
       ...current,
       weekdays: current.weekdays.includes(day) ? current.weekdays.filter((value) => value !== day) : [...current.weekdays, day],
     }))
@@ -366,7 +454,7 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
                 <div><span>Agreement</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div>
               </div>
               <div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div>
-              <div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span></div>
+              <div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && plan.versions[0] ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div>
             </article>
           }))}
           {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, people required, duration and cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => setServiceOpen(true)}>Set up first service</button> : null}</div> : null}
@@ -422,6 +510,19 @@ export default function ClientAccount({ canManageClients, canConfigureService }:
         <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={serviceDraft.requiredWorkers} onChange={(event) => setServiceDraft({ ...serviceDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={serviceDraft.durationMinutes} onChange={(event) => setServiceDraft({ ...serviceDraft, durationMinutes: Number(event.target.value) })} /></label></div>
         <label>Cleaning instructions <small>One task per line. Keep this practical for the cleaner.</small><textarea required rows={7} value={serviceDraft.instructions} onChange={(event) => setServiceDraft({ ...serviceDraft, instructions: event.target.value })} /></label>
         <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setServiceOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Setting up…' : 'Activate service'}</button></div>
+      </form>
+    </DetailDialog>
+
+    <DetailDialog open={changeOpen} title="Change cleaning service" eyebrow="Future service change" onClose={() => setChangeOpen(false)}>
+      <form className="client-dialog-form service-setup-form" onSubmit={changeService}>
+        <div className="client-change-note"><OpsIcon name="calendar" /><div><strong>Past work stays exactly as recorded</strong><span>The current service remains valid until the effective date. Only future scheduled visits from that point are replaced.</span></div></div>
+        <div className="client-change-current"><span>Current service</span><strong>{changeTarget?.plan.name ?? ''}</strong><small>{changeTarget?.site.name ?? ''} · version {changeTarget?.plan.versions[0]?.versionNumber ?? '—'}</small></div>
+        <div className="client-form-pair"><label>Effective from<input required type="date" min={today} value={changeDraft.startDate} onChange={(event) => setChangeDraft({ ...changeDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={changeDraft.startDate} value={changeDraft.endDate} onChange={(event) => setChangeDraft({ ...changeDraft, endDate: event.target.value })} /></label></div>
+        <div className="client-form-pair"><label>Frequency<select value={changeDraft.frequency} onChange={(event) => setChangeDraft({ ...changeDraft, frequency: event.target.value as Frequency })}><option value="weekly">Every week</option><option value="fortnightly">Every 2 weeks</option><option value="daily">Every day</option><option value="once">One-off</option></select></label><label>Preferred time<input required type="time" value={changeDraft.time} onChange={(event) => setChangeDraft({ ...changeDraft, time: event.target.value })} /></label></div>
+        {(changeDraft.frequency === 'weekly' || changeDraft.frequency === 'fortnightly') ? <fieldset className="client-weekdays"><legend>Service days</legend><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} className={changeDraft.weekdays.includes(day.value) ? 'selected' : ''} onClick={() => toggleWeekday(day.value, 'change')}>{day.short}</button>)}</div></fieldset> : null}
+        <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={changeDraft.requiredWorkers} onChange={(event) => setChangeDraft({ ...changeDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={changeDraft.durationMinutes} onChange={(event) => setChangeDraft({ ...changeDraft, durationMinutes: Number(event.target.value) })} /></label></div>
+        <label>Cleaning instructions <small>One task per line. These become the new service version.</small><textarea required rows={7} value={changeDraft.instructions} onChange={(event) => setChangeDraft({ ...changeDraft, instructions: event.target.value })} /></label>
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setChangeOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Applying…' : 'Apply future change'}</button></div>
       </form>
     </DetailDialog>
   </main>
