@@ -14,6 +14,11 @@ export default function DetailDialog({ open, title, eyebrow, onClose, children }
   const titleId = useId()
   const closeButtonRef = useRef<HTMLButtonElement>(null)
   const previousFocusRef = useRef<HTMLElement | null>(null)
+  const onCloseRef = useRef(onClose)
+
+  useEffect(() => {
+    onCloseRef.current = onClose
+  }, [onClose])
 
   useEffect(() => {
     if (!open) return
@@ -21,16 +26,17 @@ export default function DetailDialog({ open, title, eyebrow, onClose, children }
     const onKeyDown = (event: KeyboardEvent) => {
       if (event.key === 'Escape') {
         event.preventDefault()
-        onClose()
+        onCloseRef.current()
       }
     }
     window.addEventListener('keydown', onKeyDown)
-    window.setTimeout(() => closeButtonRef.current?.focus(), 0)
+    const focusTimer = window.setTimeout(() => closeButtonRef.current?.focus(), 0)
     return () => {
+      window.clearTimeout(focusTimer)
       window.removeEventListener('keydown', onKeyDown)
       window.setTimeout(() => previousFocusRef.current?.focus(), 0)
     }
-  }, [onClose, open])
+  }, [open])
 
   useEffect(() => {
     if (!open) return
