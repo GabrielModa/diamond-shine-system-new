@@ -58,7 +58,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   })
   if (!current) return NextResponse.json({ ok: false, error: 'Service not found for this client.' }, { status: 404 })
 
-  const requestedDefaultAssignees = [...new Set(current.jobs.flatMap((job) => job.defaultAssignees.map((item) => item.userId)))]
+  const latestRuleJob = current.jobs[0]
+  const requestedDefaultAssignees = [...new Set(latestRuleJob?.defaultAssignees.map((item) => item.userId) ?? [])]
   const eligibleMemberships = requestedDefaultAssignees.length ? await prisma.membership.findMany({
     where: {
       organizationId, userId: { in: requestedDefaultAssignees }, status: 'active', role: { in: [...EXECUTABLE_ROLES] }, user: { status: 'active' },
@@ -66,6 +67,8 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     select: { userId: true },
   }) : []
   const defaultAssigneeIds = eligibleMemberships.map((membership) => membership.userId)
+  const sameTasks = current.tasks.length === parsed.data.tasks.length
+    && current.tasks.every((task, index) => task.title === parsed.data.tasks[index])
 
   const initialHorizon = new Date(parsed.data.effectiveFrom.getTime() + 90 * 86_400_000)
   const until = parsed.data.endDate && parsed.data.endDate < initialHorizon ? parsed.data.endDate : initialHorizon
@@ -88,12 +91,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         version: { increment: 1 },
       },
     })
-    await tx.taskTemplate.deleteMany({ where: { servicePlanId: current.id } })
-    await tx.taskTemplate.createMany({
-      data: parsed.data.tasks.map((title, sortOrder) => ({
-        organizationId, servicePlanId: current.id, title, sortOrder, required: true, responseType: 'done_na_problem',
-      })),
-    })
+    if (!sameTasks) {
+      await tx.taskTemplate.deleteMany({ where: { servicePlanId: current.id } })
+      await tx.taskTemplate.createMany({
+        data: parsed.data.tasks.map((title, sortOrder) => ({
+          organizationId, servicePlanId: current.id, title, sortOrder, required: true, responseType: 'done_na_problem',
+        })),
+      })
+    }
     if (current.contract) {
       await tx.contract.update({
         where: { id: current.contract.id },
@@ -143,17 +148,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       tasks: taskSnapshot,
     }
     const contentHash = createHash('sha256').update(JSON.stringify(snapshot)).digest('hex')
-    const latest = await tx.servicePlanVersion.aggregate({ where: { servicePlanId: refreshed.id }, _max: { versionNumber: true } })
-    const version = await tx.servicePlanVersion.create({
-      data: {
-        organizationId, servicePlanId: refreshed.id, versionNumber: (latest._max.versionNumber ?? 0) + 1,
-        expectedDurationMinutes: refreshed.expectedDurationMinutes, requiredWorkers: refreshed.requiredWorkers,
-        snapshot: asInputJson(snapshot)!, contentHash, publishedBy: clientAuth.user.email,
-        tasks: { create: taskSnapshot.map((task) => ({
-          organizationId, ...task, options: asInputJson(task.options), conditionalRules: asInputJson(task.conditionalRules),
-        })) },
-      },
-    })
+    const existingVersion = await tx.servicePlanVersion.findFirst({ where: { organizationId, servicePlanId: refreshed.id, contentHash } })
+    const version = existingVersion ?? await (async () => {
+      const latest = await tx.servicePlanVersion.aggregate({ where: { servicePlanId: refreshed.id }, _max: { versionNumber: true } })
+      return tx.servicePlanVersion.create({
+        data: {
+          organizationId, servicePlanId: refreshed.id, versionNumber: (latest._max.versionNumber ?? 0) + 1,
+          expectedDurationMinutes: refreshed.expectedDurationMinutes, requiredWorkers: refreshed.requiredWorkers,
+          snapshot: asInputJson(snapshot)!, contentHash, publishedBy: clientAuth.user.email,
+          tasks: { create: taskSnapshot.map((task) => ({
+            organizationId, ...task, options: asInputJson(task.options), conditionalRules: asInputJson(task.conditionalRules),
+          })) },
+        },
+      })
+    })()
     await tx.servicePlan.update({ where: { id: refreshed.id }, data: { status: 'published' } })
 
     const replacedVisits = await tx.visit.updateMany({
@@ -229,7 +237,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   await logAudit(clientAuth.user.email, 'change_client_service', 'service_plan', current.id, {
-    clientId, effectiveFrom: parsed.data.effectiveFrom.toISOString(), newVersion: result.version.versionNumber,
+    clientId, effectiveFrom: parsed.data.effectiveFrom.toISOString(), serviceVersion: result.version.versionNumber,
     replacedFutureVisits: result.replacedVisits, generatedVisits: result.visitIds.length,
   }, organizationId)
 
