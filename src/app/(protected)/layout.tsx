@@ -23,7 +23,8 @@ type PageMeta = {
 const pageMeta: Record<string, PageMeta> = {
   home: { label: 'Command centre', href: '/home', section: 'control', always: true },
   schedule: { label: 'Schedule', href: '/schedule', section: 'control', any: ['schedule.read'] },
-  people: { label: 'People control', href: '/people', section: 'control', any: ['schedule.manage'] },
+  'live-operations': { label: 'Live operations', href: '/live-operations', section: 'control', any: ['schedule.manage'] },
+  people: { label: 'Plan coverage', href: '/people', section: 'control', any: ['schedule.manage'] },
   'field-control': { label: 'Field control', href: '/field-control', section: 'control', any: ['visits.review'] },
   timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', any: ['time.own.manage', 'time.team.review'] },
   supplies: { label: 'Supplies', href: '/supplies', section: 'control', any: ['supplies.request'] },
@@ -31,6 +32,7 @@ const pageMeta: Record<string, PageMeta> = {
     label: 'Inbox', href: '/communications', section: 'control',
     roles: ['organization_admin', 'field_supervisor', 'scheduler', 'employee', 'stock_controller', 'quality_inspector'],
   },
+  'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', any: ['schedule.manage'] },
   insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', any: ['visits.review'] },
   quality: { label: 'Quality control', href: '/quality', section: 'analytics', any: ['quality.inspect'] },
   feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', any: ['quality.inspect'] },
