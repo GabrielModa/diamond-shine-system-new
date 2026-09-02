@@ -1,9 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { getAuthUser } from '../../../../../lib/auth'
+import { requireCapability } from '../../../../../lib/auth'
 import { prisma } from '../../../../../lib/prisma'
+import { assignedVisitFilter } from '../../../../../modules/execution/access'
 import { assessLocation } from '../../../../../modules/execution/location'
-import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../../../modules/scheduling/assignment-lifecycle'
 
 const schema = z.object({
   latitude: z.number().min(-90).max(90),
@@ -12,15 +12,15 @@ const schema = z.object({
 })
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const user = await getAuthUser(request)
-  if (!user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
+  const auth = await requireCapability(request, 'visits.execute')
+  if ('response' in auth) return auth.response
 
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'A current GPS position is required.' }, { status: 400 })
 
   const { id } = await params
   const visit = await prisma.visit.findFirst({
-    where: { id, organizationId: user.organizationId },
+    where: { id, organizationId: auth.user.organizationId, ...assignedVisitFilter(auth.user) },
     select: {
       id: true,
       site: {
@@ -34,18 +34,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           geofenceSuspiciousM: true,
         },
       },
-      assignments: {
-        where: { userId: user.id, status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] } },
-        select: { id: true },
-      },
     },
   })
-  if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found.' }, { status: 404 })
-
-  const fieldRole = user.membershipRole === 'employee' || user.membershipRole === 'field_supervisor'
-  if (fieldRole && !visit.assignments.length) {
-    return NextResponse.json({ ok: false, error: 'This visit is not actively assigned to you.' }, { status: 403 })
-  }
+  if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found or not assigned to you.' }, { status: 404 })
 
   const assessment = assessLocation(visit.site, parsed.data)
   return NextResponse.json({
