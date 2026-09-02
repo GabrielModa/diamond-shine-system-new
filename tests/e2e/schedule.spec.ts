@@ -11,7 +11,7 @@ async function loginAsAdmin(page: Page) {
   await expect(page.locator('[data-health-filter="conflicts"] .schedule-health-stat-main')).toBeVisible({ timeout: 15_000 })
 }
 
-test('attention overview deduplicates visits, preserves colours and exposes work without a date', async ({ page }, testInfo) => {
+test('attention overview deduplicates visits, preserves colours and sends undated services back to Clients', async ({ page }, testInfo) => {
   const worker = (id: string) => ({ id, name: id, email: `${id}@example.test`, role: 'employee' })
   const makeVisit = (id: string, start: number, employee: string, status = 'acknowledged', requiredWorkers = 1) => ({
     id, scheduledStart: `2026-09-02T${start}:00:00Z`, scheduledEnd: `2026-09-02T${start + 2}:00:00Z`,
@@ -23,10 +23,14 @@ test('attention overview deduplicates visits, preserves colours and exposes work
   await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
   await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
   await page.route('**/api/team', (route) => route.fulfill(reply(['a', 'b', 'c'].map(worker))))
+  await page.route('**/api/service-plans', (route) => route.fulfill(reply([{
+    id: 'plan-without-date', name: 'Undated service', status: 'published', expectedDurationMinutes: 120, requiredWorkers: 1,
+    site: { id: 'site-undated', name: 'Undated site', city: 'Dublin', client: { id: 'client-undated', displayName: 'Undated service' } },
+  }])))
   await page.route('**/api/schedule-health?**', (route) => route.fulfill(reply({ summary: { visits: 4, covered: 1, needsStaff: 1, unassigned: 0, missingSchedule: 0, unscheduledServices: 1, paused: 0, conflicts: 1, unacknowledged: 2 }, items: [
     { id: 'gap', visitId: 'Shared gap', state: 'needs_staff', clientName: 'Shared gap', detail: '1/2 assigned' },
     { id: 'conflict', visitId: 'Shared gap', state: 'cleaner_overlap', clientName: 'Shared gap', detail: 'Shared worker', conflict: { workerId: 'a', workerName: 'a', otherVisitId: 'Overlap', otherClientName: 'Overlap', otherSiteName: 'Overlap', otherScheduledStart: visits[1].scheduledStart, otherScheduledEnd: visits[1].scheduledEnd, overlapMinutes: 60 } },
-    { id: 'unscheduled', state: 'unscheduled_service', servicePlanId: 'plan-without-date', clientName: 'Undated service', detail: 'Schedule setup needed' },
+    { id: 'unscheduled', state: 'unscheduled_service', servicePlanId: 'plan-without-date', clientId: 'client-undated', clientName: 'Undated service', detail: 'Schedule setup needed' },
   ] })))
   await page.goto('/schedule?date=2026-09-02&view=week')
   await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toHaveClass(/selected/)
@@ -51,8 +55,9 @@ test('attention overview deduplicates visits, preserves colours and exposes work
   await expect(pending).toContainText('Undated service')
   await expect(pending).toContainText('No date set')
   await pending.getByRole('button', { name: 'Set schedule' }).click()
-  await expect(page.getByRole('dialog', { name: 'Schedule cleaning work' })).toBeVisible()
-  await page.getByRole('dialog', { name: 'Schedule cleaning work' }).getByRole('button', { name: 'Close', exact: true }).click()
+  await expect(page).toHaveURL(/\/clients\/client-undated/)
+  await page.goBack()
+  await expect(page.getByRole('heading', { name: 'Schedule', exact: true })).toBeVisible()
   for (const [filter, count] of [['scheduling', 1], ['conflicts', 2], ['confirmation', 2]] as const) {
     await page.locator(`[data-health-filter="${filter}"] .schedule-health-stat-main`).click()
     await expect(page.locator('.visit-card')).toHaveCount(count)
@@ -125,13 +130,13 @@ test('conflict count represents actionable overlap cases while all affected visi
   await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toHaveClass(/selected/)
 })
 
-test('week view always exposes Schedule work on every day', async ({ page }) => {
+test('week view always exposes Add visit on every day', async ({ page }) => {
   await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
   await page.getByRole('button', { name: 'Week', exact: true }).click()
   const columns = page.locator('.week-column')
   await expect(columns.first()).toBeVisible()
   expect(await columns.count()).toBe(7)
-  expect(await page.getByRole('button', { name: '+ Schedule work', exact: true }).count()).toBe(7)
+  expect(await page.getByRole('button', { name: '+ Add visit', exact: true }).count()).toBe(7)
 })
 
 test('capacity finder tolerates an empty date and waits for a valid date', async ({ page }) => {
@@ -161,32 +166,37 @@ test('capacity finder tolerates an empty date and waits for a valid date', async
   expect(pageErrors.some((message) => /Invalid date value/i.test(message))).toBe(false)
 })
 
-test('successful create explicitly refreshes schedule health without a reload', async ({ page }) => {
+test('adding one visit refreshes schedule health without creating recurrence', async ({ page }) => {
   let healthRequests = 0
+  let postedVisit: Record<string, unknown> | null = null
+  const fakePlan = {
+    id: 'extra-plan', name: 'Regular cleaning', status: 'published', expectedDurationMinutes: 150, requiredWorkers: 2,
+    site: { id: 'extra-site', name: 'Ranelagh Clinic', city: 'Dublin', client: { id: 'extra-client', displayName: 'Merrion Dental' } },
+  }
   await page.route('**/api/schedule-health?**', async (route) => {
     healthRequests += 1
     await route.continue()
+  })
+  await page.route('**/api/service-plans', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: [fakePlan] }) }))
+  await page.route('**/api/visits', async (route) => {
+    if (route.request().method() !== 'POST') return route.continue()
+    postedVisit = route.request().postDataJSON() as Record<string, unknown>
+    await route.fulfill({ status: 201, contentType: 'application/json', body: JSON.stringify({ ok: true, data: { id: 'manual-extra' } }) })
   })
   await page.reload({ waitUntil: 'domcontentloaded' })
   await expect(page.locator('[data-health-filter="scheduling"] .schedule-health-stat-main')).toBeVisible()
   const beforeCreate = healthRequests
 
-  await page.route('**/api/jobs', async (route) => {
-    if (route.request().method() !== 'POST') return route.continue()
-    await route.fulfill({
-      status: 201,
-      contentType: 'application/json',
-      body: JSON.stringify({ ok: true, data: { generatedVisits: 1 } }),
-    })
-  })
+  await page.getByRole('button', { name: '+ Add visit', exact: true }).click()
+  const dialog = page.getByRole('dialog', { name: 'Add visit' })
+  await expect(dialog).toContainText('recurring service')
+  await expect(dialog.getByText('Merrion Dental · Ranelagh Clinic')).toBeVisible()
+  await expect(dialog.getByLabel('People required')).toHaveValue('2')
+  await dialog.getByRole('button', { name: 'Add visit', exact: true }).click()
 
-  await page.getByRole('button', { name: '+ Create work', exact: true }).click()
-  const dialog = page.getByRole('dialog', { name: 'Schedule cleaning work' })
-  await dialog.getByLabel('Job name').fill(`Health refresh ${Date.now()}`)
-  await dialog.getByRole('button', { name: 'Generate schedule' }).click()
-
-  await expect(page.getByText('Visit scheduled.')).toBeVisible()
+  await expect(page.getByText('Visit added to Schedule. The client service pattern was not changed.')).toBeVisible()
   await expect.poll(() => healthRequests).toBeGreaterThan(beforeCreate)
+  expect(postedVisit).toMatchObject({ servicePlanId: 'extra-plan', durationMinutes: 150, requiredWorkers: 2, reason: 'extra_cleaning' })
   await expect(dialog).toHaveCount(0)
 })
 
