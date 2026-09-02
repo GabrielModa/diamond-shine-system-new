@@ -101,11 +101,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const updated = await prisma.$transaction(async (tx) => {
     if (actorTimer) {
       const durationSeconds = Math.max(0, Math.round((completedAt.getTime() - actorTimer.startedAt.getTime()) / 1000))
-      const durationReview = durationSeconds > visit.servicePlanVersion.expectedDurationMinutes * 60 * 2
       const reviewReasons = [
         actorTimer.reviewReason,
         assessment?.reviewRequired ? assessment.reason : null,
-        durationReview ? 'DURATION_ANOMALY' : null,
       ].filter(Boolean)
       await tx.timeEntry.update({
         where: { id: actorTimer.id },
@@ -156,4 +154,3 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     warnings: otherRunningTimers ? [{ code: 'TEAM_TIMERS_STILL_RUNNING', count: otherRunningTimers }] : [],
   })
 }
-
