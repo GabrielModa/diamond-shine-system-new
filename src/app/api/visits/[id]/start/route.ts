@@ -178,7 +178,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }, auth.user.organizationId)
   return NextResponse.json({
     ok: true,
-    data: timeEntry,
+    data: { ...timeEntry, location: assessment, pattern },
     location: assessment,
     pattern,
     warning: reviewReason,
