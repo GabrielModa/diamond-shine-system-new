@@ -38,21 +38,36 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   // Clock-out and visit submission are intentionally separate product actions.
   // A cleaner records their end location by stopping the timer first. Only when
   // every visit timer is closed can the service itself be submitted for review.
-  const runningTimers = await prisma.timeEntry.findMany({
-    where: {
-      organizationId: auth.user.organizationId,
-      visitId: visit.id,
-      kind: 'visit',
-      status: 'running',
-    },
-    select: {
-      id: true,
-      userId: true,
-      startedAt: true,
-      user: { select: { name: true, email: true } },
-    },
-    orderBy: { startedAt: 'asc' },
-  })
+  const [runningTimers, ownRecordedTimer] = await Promise.all([
+    prisma.timeEntry.findMany({
+      where: {
+        organizationId: auth.user.organizationId,
+        visitId: visit.id,
+        kind: 'visit',
+        status: 'running',
+      },
+      select: {
+        id: true,
+        userId: true,
+        startedAt: true,
+        user: { select: { name: true, email: true } },
+      },
+      orderBy: { startedAt: 'asc' },
+    }),
+    prisma.timeEntry.findFirst({
+      where: {
+        organizationId: auth.user.organizationId,
+        visitId: visit.id,
+        userId: auth.user.id,
+        kind: 'visit',
+        endedAt: { not: null },
+        status: { in: ['completed', 'needs_review', 'approved', 'rejected'] },
+      },
+      select: { id: true, endedAt: true },
+      orderBy: { endedAt: 'desc' },
+    }),
+  ])
+
   if (runningTimers.length) {
     const ownTimerRunning = runningTimers.some((timer) => timer.userId === auth.user.id)
     return NextResponse.json({
@@ -66,6 +81,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         ownTimerRunning,
         workers: runningTimers.map((timer) => timer.user.name ?? timer.user.email),
       },
+    }, { status: 409 })
+  }
+
+  if (!ownRecordedTimer) {
+    return NextResponse.json({
+      ok: false,
+      error: 'Start and stop your work timer before submitting this visit.',
+      code: 'VISIT_TIME_RECORD_REQUIRED',
     }, { status: 409 })
   }
 
@@ -134,6 +157,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   await logAudit(auth.user.email, 'complete_visit', 'visit', visit.id, {
     submittedAt: completedAt,
+    submittedWithTimeEntryId: ownRecordedTimer.id,
     runningTimersAtSubmission: 0,
   }, auth.user.organizationId)
 
