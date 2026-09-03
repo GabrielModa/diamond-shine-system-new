@@ -136,7 +136,7 @@ test('week view always exposes Add visit on every day', async ({ page }) => {
   const columns = page.locator('.week-column')
   await expect(columns.first()).toBeVisible()
   expect(await columns.count()).toBe(7)
-  expect(await page.getByRole('button', { name: '+ Add visit', exact: true }).count()).toBe(7)
+  expect(await columns.getByRole('button', { name: '+ Add visit', exact: true }).count()).toBe(7)
 })
 
 test('capacity finder tolerates an empty date and waits for a valid date', async ({ page }) => {
@@ -187,7 +187,7 @@ test('adding one visit refreshes schedule health without creating recurrence', a
   await expect(page.locator('[data-health-filter="scheduling"] .schedule-health-stat-main')).toBeVisible()
   const beforeCreate = healthRequests
 
-  await page.getByRole('button', { name: '+ Add visit', exact: true }).click()
+  await page.locator('header').getByRole('button', { name: '+ Add visit', exact: true }).click()
   const dialog = page.getByRole('dialog', { name: 'Add visit' })
   await expect(dialog).toContainText('recurring service')
   await expect(dialog.getByText('Merrion Dental · Ranelagh Clinic')).toBeVisible()

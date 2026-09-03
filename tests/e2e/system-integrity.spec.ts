@@ -33,11 +33,10 @@ test.beforeEach(async ({ page }) => {
 test.afterEach(async () => { await cleanup() })
 test.afterAll(async () => { await prisma.$disconnect() })
 
-test('schedule exposes one create-work dialog', async ({ page }) => {
+test('schedule exposes one add-visit dialog', async ({ page }) => {
   await page.goto('/schedule')
-  await page.getByRole('button', { name: '+ Create work', exact: true }).click()
-  await expect(page.getByRole('dialog')).toHaveCount(1)
-  await expect(page.getByRole('heading', { name: 'Schedule cleaning work' })).toBeVisible()
+  await page.locator('header').getByRole('button', { name: '+ Add visit', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: 'Add visit' })).toHaveCount(1)
 })
 
 test('employee receives a role-specific home instead of manager command centre', async ({ page }) => {
@@ -79,7 +78,7 @@ test('cancelled visit leaves Operational schedule and remains in History with it
   await page.getByRole('button', { name: 'Cancel visit', exact: true }).click()
 
   await expect(page.getByRole('button', { name: new RegExp(name) })).toHaveCount(0)
-  await page.getByLabel('Status').selectOption('history')
+  await page.getByRole('button', { name: 'History', exact: true }).click()
   await expect(page.getByRole('button', { name: new RegExp(name) })).toBeVisible()
   await page.getByRole('button', { name: new RegExp(name) }).click()
   await expect(page.getByLabel('Cancellation reason')).toHaveValue('Client requested closure for access works')

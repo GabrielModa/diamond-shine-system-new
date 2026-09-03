@@ -8,14 +8,21 @@ async function login(page: Page, email: string) {
   await page.waitForURL(/\/home/)
 }
 
+async function getCookieHeader(page: Page) {
+  const cookies = await page.context().cookies()
+  return cookies.map((cookie) => `${cookie.name}=${cookie.value}`).join('; ')
+}
+
 async function createFeedback(page: Page, comment: string, score = 5) {
-  const employeesResponse = await page.request.get('/api/employees')
+  const cookie = await getCookieHeader(page)
+  const employeesResponse = await page.request.get('/api/employees', { headers: { Cookie: cookie } })
   expect(employeesResponse.ok()).toBe(true)
   const employeesPayload = await employeesResponse.json()
   const employee = employeesPayload.data.find((item: { email: string }) => item.email === 'employee@ds.ie') ?? employeesPayload.data[0]
   expect(employee?.id).toBeTruthy()
 
   const response = await page.request.post('/api/feedback', {
+    headers: { Cookie: cookie },
     data: {
       employeeId: employee.id,
       clientLocation: 'TechCorp Office - Dublin 2',

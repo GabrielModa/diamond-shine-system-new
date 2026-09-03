@@ -50,7 +50,7 @@ test.beforeEach(async ({ page }) => {
 
 test('management dashboard loads as the manager cross-functional overview', async ({ page }) => {
   await page.goto('/dashboard')
-  await expect(page.getByText('Management dashboard', { exact: true })).toBeVisible()
+  await expect(page.locator('#main-content').getByText('Management dashboard', { exact: true })).toBeVisible()
   await expect(page.getByText('Enhanced Management', { exact: true })).toHaveCount(0)
   await waitForDashboardCards(page)
   await expect(page.locator('[data-testid="stat-urgent"]')).toBeVisible()

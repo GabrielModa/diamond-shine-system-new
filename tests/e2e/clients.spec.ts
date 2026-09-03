@@ -30,7 +30,7 @@ test('new client stays in one stable dialog and refuses an unverified service ad
   await expect(dialog).toBeVisible()
 
   await dialog.getByRole('button', { name: 'Create client & continue to service setup' }).click()
-  await expect(page.getByRole('alert')).toContainText('Select the service address from the Google Maps suggestions')
+  await expect(dialog.getByRole('alert')).toContainText('Select the service address from the Google Maps suggestions')
   await expect(dialog).toBeVisible()
 })
 
