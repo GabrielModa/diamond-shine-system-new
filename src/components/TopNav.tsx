@@ -9,7 +9,7 @@ type NavItem = { label: string; href: string; section: NavSection }
 
 const groups: Array<{ section: NavSection; label: string; description: string }> = [
   { section: 'control', label: 'Run operations', description: 'Plan, cover and deliver work. Control materials and close recorded time.' },
-  { section: 'analytics', label: 'Quality & insights', description: 'Understand operational risk, team performance and delivered quality.' },
+  { section: 'analytics', label: 'Quality & insights', description: 'Review quality, client feedback, team performance and the management picture.' },
   { section: 'admin', label: 'Manage business', description: 'Maintain clients, people access and governance records.' },
   { section: 'workspace', label: 'My workspace', description: 'Your inbox, submitted requests and profile.' },
 ]
