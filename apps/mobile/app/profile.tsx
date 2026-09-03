@@ -57,7 +57,7 @@ const validPhone = (value: string) => {
   return /^\+[1-9]\d{7,14}$/.test(compact);
 };
 
-function groupFlat(rules: Array<FlatWindow | FlatRecurring>, includeReason: boolean) {
+function groupFlat(rules: (FlatWindow | FlatRecurring)[], includeReason: boolean) {
   const grouped = new Map<string, WindowGroup>();
   for (const rule of rules) {
     const reason = includeReason && 'reason' in rule ? rule.reason ?? '' : '';
