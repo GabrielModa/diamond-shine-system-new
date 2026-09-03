@@ -7,7 +7,9 @@ import { detectEvidenceMimeType, removeEvidence, storeEvidence } from '../../../
 
 export const runtime = 'nodejs'
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
-const MAX_BYTES = 15 * 1024 * 1024
+// Vercel Functions cap request/response bodies at 4.5 MB. Keep multipart headroom
+// until evidence uploads move to a short-lived signed direct-to-storage flow.
+const MAX_BYTES = 4 * 1024 * 1024
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'visits.execute')
@@ -20,7 +22,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const visibility = form?.get('visibility') === 'client_safe' ? 'client_safe' : 'internal'
   const phase = form?.get('phase')?.toString() || 'task'
   if (!(file instanceof File) || !ALLOWED_TYPES.has(file.type) || file.size <= 0 || file.size > MAX_BYTES) {
-    return NextResponse.json({ ok: false, error: 'Upload a JPEG, PNG or WebP image up to 15 MB.' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'Upload a JPEG, PNG or WebP image up to 4 MB.' }, { status: 400 })
   }
   const visit = await prisma.visit.findFirst({ where: { id, organizationId: auth.user.organizationId, ...assignedVisitFilter(auth.user) }, select: { id: true } })
   if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found' }, { status: 404 })
@@ -42,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const bytes = new Uint8Array(await file.arrayBuffer())
   const detectedMimeType = detectEvidenceMimeType(bytes)
   if (!detectedMimeType || detectedMimeType !== file.type) {
-    return NextResponse.json({ ok: false, error: 'The image could not be verified.' }, { status: 400 })
+    return NextResponse.json({ ok: false, error: 'The uploaded file contents do not match a supported image type.' }, { status: 400 })
   }
 
   const stored = await storeEvidence({

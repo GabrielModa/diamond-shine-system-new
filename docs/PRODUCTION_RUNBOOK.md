@@ -54,7 +54,7 @@ Use liveness for process restarts. Use readiness to decide whether traffic shoul
 
 Evidence is operational proof and must survive application restarts/redeploys. On Vercel, use private Supabase Storage; Vercel's application filesystem is ephemeral and must not be used for evidence. On infrastructure that provides a persistent encrypted volume, filesystem storage remains supported through `EVIDENCE_STORAGE_ROOT`. Back up evidence storage separately from PostgreSQL and test restoration.
 
-The current evidence upload route accepts files up to 15 MB, while Vercel Functions impose a smaller request-payload ceiling. Before broad mobile rollout, keep pilot photo payloads below the platform limit or move large uploads to a direct-to-object-storage signed upload flow.
+The authenticated server upload endpoint caps images at 4 MB to stay below Vercel Functions' 4.5 MB request/response payload ceiling with multipart overhead. Mobile capture should compress evidence before upload. If larger original-resolution evidence becomes a requirement, replace the server upload body with a short-lived signed direct-to-object-storage flow rather than increasing the server limit.
 
 ## Notification worker
 

@@ -25,7 +25,16 @@ function add(checks: ProductionReadinessCheck[], key: string, ok: boolean, messa
 }
 
 function validHttpsOrigin(value: string | undefined) {
-  try { return new URL(value ?? '').protocol === 'https:' } catch { return false }
+  try {
+    const url = new URL(value ?? '')
+    return url.protocol === 'https:'
+      && url.pathname === '/'
+      && !url.search
+      && !url.hash
+      && !url.username
+      && !url.password
+      && present(url.hostname)
+  } catch { return false }
 }
 
 function evidenceStorageReady(env: NodeJS.ProcessEnv) {
@@ -35,7 +44,7 @@ function evidenceStorageReady(env: NodeJS.ProcessEnv) {
     const bucket = env.SUPABASE_EVIDENCE_BUCKET?.trim() ?? ''
     return {
       ok: validHttpsOrigin(env.SUPABASE_URL) && present(secretKey) && /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(bucket),
-      message: 'Supabase evidence storage requires HTTPS SUPABASE_URL, SUPABASE_SECRET_KEY and SUPABASE_EVIDENCE_BUCKET.',
+      message: 'Supabase evidence storage requires HTTPS SUPABASE_URL, SUPABASE_SECRET_KEY (or temporary legacy SUPABASE_SERVICE_ROLE_KEY) and SUPABASE_EVIDENCE_BUCKET.',
     }
   }
 

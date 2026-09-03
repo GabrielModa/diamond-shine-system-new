@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { mkdir, readFile, unlink, writeFile } from 'node:fs/promises'
 import path from 'node:path'
 
@@ -11,7 +12,8 @@ export type EvidenceMimeType = keyof typeof MIME_EXTENSIONS
 export type EvidenceStorageProvider = 'filesystem' | 'supabase'
 
 function present(value: string | undefined) {
-  return Boolean(value?.trim())
+  const normalized = value?.trim() ?? ''
+  return Boolean(normalized) && !/replace-with|change-me|example|placeholder/i.test(normalized)
 }
 
 export function evidenceStorageProvider(env: NodeJS.ProcessEnv = process.env): EvidenceStorageProvider {
@@ -53,10 +55,13 @@ function supabaseStorageConfig(env: NodeJS.ProcessEnv = process.env) {
   let origin = ''
   try {
     const url = new URL(rawUrl)
-    if (env.NODE_ENV === 'production' && url.protocol !== 'https:') throw new Error('Supabase URL must use HTTPS in production')
+    const protocolOk = env.NODE_ENV === 'production' ? url.protocol === 'https:' : url.protocol === 'https:' || url.protocol === 'http:'
+    if (!protocolOk || url.pathname !== '/' || url.search || url.hash || url.username || url.password || !present(url.hostname)) {
+      throw new Error('Invalid Supabase origin')
+    }
     origin = url.origin
   } catch {
-    throw new Error('Supabase evidence storage requires a valid SUPABASE_URL')
+    throw new Error('Supabase evidence storage requires SUPABASE_URL to be a valid origin')
   }
   if (!present(secretKey)) throw new Error('Supabase evidence storage requires SUPABASE_SECRET_KEY')
   if (!/^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/.test(bucket)) throw new Error('Supabase evidence storage requires a valid SUPABASE_EVIDENCE_BUCKET')
@@ -86,7 +91,7 @@ export async function ensureEvidenceStorageReady() {
   const response = await supabaseStorageFetch(`bucket/${encodeURIComponent(bucket)}`)
   if (!response.ok) throw new Error(`Supabase evidence bucket is unavailable (${response.status})`)
   const details = await response.json().catch(() => null) as { public?: boolean } | null
-  if (details?.public === true) throw new Error('Supabase evidence bucket must be private')
+  if (!details || details.public !== false) throw new Error('Supabase evidence bucket must be private')
 }
 
 export function detectEvidenceMimeType(bytes: Uint8Array): EvidenceMimeType | null {
@@ -118,7 +123,7 @@ export async function storeEvidence(input: {
         'Content-Type': detectedMimeType,
         'x-upsert': 'false',
       },
-      body: input.bytes,
+      body: Buffer.from(input.bytes),
     })
     if (!response.ok) throw new Error(`Supabase evidence upload failed (${response.status})`)
   } else {

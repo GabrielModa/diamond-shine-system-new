@@ -1,3 +1,4 @@
+import { Buffer } from 'node:buffer'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 import {
   detectEvidenceMimeType,
@@ -51,6 +52,27 @@ describe('evidence storage validation', () => {
     expect(headers.get('authorization')).toBe('Bearer sb_secret_test-only')
   })
 
+  it('fails closed when the Supabase evidence bucket is public or its privacy cannot be verified', async () => {
+    configureSupabaseStorage()
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ id: 'diamond-shine-evidence', public: true }), { status: 200 }))
+      .mockResolvedValueOnce(new Response('{}', { status: 200 }))
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(ensureEvidenceStorageReady()).rejects.toThrow(/private/)
+    await expect(ensureEvidenceStorageReady()).rejects.toThrow(/private/)
+  })
+
+  it('rejects a Supabase URL that is not a clean origin', async () => {
+    configureSupabaseStorage()
+    vi.stubEnv('SUPABASE_URL', 'https://project-ref.supabase.co/storage')
+    const fetchMock = vi.fn()
+    vi.stubGlobal('fetch', fetchMock)
+
+    await expect(ensureEvidenceStorageReady()).rejects.toThrow(/valid origin/)
+    expect(fetchMock).not.toHaveBeenCalled()
+  })
+
   it('uses private Supabase Storage for upload, download and removal', async () => {
     configureSupabaseStorage()
     const uploadedBytes = Uint8Array.from([0xff, 0xd8, 0xff, 0x00])
@@ -67,6 +89,7 @@ describe('evidence storage validation', () => {
       declaredMimeType: 'image/jpeg',
     })
     expect(stored.storageKey).toMatch(/^evidence\/org-1\/visit-1\/.+\.jpg$/)
+    expect(Buffer.isBuffer(fetchMock.mock.calls[0][1]?.body)).toBe(true)
 
     const read = await readEvidence(stored.storageKey)
     expect(Array.from(read)).toEqual(Array.from(uploadedBytes))

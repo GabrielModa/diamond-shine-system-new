@@ -44,16 +44,33 @@ describe('production readiness', () => {
     expect(JSON.stringify(result)).not.toContain('sb_secret_server-only-value')
   })
 
+  it('temporarily accepts the legacy Supabase service-role key for migration', () => {
+    const result = assessProductionReadiness({
+      ...readyEnv,
+      VERCEL: '1',
+      EVIDENCE_STORAGE_PROVIDER: 'supabase',
+      EVIDENCE_STORAGE_ROOT: '',
+      SUPABASE_URL: 'https://project-ref.supabase.co',
+      SUPABASE_SECRET_KEY: '',
+      SUPABASE_SERVICE_ROLE_KEY: 'legacy-server-only-service-role-value',
+      SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
+    })
+    expect(result.ready).toBe(true)
+    expect(JSON.stringify(result)).not.toContain('legacy-server-only-service-role-value')
+  })
+
   it('rejects missing or placeholder production secrets', () => {
     const result = assessProductionReadiness({ ...readyEnv, SESSION_SECRET: 'replace-with-at-least-32-random-characters' })
     expect(result.ready).toBe(false)
     expect(result.checks.find((check) => check.key === 'session-secret')?.ok).toBe(false)
   })
 
-  it('requires HTTPS for the public production origin', () => {
-    const result = assessProductionReadiness({ ...readyEnv, NEXTAUTH_URL: 'http://ops.diamondshine.ie' })
-    expect(result.ready).toBe(false)
-    expect(result.checks.find((check) => check.key === 'application-url')?.ok).toBe(false)
+  it('requires the public production URL to be a clean HTTPS origin', () => {
+    for (const NEXTAUTH_URL of ['http://ops.diamondshine.ie', 'https://ops.diamondshine.ie/app', 'https://ops.diamondshine.ie?preview=1']) {
+      const result = assessProductionReadiness({ ...readyEnv, NEXTAUTH_URL })
+      expect(result.ready).toBe(false)
+      expect(result.checks.find((check) => check.key === 'application-url')?.ok).toBe(false)
+    }
   })
 
   it('requires an explicit absolute persistent evidence path for filesystem storage', () => {
@@ -68,17 +85,24 @@ describe('production readiness', () => {
     expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
   })
 
-  it('requires complete Supabase Storage server configuration', () => {
-    const result = assessProductionReadiness({
-      ...readyEnv,
-      EVIDENCE_STORAGE_PROVIDER: 'supabase',
-      EVIDENCE_STORAGE_ROOT: '',
-      SUPABASE_URL: 'https://project-ref.supabase.co',
-      SUPABASE_SECRET_KEY: '',
-      SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
-    })
-    expect(result.ready).toBe(false)
-    expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
+  it('requires complete Supabase Storage server configuration and a clean Supabase origin', () => {
+    for (const patch of [
+      { SUPABASE_SECRET_KEY: '' },
+      { SUPABASE_URL: 'https://project-ref.supabase.co/storage' },
+      { SUPABASE_URL: 'http://project-ref.supabase.co' },
+    ]) {
+      const result = assessProductionReadiness({
+        ...readyEnv,
+        EVIDENCE_STORAGE_PROVIDER: 'supabase',
+        EVIDENCE_STORAGE_ROOT: '',
+        SUPABASE_URL: 'https://project-ref.supabase.co',
+        SUPABASE_SECRET_KEY: 'sb_secret_server-only-value',
+        SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
+        ...patch,
+      })
+      expect(result.ready).toBe(false)
+      expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
+    }
   })
 
   it('requires the notification worker secret to be independent from the session secret', () => {
