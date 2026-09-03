@@ -35,6 +35,18 @@ beforeEach(async () => {
   for (const [email, role] of Object.entries(roleByEmail)) {
     const user = await prisma.user.findUniqueOrThrow({ where: { email } })
     await prisma.membership.updateMany({ where: { userId: user.id, organizationId: 'org_legacy_diamond_shine' }, data: { role } })
+    if (email === 'employee@ds.ie' || email === 'super@ds.ie') {
+      await prisma.workforceProfile.create({
+        data: {
+          organizationId: 'org_legacy_diamond_shine',
+          userId: user.id,
+          homeAddress: 'Integration test workforce base',
+          weeklyTargetMinutes: 1800,
+          weeklyTargetConfigured: true,
+          travelMode: 'transit',
+        },
+      })
+    }
   }
 })
 
@@ -83,6 +95,7 @@ describe('system integrity — scheduling lifecycle', () => {
     })
     expect(created.status).toBe(201)
     const visit = await prisma.visit.findFirstOrThrow({ where: { jobId: created.body.data.id }, include: { assignments: true } })
+    expect(visit.assignments).toHaveLength(1)
     const assignmentId = visit.assignments[0].id
 
     const acknowledged = await request(app).post(`/api/visits/${visit.id}/acknowledgement`).set('Cookie', employeeCookie).send({ status: 'acknowledged' })
@@ -129,7 +142,8 @@ describe('system integrity — scheduling lifecycle', () => {
       assigneeIds: [employee.id],
     })
     expect(first.status).toBe(201)
-    const visit = await prisma.visit.findFirstOrThrow({ where: { jobId: first.body.data.id } })
+    const visit = await prisma.visit.findFirstOrThrow({ where: { jobId: first.body.data.id }, include: { assignments: true } })
+    expect(visit.assignments).toHaveLength(1)
 
     const declined = await request(app).post(`/api/visits/${visit.id}/acknowledgement`).set('Cookie', employeeCookie).send({
       status: 'declined',
@@ -159,19 +173,19 @@ describe('system integrity — scheduling lifecycle', () => {
     const field = await request(app).get('/api/field-control?from=2026-08-26&to=2026-08-27').set('Cookie', adminCookie)
     expect(field.status).toBe(200)
     const originalFieldVisit = field.body.data.visits.find((item: { id: string }) => item.id === visit.id)
+    expect(originalFieldVisit).toBeTruthy()
     expect(originalFieldVisit.assignments).toHaveLength(0)
   })
 
   it('keeps service obligations while school and personal leave create staffing gaps, and school holiday restores assignment', async () => {
     const plan = await publishedPlan('School')
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
-    const profile = await prisma.workforceProfile.create({
+    const profile = await prisma.workforceProfile.update({
+      where: { userId: employee.id },
       data: {
-        organizationId: 'org_legacy_diamond_shine',
-        userId: employee.id,
         homeAddress: 'Dublin', homeLatitude: 53.34, homeLongitude: -6.26,
         schoolName: 'Integrity College', schoolAddress: 'Dublin 2', schoolLatitude: 53.34, schoolLongitude: -6.25,
-        weeklyTargetMinutes: 1800, travelMode: 'transit',
+        weeklyTargetMinutes: 1800, weeklyTargetConfigured: true, travelMode: 'transit',
       },
     })
     await prisma.studySchedule.create({
