@@ -43,8 +43,10 @@ jobs:
       - run: npm run test:unit
       - run: npm run test:integration
       - run: npm run db:seed:demo
+      - run: npm run db:check:demo
       - run: npm run build
       - run: npm run mobile:export
+      - run: npm run mobile:source-check
       - run: npx playwright install --with-deps chromium
       - run: npm run test:e2e
       - name: Upload browser failure artifacts
