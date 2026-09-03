@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { calendarDateKey, formatOperationalTime, operationalCalendarDate, operationalDateKey, operationalDateTimeInput, operationalInputToUtc } from '../../lib/operational-time'
 import { formatDuration } from '../../lib/duration'
@@ -63,6 +65,7 @@ function timeRange(start: Date, end: Date, timezone: string) { return `${formatO
 function isTerminalVisit(status: string) { return status === 'cancelled' || status === 'missed' }
 
 export default function ScheduleDispatchBoard({ canManage, timezone }: { canManage: boolean; timezone: string }) {
+  const router = useRouter()
   const { search, view, setView, anchorDate, setAnchorDate, teamFilter, setTeamFilter } = useScheduleContext(timezone)
   const [visits, setVisits] = useState<Visit[]>([])
   const [plans, setPlans] = useState<Plan[]>([])
@@ -140,8 +143,21 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     const visitId = new URLSearchParams(window.location.search).get('visit')
     if (!visitId || selected?.id === visitId) return
     const visit = visits.find((item) => item.id === visitId)
-    if (visit) selectVisit(visit)
-  }, [search, selected?.id, visits])
+    if (!visit) return
+    setHealthCloseSignal((value) => value + 1)
+    setShowFindTime(false)
+    setShowFilters(false)
+    window.dispatchEvent(new Event('diamond:close-nav'))
+    setEditError(null)
+    setSelected(visit)
+    setEdit({
+      scheduledStart: operationalDateTimeInput(new Date(visit.scheduledStart), timezone),
+      scheduledEnd: operationalDateTimeInput(new Date(visit.scheduledEnd), timezone),
+      assigneeIds: visit.assignments.filter((assignment) => isActiveAssignment(assignment.status)).map((assignment) => assignment.user.id),
+      dispatchNotes: visit.dispatchNotes ?? '',
+      cancellationReason: visit.cancellationReason ?? '',
+    })
+  }, [search, selected?.id, timezone, visits])
   useEffect(() => {
     if (!showAdd && !selected && !showFindTime && !showFilters) return
     const previous = document.body.style.overflow
@@ -151,14 +167,29 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       if (event.key !== 'Escape') return
-      if (selected) { event.preventDefault(); dismissSelected(); return }
+      if (selected) {
+        event.preventDefault()
+        setEditError(null)
+        setSelected(null)
+        const url = new URL(window.location.href)
+        if (url.searchParams.has('visit')) {
+          url.searchParams.delete('visit')
+          window.history.replaceState(window.history.state, '', `${url.pathname}${url.search}${url.hash}`)
+        }
+        return
+      }
       if (showAdd) { event.preventDefault(); setShowAdd(false); return }
       if (showFindTime) { event.preventDefault(); setShowFindTime(false); return }
-      if (showFilters) { event.preventDefault(); dismissFilters() }
+      if (showFilters) {
+        event.preventDefault()
+        setDraftTeamFilter(teamFilter)
+        setTeamQuery('')
+        setShowFilters(false)
+      }
     }
     window.addEventListener('keydown', onKey, true)
     return () => window.removeEventListener('keydown', onKey, true)
-  }, [selected, showAdd, showFilters, showFindTime])
+  }, [selected, showAdd, showFilters, showFindTime, teamFilter])
 
   const visibleWindow = useMemo(() => {
     const start = new Date(anchorDate)
@@ -327,8 +358,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   }
   function openServiceConfiguration(servicePlanId: string) {
     const plan = plans.find((item) => item.id === servicePlanId)
-    if (plan) window.location.assign(`/clients/${plan.site.client.id}`)
-    else window.location.assign('/clients')
+    router.push(plan ? `/clients/${plan.site.client.id}` : '/clients')
   }
   async function saveVisit(status?: 'scheduled' | 'cancelled') {
     if (!selected) return
@@ -405,7 +435,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
         <div className="schedule-team-field"><TeamPicker members={team} selectedIds={draft.assigneeIds} onChange={(assigneeIds) => setDraft((current) => ({ ...current, assigneeIds }))} label="Assigned cleaning team" helper={`${draft.assigneeIds.length}/${draft.requiredWorkers} covered now. Leave empty to create the visit as a staffing gap.`} /></div>
         <label className="schedule-full-field">Dispatch note <small>Optional</small><textarea value={draft.dispatchNotes} onChange={(event) => setDraft((current) => ({ ...current, dispatchNotes: event.target.value }))} placeholder="Only what the team needs to know for this extra visit" /></label>
         <footer><span className="muted">One visit only · recurring service stays unchanged{selectedPlan ? ` · ${selectedPlan.site.client.displayName}` : ''}</span><button className="btn-primary" disabled={busy || !draft.servicePlanId}>{busy ? 'Adding…' : 'Add visit'}</button></footer>
-      </> : <div className="empty-state"><strong>No active client service is available.</strong><span>Set up the client, verified address and cleaning service first.</span><a className="btn-primary" href="/clients">Open Clients</a></div>}
+      </> : <div className="empty-state"><strong>No active client service is available.</strong><span>Set up the client, verified address and cleaning service first.</span><Link className="btn-primary" href="/clients">Open Clients</Link></div>}
     </form></div> : null}
 
     {loading ? <section className="card empty-state">Loading schedule…</section> : null}
