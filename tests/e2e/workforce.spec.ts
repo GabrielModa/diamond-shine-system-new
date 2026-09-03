@@ -79,8 +79,8 @@ test('workforce performance supports custom dates and operational filters', asyn
   const statusDialog = page.getByRole('dialog', { name: 'Filters' })
   const statusFilter = statusDialog.getByRole('combobox', { name: 'Status', exact: true })
   await statusFilter.click()
-  await page.getByRole('listbox', { name: 'Status' }).getByRole('option', { name: 'Capacity left', exact: true }).click()
-  await expect(statusFilter).toContainText('Capacity left')
+  await page.getByRole('listbox', { name: 'Status' }).getByRole('option', { name: 'Expected school', exact: true }).click()
+  await expect(statusFilter).toContainText('Expected school')
   await statusDialog.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(statusDialog).toHaveCount(0)
 
@@ -89,7 +89,7 @@ test('workforce performance supports custom dates and operational filters', asyn
   const filteredCount = await filteredRows.count()
   expect(filteredCount).toBeGreaterThan(0)
   for (let index = 0; index < filteredCount; index++) {
-    await expect(filteredRows.nth(index).locator('.wf2-status')).toHaveText('Available')
+    await expect(filteredRows.nth(index).locator('.wf2-status')).toHaveText('School')
   }
 
   await openPerformance(page)
