@@ -31,12 +31,12 @@ const pageMeta: Record<string, PageMeta> = {
   supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'] },
   timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 70, any: ['time.own.manage', 'time.team.review'] },
 
-  // Cross-operation outcomes and decision support. Legacy duplicate summaries remain addressable but stay out of primary nav.
+  // Quality and management views explain outcomes without replacing the operational workspaces that produce them.
   insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
   'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', order: 20, any: ['schedule.manage'] },
   quality: { label: 'Quality control', href: '/quality', section: 'analytics', order: 30, any: ['quality.inspect'] },
-  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, any: ['quality.inspect'], nav: false },
-  dashboard: { label: 'Service performance', href: '/dashboard', section: 'analytics', order: 50, roles: ['organization_admin', 'field_supervisor'], nav: false },
+  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, any: ['quality.inspect'] },
+  dashboard: { label: 'Management dashboard', href: '/dashboard', section: 'analytics', order: 50, roles: ['organization_admin', 'field_supervisor'] },
 
   clients: { label: 'Clients', href: '/clients', section: 'admin', order: 10, any: ['clients.read'], excludedRoles: ['employee'] },
   users: { label: 'People & access', href: '/users', section: 'admin', order: 20, any: ['memberships.manage'], excludedRoles: ['employee'] },
