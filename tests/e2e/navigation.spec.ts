@@ -31,15 +31,22 @@ const protectedRoutes = [
   '/work-orders',
 ] as const
 
-test('organization admin can reach every protected product module without a dead route', async ({ page }) => {
+test('organization admin can reach every protected product module without a dead route, runtime crash or horizontal page overflow', async ({ page }) => {
+  const pageErrors: string[] = []
+  page.on('pageerror', (error) => pageErrors.push(error.message))
   await login(page, 'admin@ds.ie')
 
   for (const route of protectedRoutes) {
+    pageErrors.length = 0
     const response = await page.goto(route, { waitUntil: 'domcontentloaded' })
     expect(response?.status(), `${route} should return a successful document`).toBeLessThan(400)
     await expect(page).toHaveURL(new RegExp(`${route.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}(?:[/?#]|$)`))
     await expect(page.locator('#main-content')).toBeVisible()
     await expect(page.getByText('This page could not be found.', { exact: true })).toHaveCount(0)
+    await page.waitForTimeout(100)
+    expect(pageErrors, `${route} emitted an uncaught browser error`).toEqual([])
+    const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)
+    expect(overflow, `${route} should not force document-level horizontal scrolling`).toBeLessThanOrEqual(1)
   }
 })
 
