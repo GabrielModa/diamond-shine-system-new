@@ -41,16 +41,21 @@ test.beforeEach(async ({ page }) => {
 
 test('live now separates active work from expected context and exposes operational attention', async ({ page }) => {
   await openLive(page)
-  await expect(page.getByText('Live operational picture')).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('heading', { name: 'Active work', exact: true })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('heading', { name: 'Expected context', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Attention', exact: true })).toBeVisible()
+  await expect(page.getByText('Scheduled visits that are in progress or should be in progress now.')).toBeVisible()
+  await expect(page.getByText('Scheduled items in the selected window that are not active right now.')).toBeVisible()
+  await expect(page.getByText('Operational exceptions that may need intervention.')).toBeVisible()
   await expect(page.getByRole('button', { name: /On job/ })).toBeVisible()
   await expect(page.getByRole('button', { name: /Attention/ })).toBeVisible()
-  await expect(page.getByText(/work-location checks are used only while a visit timer is active/i)).toBeVisible()
+  await expect(page.getByText(/Work GPS appears only from an active visit timer/i)).toBeVisible()
 
   const activity = page.getByRole('heading', { name: 'Team activity' })
   await expect(activity).toBeVisible()
   const onJobMetric = page.getByRole('button', { name: /On job/ }).first()
   await onJobMetric.click()
-  await expect(page.getByText(/On job/).first()).toBeVisible()
+  await expect(page.getByText('No employees match this filter.')).toBeVisible()
 
   await openPerformance(page)
 })
@@ -61,7 +66,6 @@ test('workforce performance supports custom dates and operational filters', asyn
   await expect(page.getByText('Worked', { exact: true }).first()).toBeVisible()
 
   await page.getByRole('button', { name: 'Filters', exact: true }).click()
-  await page.getByRole('button', { name: 'Custom' }).click()
   const dateInputs = page.locator('.wf4-date-range input[type="date"]')
   await expect(dateInputs).toHaveCount(2)
   await dateInputs.nth(0).fill('2026-08-18')
@@ -70,12 +74,21 @@ test('workforce performance supports custom dates and operational filters', asyn
   await expect(dateInputs.nth(0)).toHaveValue('2026-08-18')
   await expect(dateInputs.nth(1)).toHaveValue('2026-08-24')
 
-  await page.locator('.wf4-filters').getByRole('button', { name: 'Expected at school', exact: true }).click()
-  const schoolRows = page.locator('.wf4-row')
-  await expect(schoolRows.first()).toBeVisible()
-  expect(await schoolRows.count()).toBeGreaterThan(0)
-  for (let index = 0; index < await schoolRows.count(); index++) {
-    await expect(schoolRows.nth(index).locator('.wf2-status')).toHaveText('School')
+  await openPerformance(page)
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
+  const statusFilter = page.getByRole('combobox', { name: 'Status', exact: true })
+  const roleFilter = page.getByRole('combobox', { name: 'Role', exact: true })
+  await statusFilter.selectOption({ label: 'Active' })
+  await roleFilter.selectOption({ label: 'Mobile cleaner' })
+  await expect(statusFilter.locator('option:checked')).toHaveText('Active')
+  await expect(roleFilter.locator('option:checked')).toHaveText('Mobile cleaner')
+  const filteredRows = page.locator('.wf4-row')
+  await expect(filteredRows.first()).toBeVisible()
+  const filteredCount = await filteredRows.count()
+  expect(filteredCount).toBeGreaterThan(0)
+  for (let index = 0; index < filteredCount; index++) {
+    await expect(filteredRows.nth(index)).toContainText('Active')
+    await expect(filteredRows.nth(index)).toContainText('Mobile cleaner')
   }
 
   await openPerformance(page)
@@ -150,7 +163,9 @@ test('employee detail closes by Escape and backdrop and does not leak between wo
 test('quality filter and manager detail expose the no-feedback state', async ({ page }) => {
   await openPerformance(page)
   await page.getByRole('button', { name: 'Filters', exact: true }).click()
-  await page.locator('.wf4-filters').getByRole('button', { name: 'No feedback', exact: true }).click()
+  const qualityFilter = page.getByRole('combobox', { name: 'Quality', exact: true })
+  await qualityFilter.selectOption({ label: 'No feedback' })
+  await expect(qualityFilter.locator('option:checked')).toHaveText('No feedback')
   const rows = page.locator('.wf4-row')
   await expect(rows.first()).toBeVisible()
   const count = await rows.count()
