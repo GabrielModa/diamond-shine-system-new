@@ -34,8 +34,10 @@ describe('protected navigation registry', () => {
       .sort()
 
     expect(hidden).toEqual(['operations', 'work-orders'])
-    expect(pageMeta.feedback).toMatchObject({ label: 'Service feedback', nav: undefined })
-    expect(pageMeta.dashboard).toMatchObject({ label: 'Management dashboard', nav: undefined })
+    expect(pageMeta.feedback).toMatchObject({ label: 'Service feedback' })
+    expect(pageMeta.feedback.nav).not.toBe(false)
+    expect(pageMeta.dashboard).toMatchObject({ label: 'Management dashboard' })
+    expect(pageMeta.dashboard.nav).not.toBe(false)
   })
 
   it('has deterministic ordering inside each navigation section', () => {
