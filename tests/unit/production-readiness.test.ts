@@ -12,6 +12,7 @@ const readyEnv = {
   SMTP_USER: 'mailer',
   SMTP_PASS: 'secret',
   SMTP_FROM: 'Diamond Shine <noreply@diamondshine.ie>',
+  EVIDENCE_STORAGE_PROVIDER: 'filesystem',
   EVIDENCE_STORAGE_ROOT: '/var/lib/diamond-shine/evidence',
   GOOGLE_MAPS_API_KEY: 'google-key-present',
   EXPO_PUSH_ACCESS_TOKEN: 'expo-access-token-present',
@@ -29,6 +30,20 @@ describe('production readiness', () => {
     expect(JSON.stringify(result)).not.toContain(readyEnv.NOTIFICATION_WORKER_SECRET)
   })
 
+  it('accepts private Supabase Storage configuration for serverless production', () => {
+    const result = assessProductionReadiness({
+      ...readyEnv,
+      VERCEL: '1',
+      EVIDENCE_STORAGE_PROVIDER: 'supabase',
+      EVIDENCE_STORAGE_ROOT: '',
+      SUPABASE_URL: 'https://project-ref.supabase.co',
+      SUPABASE_SECRET_KEY: 'sb_secret_server-only-value',
+      SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
+    })
+    expect(result.ready).toBe(true)
+    expect(JSON.stringify(result)).not.toContain('sb_secret_server-only-value')
+  })
+
   it('rejects missing or placeholder production secrets', () => {
     const result = assessProductionReadiness({ ...readyEnv, SESSION_SECRET: 'replace-with-at-least-32-random-characters' })
     expect(result.ready).toBe(false)
@@ -41,8 +56,27 @@ describe('production readiness', () => {
     expect(result.checks.find((check) => check.key === 'application-url')?.ok).toBe(false)
   })
 
-  it('requires an explicit absolute persistent evidence path', () => {
+  it('requires an explicit absolute persistent evidence path for filesystem storage', () => {
     const result = assessProductionReadiness({ ...readyEnv, EVIDENCE_STORAGE_ROOT: '.data/uploads' })
+    expect(result.ready).toBe(false)
+    expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
+  })
+
+  it('rejects filesystem evidence storage on Vercel', () => {
+    const result = assessProductionReadiness({ ...readyEnv, VERCEL: '1' })
+    expect(result.ready).toBe(false)
+    expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
+  })
+
+  it('requires complete Supabase Storage server configuration', () => {
+    const result = assessProductionReadiness({
+      ...readyEnv,
+      EVIDENCE_STORAGE_PROVIDER: 'supabase',
+      EVIDENCE_STORAGE_ROOT: '',
+      SUPABASE_URL: 'https://project-ref.supabase.co',
+      SUPABASE_SECRET_KEY: '',
+      SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
+    })
     expect(result.ready).toBe(false)
     expect(result.checks.find((check) => check.key === 'evidence-storage')?.ok).toBe(false)
   })

@@ -3,7 +3,7 @@ import { requireCapability } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { assignedVisitFilter } from '../../../../../modules/execution/access'
-import { removeEvidence, storeEvidence } from '../../../../../lib/evidence-storage'
+import { detectEvidenceMimeType, removeEvidence, storeEvidence } from '../../../../../lib/evidence-storage'
 
 export const runtime = 'nodejs'
 const ALLOWED_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp'])
@@ -39,13 +39,20 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     if (!task) return NextResponse.json({ ok: false, error: 'Checklist item not found' }, { status: 404 })
   }
 
+  const bytes = new Uint8Array(await file.arrayBuffer())
+  const detectedMimeType = detectEvidenceMimeType(bytes)
+  if (!detectedMimeType || detectedMimeType !== file.type) {
+    return NextResponse.json({ ok: false, error: 'The image could not be verified.' }, { status: 400 })
+  }
+
   const stored = await storeEvidence({
     organizationId: auth.user.organizationId,
     visitId: id,
-    bytes: new Uint8Array(await file.arrayBuffer()),
+    bytes,
     declaredMimeType: file.type,
   }).catch(() => null)
-  if (!stored) return NextResponse.json({ ok: false, error: 'The image could not be verified.' }, { status: 400 })
+  if (!stored) return NextResponse.json({ ok: false, error: 'Evidence storage is temporarily unavailable.' }, { status: 503 })
+
   const created = await prisma.evidenceAsset.create({
     data: {
       organizationId: auth.user.organizationId,
