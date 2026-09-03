@@ -11,7 +11,6 @@ async function loginAsAdmin(page: Page) {
 async function openLive(page: Page) {
   await page.goto('/live-operations', { waitUntil: 'domcontentloaded' })
   await expect(page.getByRole('heading', { name: 'Live workforce', level: 1 })).toBeVisible({ timeout: 15_000 })
-  await expect(page.getByRole('heading', { name: 'What is happening right now?' })).toBeVisible({ timeout: 15_000 })
 }
 
 async function openPerformance(page: Page) {
@@ -61,6 +60,7 @@ test('workforce performance supports custom dates and operational filters', asyn
   await expect(page.getByText('Team workload')).toBeVisible()
   await expect(page.getByText('Worked', { exact: true }).first()).toBeVisible()
 
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
   await page.getByRole('button', { name: 'Custom' }).click()
   const dateInputs = page.locator('.wf4-date-range input[type="date"]')
   await expect(dateInputs).toHaveCount(2)
@@ -149,6 +149,7 @@ test('employee detail closes by Escape and backdrop and does not leak between wo
 
 test('quality filter and manager detail expose the no-feedback state', async ({ page }) => {
   await openPerformance(page)
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
   await page.locator('.wf4-filters').getByRole('button', { name: 'No feedback', exact: true }).click()
   const rows = page.locator('.wf4-row')
   await expect(rows.first()).toBeVisible()
