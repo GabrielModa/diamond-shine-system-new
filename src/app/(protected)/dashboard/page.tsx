@@ -200,8 +200,8 @@ export default function DashboardPage() {
         <main className="dashboard">
           <div className="top-bar dashboard-header">
             <div className="header-left">
-              <div className="muted">📊 Dashboard</div>
-              <div className="header-title">Enhanced Management</div>
+              <div className="muted">Management overview</div>
+              <div className="header-title">Management dashboard</div>
               <div className="header-meta">
                 {syncing ? (
                   <span className="syncing">
