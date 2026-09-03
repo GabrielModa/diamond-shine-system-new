@@ -60,6 +60,10 @@ export default function VisitLocationPrecheck() {
   if (!session || !onVisit || !visitId || hasRunningTimer) return null;
 
   async function check() {
+    const activeSession = session;
+    const activeVisitId = visitId;
+    if (!activeSession || !activeVisitId) return;
+
     setChecking(true); setError('');
     try {
       const permission = await Location.requestForegroundPermissionsAsync();
@@ -68,7 +72,7 @@ export default function VisitLocationPrecheck() {
         return;
       }
       const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
-      const data = await apiFetch<CheckResult>(session, `/api/visits/${visitId}/location-check`, {
+      const data = await apiFetch<CheckResult>(activeSession, `/api/visits/${activeVisitId}/location-check`, {
         method: 'POST',
         body: JSON.stringify({
           latitude: current.coords.latitude,
