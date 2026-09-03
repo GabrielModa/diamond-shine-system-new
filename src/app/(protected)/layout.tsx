@@ -35,7 +35,7 @@ const pageMeta: Record<string, PageMeta> = {
   insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
   'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', order: 20, any: ['schedule.manage'] },
   quality: { label: 'Quality control', href: '/quality', section: 'analytics', order: 30, any: ['quality.inspect'] },
-  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, any: ['quality.inspect'] },
+  feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, roles: ['organization_admin', 'field_supervisor'] },
   dashboard: { label: 'Management dashboard', href: '/dashboard', section: 'analytics', order: 50, roles: ['organization_admin', 'field_supervisor'] },
 
   clients: { label: 'Clients', href: '/clients', section: 'admin', order: 10, any: ['clients.read'], excludedRoles: ['employee'] },
