@@ -18,7 +18,7 @@ async function createFeedback(page: Page, comment: string, score = 5) {
   const response = await page.request.post('/api/feedback', {
     data: {
       employeeId: employee.id,
-      clientLocation: 'Feedback E2E · Dublin',
+      clientLocation: 'TechCorp Office - Dublin 2',
       cleanliness: score,
       punctuality: score,
       equipment: score,
@@ -62,7 +62,7 @@ test('feedback filters recalculate the summary and preserve the exact evaluation
 
   const detail = page.getByRole('dialog', { name: /Evaluation/i })
   await expect(detail).toBeVisible()
-  await expect(detail).toContainText('Feedback E2E · Dublin')
+  await expect(detail).toContainText('TechCorp Office - Dublin 2')
   await expect(detail).toContainText('5.0')
   await detail.getByRole('button', { name: 'Close' }).click()
   await expect(detail).toHaveCount(0)
