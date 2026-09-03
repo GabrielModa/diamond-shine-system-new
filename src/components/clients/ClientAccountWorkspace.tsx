@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
 import DetailDialog from '../ui/DetailDialog'
@@ -427,7 +428,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   return <main className="page-shell client-account-page">
     <header className="client-account-hero">
       <div>
-        <a href="/clients" className="client-back">← Clients</a>
+        <Link href="/clients" className="client-back">← Clients</Link>
         <span className="client-eyebrow">Client account</span>
         <div className="client-title-row"><h1>{client.displayName}</h1><span className={`client-state ${client.status}`}>{client.status}</span></div>
         <p>{client.type === 'residential' ? 'Residential cleaning account' : 'Commercial cleaning account'} · {client.sites.length} location{client.sites.length === 1 ? '' : 's'} · {activeServiceCount} active service{activeServiceCount === 1 ? '' : 's'}</p>
