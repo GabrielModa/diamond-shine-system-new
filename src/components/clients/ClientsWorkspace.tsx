@@ -1,5 +1,7 @@
 'use client'
 
+import Link from 'next/link'
+import { useRouter } from 'next/navigation'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import DetailDialog from '../ui/DetailDialog'
 import OpsIcon from '../ui/OpsIcon'
@@ -43,6 +45,7 @@ async function api<T>(url: string, options?: RequestInit): Promise<T> {
 }
 
 export default function ClientsWorkspace({ canManageClients }: { canManageClients: boolean }) {
+  const router = useRouter()
   const [clients, setClients] = useState<Client[]>([])
   const [query, setQuery] = useState('')
   const [typeFilter, setTypeFilter] = useState('all')
@@ -159,7 +162,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
       const destination = `/clients/${clientId}?setup=1`
       resetCreate()
       setCreateOpen(false)
-      window.location.assign(destination)
+      router.push(destination)
     } catch (error) {
       setNotice({
         kind: 'error',
@@ -198,11 +201,11 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     <section className="clients-list" aria-label="Client accounts">
       {visible.map((client) => {
         const contact = client.contacts.find((item) => item.isPrimary) ?? client.contacts[0]
-        return <a className="client-list-card" href={`/clients/${client.id}`} key={client.id}>
+        return <Link className="client-list-card" href={`/clients/${client.id}`} key={client.id}>
           <div className="client-list-main"><div className="client-avatar">{client.displayName.slice(0, 2).toUpperCase()}</div><div><strong>{client.displayName}</strong><span>{client.type === 'residential' ? 'Residential' : client.type === 'commercial' ? 'Commercial' : client.type.replaceAll('_', ' ')} · {contact?.name ?? client.billingEmail ?? 'Contact not set'}</span></div></div>
           <div className="client-list-meta"><div><strong>{client._count.sites}</strong><span>location{client._count.sites === 1 ? '' : 's'}</span></div><div><strong>{client._count.contracts}</strong><span>service agreement{client._count.contracts === 1 ? '' : 's'}</span></div></div>
           <div><span className={`client-state ${client.status}`}>{client.status}</span><span className="client-list-arrow">→</span></div>
-        </a>
+        </Link>
       })}
       {!loading && !visible.length ? <div className="client-empty"><strong>No clients match this view</strong><span>Clear the search or add the first customer account.</span>{canManageClients ? <button className="client-button" onClick={() => { resetCreate(); setCreateOpen(true) }}>New client</button> : null}</div> : null}
       {loading ? <div className="client-loading">Loading client portfolio…</div> : null}
