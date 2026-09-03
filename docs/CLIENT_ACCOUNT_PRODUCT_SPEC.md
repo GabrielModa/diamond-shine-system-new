@@ -227,13 +227,15 @@ Order follows the operating lifecycle:
 `Live workforce` answers who is working now, upcoming starts and workforce exceptions. `Field control` owns execution review such as timers, GPS evidence, visit proof and incidents. They must not be presented as interchangeable concepts.
 
 ### Quality & insights
-Answers: **How are we performing and where is risk or corrective work emerging?**
+Answers: **How are we performing, what are clients telling us and where is management attention needed?**
 
 - Operations intelligence
 - Team performance
 - Quality control
+- Service feedback
+- Management dashboard
 
-`Service feedback` currently resolves to the same primary quality workspace and therefore is not a separate primary-navigation destination. `Service performance` is a legacy summary that overlaps Command centre, Supplies and Quality/Insights. Both routes may remain directly addressable during transition, but they are hidden from primary navigation until they provide a distinct user job.
+`Quality control` owns inspections and corrective actions. `Service feedback` owns the history and analysis of client/manager evaluations and must not be an alias of Quality control. `Management dashboard` is a manager-only cross-operation view combining supply-request management, feedback context and recent activity; it complements rather than replaces the dedicated Supplies workspace.
 
 ### Manage business
 Answers: **What customer, access and governance records do we maintain?**
@@ -260,10 +262,13 @@ Inbox belongs here even though messages can contain operational information: rec
 - Plan coverage helps plan workforce capacity and routing ahead.
 - Live workforce shows current workforce state and upcoming starts.
 - Field Control verifies today's execution, evidence and operational exceptions.
-- Supplies controls material availability and replenishment.
+- Supplies controls material availability, stock counts and replenishment execution.
 - Timesheets closes recorded time for payroll.
 - Inbox owns operational communication, personal receipt and acknowledgement.
-- Quality & Insights evaluates outcomes, trends, risk and corrective work.
+- Quality control owns inspections and corrective action verification.
+- Service feedback owns evaluation history and client-experience signals.
+- Operations intelligence owns risk/trend decision support.
+- Management dashboard gives managers a cross-operation view of supply requests, feedback and recent activity.
 
 No module should silently rebuild another module's responsibility.
 
@@ -276,7 +281,7 @@ No module should silently rebuild another module's responsibility.
 5. `Preferred time` belongs to service recurrence; `Visit start` belongs to a concrete Visit.
 6. Cleaning instructions belong to the service snapshot; Dispatch note is Visit-specific context only.
 7. A selected employee/date/filter must scope every visible count and action that claims to describe the current view.
-8. Primary navigation labels must describe a distinct user job. Duplicate or legacy routes stay out of normal navigation until they own a distinct workflow.
+8. Primary navigation labels must describe a distinct user job. If two visible destinations exist, their purpose must be explainable in one sentence without relying on internal architecture.
 9. Backend validation remains authoritative for workforce eligibility and conflicts.
 
 ## Product principles
