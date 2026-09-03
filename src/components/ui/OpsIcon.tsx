@@ -10,6 +10,7 @@ export type OpsIconName =
   | 'field'
   | 'filter'
   | 'incident'
+  | 'map'
   | 'payroll'
   | 'refresh'
   | 'review'
@@ -40,6 +41,7 @@ export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGEl
     field: <><path d="M4 19V7l5-3 6 3 5-2v12l-5 3-6-3-5 2Z" /><path d="M9 4v13M15 7v13" /></>,
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
     incident: <><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 17h.01" /></>,
+    map: <><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21V5.5Z" /><path d="M9 3v15.5M15 5.5V21" /></>,
     payroll: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /></>,
     refresh: <><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M6.5 8A7 7 0 0 1 18 7l2 4M4 13l2 4a7 7 0 0 0 11.5-1" /></>,
     review: <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h5M8 16h3" /></>,
