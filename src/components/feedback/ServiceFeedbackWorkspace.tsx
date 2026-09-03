@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import type { ApiResponse, FeedbackEntry } from '../../types'
 import StandardSelect from '../ui/StandardSelect'
 import { FeedbackDetailSheet } from '../dashboard/FeedbackDetailSheet'
+import styles from './ServiceFeedbackWorkspace.module.css'
 
 async function fetchFeedback(): Promise<FeedbackEntry[]> {
   const response = await fetch('/api/feedback', { credentials: 'include', cache: 'no-store' })
@@ -57,8 +58,8 @@ export default function ServiceFeedbackWorkspace() {
     ? `${visible.length} of ${items.length} evaluations`
     : `${visible.length} evaluations`
 
-  return <main className="page-shell feedback-workspace">
-    <header className="page-header page-header-action">
+  return <main className={`page-shell ${styles.workspace}`}>
+    <header className={styles.hero}>
       <div>
         <span className="eyebrow">Client experience</span>
         <h1>Service feedback</h1>
@@ -69,28 +70,28 @@ export default function ServiceFeedbackWorkspace() {
 
     {error ? <div className="toast error" role="alert">{error}</div> : null}
 
-    <section className="materials-summary" aria-label="Feedback summary">
+    <section className={styles.summary} aria-label="Feedback summary">
       <article><span>Average rating</span><strong>{loading ? '—' : metrics.overall ? metrics.overall.toFixed(1) : '—'}</strong><small>Current filtered view</small></article>
       <article><span>Cleanliness</span><strong>{loading ? '—' : metrics.cleanliness ? metrics.cleanliness.toFixed(1) : '—'}</strong><small>Average score</small></article>
       <article><span>Client relations</span><strong>{loading ? '—' : metrics.clientRelations ? metrics.clientRelations.toFixed(1) : '—'}</strong><small>Average score</small></article>
-      <article className={metrics.attention ? 'attention' : ''}><span>Needs attention</span><strong>{loading ? '—' : metrics.attention}</strong><small>Ratings below 4.0</small></article>
+      <article className={metrics.attention ? styles.attention : ''}><span>Needs attention</span><strong>{loading ? '—' : metrics.attention}</strong><small>Ratings below 4.0</small></article>
     </section>
 
-    <section className="card">
+    <section className={`card ${styles.panel}`}>
       <div className="section-heading">
         <div><h2>Feedback history</h2><p className="muted">{scopeLabel}</p></div>
       </div>
-      <div className="feedback-filter-grid">
+      <div className={styles.filters}>
         <label>Search<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Employee, location or comment…" /></label>
-        <div className="quality-select-field"><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={setEmployee} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
-        <div className="quality-select-field"><span>Rating</span><StandardSelect value={category} onChange={setCategory} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
+        <div className={styles.selectField}><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={setEmployee} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
+        <div className={styles.selectField}><span>Rating</span><StandardSelect value={category} onChange={setCategory} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
         {(query || employee || category) ? <button type="button" className="btn-secondary" onClick={() => { setQuery(''); setEmployee(''); setCategory('') }}>Clear filters</button> : null}
       </div>
 
-      {loading ? <div className="empty-state">Loading service feedback…</div> : <div className="feedback-history-list">
-        {visible.map((entry) => <button type="button" className="feedback-history-row" key={entry.id} onClick={() => setSelected(entry)}>
+      {loading ? <div className="empty-state">Loading service feedback…</div> : <div className={styles.history}>
+        {visible.map((entry) => <button type="button" className={styles.row} key={entry.id} onClick={() => setSelected(entry)}>
           <div><strong>{entry.employeeName}</strong><small>{entry.clientLocation} · {new Date(entry.createdAt).toLocaleDateString('en-IE')}</small></div>
-          <span className={`feedback-score ${entry.overall < 4 ? 'attention' : ''}`}>{entry.overall.toFixed(1)}</span>
+          <span className={`${styles.score} ${entry.overall < 4 ? styles.attention : ''}`}>{entry.overall.toFixed(1)}</span>
           <div><strong>{entry.category}</strong><small>{entry.comments || 'No comment'}</small></div>
           <span aria-hidden="true">→</span>
         </button>)}
