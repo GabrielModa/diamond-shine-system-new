@@ -6,6 +6,7 @@ import { workforceConstraintForWindow } from '../src/modules/scheduling/workforc
 const prisma = new PrismaClient()
 const TZ = 'Europe/Dublin'
 const ACTIVE = ['assigned', 'notified', 'seen', 'acknowledged'] as const
+const OPERATIONAL_LAB_DAYS = 16
 
 function assert(condition: unknown, message: string): asserts condition {
   if (!condition) throw new Error(`Demo operational check failed: ${message}`)
@@ -40,6 +41,7 @@ async function firstUpcoming(externalId: string) {
 
 async function main() {
   const now = new Date()
+  const horizon = new Date(now.getTime() + OPERATIONAL_LAB_DAYS * 24 * 60 * 60_000)
   const employees = await prisma.user.findMany({
     where: {
       status: 'active',
@@ -90,7 +92,7 @@ async function main() {
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
       status: { in: ['assigned', 'notified', 'seen'] },
-      visit: { scheduledStart: { gte: now }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+      visit: { scheduledStart: { gte: now, lt: horizon }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
     },
   })
   assert(pendingAssignments === 1, `expected exactly one future acknowledgement pending assignment, found ${pendingAssignments}`)
@@ -99,7 +101,7 @@ async function main() {
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
       status: { in: [...ACTIVE] },
-      visit: { scheduledStart: { gte: now }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+      visit: { scheduledStart: { gte: now, lt: horizon }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
     },
     include: {
       user: {
@@ -115,6 +117,7 @@ async function main() {
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
       cancelledAt: null,
+      startsAt: { lt: horizon },
       endsAt: { gt: now },
     },
   })
