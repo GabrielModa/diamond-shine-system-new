@@ -33,7 +33,7 @@
     "test:e2e:ui": "playwright test --ui",
     "dev": "next dev",
     "dev:all": "node scripts/dev-all.mjs",
-    "build": "next build",
+    "build": "prisma generate && next build",
     "start": "next start",
     "db:setup": "npx prisma generate && npx prisma migrate deploy && npm run db:seed",
     "db:deploy": "prisma migrate deploy",
