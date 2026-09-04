@@ -220,6 +220,11 @@ describe('field execution', () => {
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
     const result = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
     expect((await request(app).patch(`/api/visits/${visit.id}/tasks/${result.id}`).set('Cookie', employeeCookie).send({ version: result.version, status: 'done' })).status).toBe(200)
+    expect(started.status).toBe(201)
+    const premature = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
+    expect(premature.status).toBe(409)
+    expect(premature.body.code).toBe('VISIT_TIMERS_STILL_RUNNING')
+    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
     expect((await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
     const rework = await request(app).post(`/api/visits/${visit.id}/review`).set('Cookie', adminCookie).send({ decision: 'rework_requested', note: 'Please add a final photo of the reception area.' })
     expect(rework.status).toBe(200)
@@ -233,7 +238,9 @@ describe('field execution', () => {
 
   it('blocks completion until required tasks and evidence are genuinely complete', async () => {
     const { visit } = await executionVisit({ evidence: true })
-    await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    expect(started.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
     const result = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
     const taskDone = await request(app).patch(`/api/visits/${visit.id}/tasks/${result.id}`).set('Cookie', employeeCookie).send({ version: result.version, status: 'done' })
     expect(taskDone.status).toBe(200)
@@ -265,7 +272,9 @@ describe('field execution', () => {
     expect(forbidden.status).toBe(404)
 
     const { visit } = await executionVisit()
-    await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    expect(started.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
     const result = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
     await request(app).patch(`/api/visits/${visit.id}/tasks/${result.id}`).set('Cookie', employeeCookie).send({ version: result.version, status: 'done' })
     const incident = await request(app).post(`/api/visits/${visit.id}/incidents`).set('Cookie', employeeCookie).send({
@@ -347,8 +356,17 @@ describe('field execution', () => {
       .set('Cookie', employeeCookie)
     expect(bootstrap.status).toBe(200)
     expect(bootstrap.body.data).toHaveLength(1)
+    expect(bootstrap.body.data[0].id).toBe(visit.id)
+    expect(bootstrap.body.data[0].status).toBe('completed')
     expect(bootstrap.body.data[0].taskResults[0].status).toBe('done')
     expect(bootstrap.body.data[0].timeEntries[0].locationEvents).toHaveLength(2)
+
+    await prisma.visitAssignment.updateMany({ where: { visitId: visit.id }, data: { status: 'removed' } })
+    const revoked = await request(app)
+      .get('/api/sync?from=2026-08-23T00:00:00.000Z&to=2026-08-25T00:00:00.000Z')
+      .set('Cookie', employeeCookie)
+    expect(revoked.status).toBe(200)
+    expect(revoked.body.data).toHaveLength(0)
   })
 
   it('turns a site stock count into one actionable replenishment request', async () => {

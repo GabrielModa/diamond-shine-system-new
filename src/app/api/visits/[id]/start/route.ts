@@ -5,6 +5,7 @@ import { requireCapability } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { assignedVisitFilter } from '../../../../../modules/execution/access'
 import { assessLocation } from '../../../../../modules/execution/location'
+import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { startVisitSchema } from '../../../../../modules/execution/schemas'
 import { asInputJson } from '../../../../../modules/operations/json'
 
@@ -64,6 +65,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const startedAt = parsed.data.capturedAt ?? new Date()
   const assessment = assessLocation(visit.site, parsed.data)
+  const pattern = await repeatedLocationPattern({
+    organizationId: auth.user.organizationId,
+    userId: auth.user.id,
+    siteId: visit.siteId,
+    kind: 'clock_in',
+    capturedAt: startedAt,
+    coordinates: parsed.data,
+    assessment,
+  })
+  const reviewReason = pattern.triggered
+    ? 'REPEATED_LOCATION_PATTERN'
+    : assessment.reviewRequired ? assessment.reason : null
+
   let timeEntry: TimeEntry
   try {
     timeEntry = await prisma.$transaction(async (tx) => {
@@ -105,7 +119,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           startLocationClass: assessment.classification,
           source: parsed.data.source,
           clientMutationId: parsed.data.clientMutationId,
-          reviewReason: assessment.reason,
+          reviewReason,
         },
       })
       if (parsed.data.latitude != null && parsed.data.longitude != null) {
@@ -159,11 +173,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     timeEntryId: timeEntry.id,
     distanceM: assessment.distanceM,
     locationClass: assessment.classification,
+    locationRisk: assessment.risk,
+    repeatedLocationPatternCount: pattern.count,
   }, auth.user.organizationId)
   return NextResponse.json({
     ok: true,
-    data: timeEntry,
+    data: { ...timeEntry, location: assessment, pattern },
     location: assessment,
-    warning: assessment.reviewRequired ? assessment.reason : null,
+    pattern,
+    warning: reviewReason,
   }, { status: 201 })
 }

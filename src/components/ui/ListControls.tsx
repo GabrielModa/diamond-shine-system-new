@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useId, useState } from 'react'
+import StandardSelect from './StandardSelect'
 
 type Props = {
   query: string
@@ -112,7 +113,7 @@ export default function ListControls({
             <label><span>From</span><input type="date" value={draftFrom} onChange={(event) => { setDraftFrom(event.target.value); setClearRequested(false) }} /></label>
             <label><span>To</span><input type="date" value={draftTo} onChange={(event) => { setDraftTo(event.target.value); setClearRequested(false) }} /></label>
           </div> : null}
-          {options.length ? <div className="filter-dialog-options">{options.map((option) => <label key={option.label}><span>{option.label}</span><select value={draftOptions[option.label] ?? option.value} onChange={(event) => { setDraftOptions((current) => ({ ...current, [option.label]: event.target.value })); setClearRequested(false) }}>{option.choices.map((choice) => <option key={choice.value} value={choice.value}>{choice.label}</option>)}</select></label>)}</div> : null}
+          {options.length ? <div className="filter-dialog-options">{options.map((option) => <div className="filter-dialog-select-field" key={option.label}><span>{option.label}</span><StandardSelect value={draftOptions[option.label] ?? option.value} onChange={(value) => { setDraftOptions((current) => ({ ...current, [option.label]: value })); setClearRequested(false) }} ariaLabel={option.label} options={option.choices} /></div>)}</div> : null}
         </div>
         <footer><button type="button" className="text-button" onClick={clearDraft}>Clear</button><button type="button" className="btn-primary" onClick={apply}>Apply</button></footer>
       </section>

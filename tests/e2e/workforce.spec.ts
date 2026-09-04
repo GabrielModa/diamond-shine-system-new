@@ -1,7 +1,27 @@
 import { expect, test, type Page } from '@playwright/test'
 
+async function loginAsAdmin(page: Page) {
+  await page.goto('/login')
+  await page.fill('input[type="email"]', 'admin@ds.ie')
+  await page.fill('input[type="password"]', 'password123')
+  await page.click('button[type="submit"]')
+  await page.waitForURL(/\/home/)
+}
+
+async function openLive(page: Page) {
+  await page.goto('/live-operations', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: 'Live workforce', level: 1 })).toBeVisible({ timeout: 15_000 })
+}
+
+async function openPerformance(page: Page) {
+  await page.goto('/team-performance', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: 'Team performance', level: 1 })).toBeVisible({ timeout: 15_000 })
+  await expect(page.getByRole('heading', { name: 'Team workload' })).toBeVisible({ timeout: 15_000 })
+}
+
 async function openCoverage(page: Page) {
-  await page.getByRole('button', { name: /Coverage & routing/ }).click()
+  await page.goto('/people', { waitUntil: 'domcontentloaded' })
+  await expect(page.getByRole('heading', { name: 'Plan coverage', level: 1 })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('heading', { name: 'Match person to place' })).toBeVisible({ timeout: 15_000 })
   await expect(page.getByRole('combobox', { name: 'Choose team member' })).toBeVisible()
 }
@@ -16,37 +36,63 @@ async function chooseEmployee(page: Page, name: string) {
 }
 
 test.beforeEach(async ({ page }) => {
-  await page.goto('/login')
-  await page.fill('input[type="email"]', 'admin@ds.ie')
-  await page.fill('input[type="password"]', 'password123')
-  await page.click('button[type="submit"]')
-  await page.waitForURL(/\/home/)
-  await page.goto('/people', { waitUntil: 'domcontentloaded' })
-  await expect(page.getByRole('heading', { name: 'People, hours & coverage' })).toBeVisible()
+  await loginAsAdmin(page)
+})
+
+test('live now separates active work from expected context and exposes operational attention', async ({ page }) => {
+  await openLive(page)
+
+  const summary = page.locator('[aria-label="Live workforce summary"]')
+  const onJobMetric = summary.getByRole('button', { name: /On job/ })
+  const attentionMetric = summary.getByRole('button', { name: /Attention/ })
+  const schoolMetric = summary.getByRole('button', { name: /Expected school/ })
+  await expect(onJobMetric).toBeVisible({ timeout: 15_000 })
+  await expect(onJobMetric).toContainText('Active timers')
+  await expect(attentionMetric).toContainText('Late, signal, incident')
+  await expect(schoolMetric).toContainText('Schedule context')
+  await expect(page.getByRole('heading', { name: 'Live operations map', exact: true })).toBeVisible()
+  await expect(page.getByText(/Work GPS appears only from an active visit timer/i)).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Team activity', exact: true })).toBeVisible()
+
+  await openPerformance(page)
 })
 
 test('workforce performance supports custom dates and operational filters', async ({ page }) => {
+  await openPerformance(page)
   await expect(page.getByText('Team workload')).toBeVisible()
   await expect(page.getByText('Worked', { exact: true }).first()).toBeVisible()
 
-  await page.getByRole('button', { name: 'Custom' }).click()
-  await expect(page.locator('input[type="date"]')).toHaveCount(2)
-  const dateInputs = page.locator('input[type="date"]')
-  await dateInputs.nth(0).fill('2026-08-18')
-  await dateInputs.nth(1).fill('2026-08-24')
-  await page.getByRole('button', { name: 'Apply' }).click()
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
+  const dateDialog = page.getByRole('dialog', { name: 'Filters' })
+  await dateDialog.getByLabel('From', { exact: true }).fill('2026-08-18')
+  await dateDialog.getByLabel('To', { exact: true }).fill('2026-08-24')
+  await dateDialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(dateDialog).toHaveCount(0)
+
+  const dateInputs = page.locator('.wf4-date-range input[type="date"]')
+  await expect(dateInputs).toHaveCount(2)
   await expect(dateInputs.nth(0)).toHaveValue('2026-08-18')
   await expect(dateInputs.nth(1)).toHaveValue('2026-08-24')
 
-  await page.getByRole('button', { name: 'At school', exact: true }).click()
-  const schoolRows = page.locator('.wf4-row')
-  await expect(schoolRows.first()).toBeVisible()
-  expect(await schoolRows.count()).toBeGreaterThan(0)
-  for (let index = 0; index < await schoolRows.count(); index++) {
-    await expect(schoolRows.nth(index).locator('.wf2-status')).toHaveText('School')
+  await openPerformance(page)
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
+  const statusDialog = page.getByRole('dialog', { name: 'Filters' })
+  const statusFilter = statusDialog.getByRole('combobox', { name: 'Status', exact: true })
+  await statusFilter.click()
+  await page.getByRole('listbox', { name: 'Status' }).getByRole('option', { name: 'Expected school', exact: true }).click()
+  await expect(statusFilter).toContainText('Expected school')
+  await statusDialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(statusDialog).toHaveCount(0)
+
+  const filteredRows = page.locator('.wf4-row')
+  await expect(filteredRows.first()).toBeVisible()
+  const filteredCount = await filteredRows.count()
+  expect(filteredCount).toBeGreaterThan(0)
+  for (let index = 0; index < filteredCount; index++) {
+    await expect(filteredRows.nth(index).locator('.wf2-status')).toHaveText('School')
   }
 
-  await page.getByRole('button', { name: 'All', exact: true }).last().click()
+  await openPerformance(page)
   await page.locator('.wf4-row').first().click()
   await expect(page.getByRole('dialog')).toBeVisible()
   await expect(page.getByText('Daily hours')).toBeVisible()
@@ -55,8 +101,7 @@ test('workforce performance supports custom dates and operational filters', asyn
 test('map and route planner stay synchronized and expose walking', async ({ page }) => {
   await openCoverage(page)
 
-  const siteSelect = page.locator('label').filter({ hasText: 'Service site' }).locator('select')
-
+  const siteSelect = page.getByRole('combobox', { name: 'Choose service site' })
   await expect(page.getByRole('button', { name: '🚶 Walk' })).toBeVisible()
 
   await chooseEmployee(page, 'Aisha')
@@ -65,12 +110,11 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   const siteMarkers = page.locator('[data-workforce-site-marker]')
   await expect(siteMarkers.first()).toBeVisible({ timeout: 15_000 })
   await siteMarkers.first().dispatchEvent('click')
-  await expect(siteSelect).not.toHaveValue('')
+  await expect(siteSelect).not.toContainText('Search service site…')
 
   await page.getByRole('button', { name: '🚶 Walk' }).click()
   await expect(page.locator('.wf-map-focus-card')).toBeVisible()
 })
-
 
 test('scenario matrix exposes many employees and route-origin overrides', async ({ page }) => {
   await openCoverage(page)
@@ -98,8 +142,8 @@ test('scenario matrix exposes many employees and route-origin overrides', async 
   await expect(page.getByText(/Uses the real schedule context/i)).toBeVisible()
 })
 
-
-test('employee detail closes by Escape and backdrop and does not leak between tabs', async ({ page }) => {
+test('employee detail closes by Escape and backdrop and does not leak between workspaces', async ({ page }) => {
+  await openPerformance(page)
   const firstRow = page.locator('.wf4-row').first()
   await firstRow.click()
   const dialog = page.getByRole('dialog')
@@ -114,14 +158,20 @@ test('employee detail closes by Escape and backdrop and does not leak between ta
   await expect(dialog).toBeHidden()
 
   await openCoverage(page)
-  await page.getByRole('combobox', { name: 'Choose team member' }).click()
-  await page.getByRole('listbox').getByRole('option').first().click()
-  await page.getByRole('button', { name: /Team performance/ }).click()
   await expect(page.getByRole('dialog')).toHaveCount(0)
 })
 
 test('quality filter and manager detail expose the no-feedback state', async ({ page }) => {
-  await page.getByRole('button', { name: 'No feedback', exact: true }).click()
+  await openPerformance(page)
+  await page.getByRole('button', { name: 'Filters', exact: true }).click()
+  const filterDialog = page.getByRole('dialog', { name: 'Filters' })
+  const qualityFilter = filterDialog.getByRole('combobox', { name: 'Quality', exact: true })
+  await qualityFilter.click()
+  await page.getByRole('listbox', { name: 'Quality' }).getByRole('option', { name: 'No feedback', exact: true }).click()
+  await expect(qualityFilter).toContainText('No feedback')
+  await filterDialog.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(filterDialog).toHaveCount(0)
+
   const rows = page.locator('.wf4-row')
   await expect(rows.first()).toBeVisible()
   const count = await rows.count()
@@ -135,7 +185,6 @@ test('quality filter and manager detail expose the no-feedback state', async ({ 
   await expect(dialog.getByText('No feedback', { exact: true })).toBeVisible()
   await expect(dialog.getByText('Availability & school')).toBeVisible()
 })
-
 
 test('route planner supports type-ahead employee search', async ({ page }) => {
   await openCoverage(page)

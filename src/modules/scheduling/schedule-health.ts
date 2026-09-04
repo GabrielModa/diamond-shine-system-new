@@ -23,6 +23,11 @@ function workerName(user: { name: string | null; email: string }) {
   return user.name ?? user.email
 }
 
+function isManualExtraRecurrence(value: unknown) {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
+  return (value as { source?: unknown }).source === 'manual_extra'
+}
+
 export async function buildScheduleHealth(input: {
   organizationId: string
   from: Date
@@ -42,7 +47,7 @@ export async function buildScheduleHealth(input: {
         site: { select: { id: true, name: true, timezone: true, client: { select: { id: true, displayName: true } } } },
         jobs: {
           where: { archivedAt: null, status: { in: ['active', 'paused'] } },
-          select: { id: true },
+          select: { id: true, recurrence: true },
         },
       },
     }),
@@ -104,7 +109,7 @@ export async function buildScheduleHealth(input: {
   }
 
   for (const plan of plans) {
-    if (plan.jobs.length) continue
+    if (plan.jobs.some((job) => !isManualExtraRecurrence(job.recurrence))) continue
     summary.unscheduledServices += 1
     items.push({
       id: `plan:${plan.id}:unscheduled`,
@@ -116,7 +121,7 @@ export async function buildScheduleHealth(input: {
       servicePlanId: plan.id,
       servicePlanName: plan.name,
       timezone: plan.site.timezone,
-      detail: 'Published service plan has no active schedule.',
+      detail: 'This service is published but does not have a working schedule yet.',
     })
   }
 
@@ -144,10 +149,10 @@ export async function buildScheduleHealth(input: {
       activeWorkers,
       workerNames: visit.assignments.map((assignment) => workerName(assignment.user)),
       detail: state === 'covered'
-        ? `${activeWorkers}/${visit.requiredWorkers} cleaners covered.`
+        ? `${activeWorkers}/${visit.requiredWorkers} cleaners ready.`
         : state === 'unassigned'
-          ? `0/${visit.requiredWorkers} cleaners assigned.`
-          : `${activeWorkers}/${visit.requiredWorkers} cleaners covered · needs ${visit.requiredWorkers - activeWorkers}.`,
+          ? `No cleaners assigned yet · needs ${visit.requiredWorkers}.`
+          : `${activeWorkers}/${visit.requiredWorkers} cleaners assigned · ${visit.requiredWorkers - activeWorkers} still needed.`,
     })
 
     if (visit.assignments.length && visit.assignments.some((assignment) => assignment.status !== 'acknowledged')) {
@@ -169,7 +174,7 @@ export async function buildScheduleHealth(input: {
         requiredWorkers: visit.requiredWorkers,
         activeWorkers,
         workerNames: visit.assignments.filter((assignment) => assignment.status !== 'acknowledged').map((assignment) => workerName(assignment.user)),
-        detail: 'One or more assigned cleaners have not acknowledged this visit.',
+        detail: 'One or more assigned cleaners have not confirmed this visit in the app.',
       })
     }
   }
@@ -196,6 +201,7 @@ export async function buildScheduleHealth(input: {
         conflictKeys.add(key)
         summary.conflicts += 1
         const overlapMinutes = Math.max(1, Math.round((Math.min(a.visit.scheduledEnd.getTime(), b.visit.scheduledEnd.getTime()) - Math.max(a.visit.scheduledStart.getTime(), b.visit.scheduledStart.getTime())) / 60_000))
+        const name = workerName(b.user)
         items.push({
           id: `overlap:${key}`,
           state: 'cleaner_overlap',
@@ -209,8 +215,20 @@ export async function buildScheduleHealth(input: {
           jobId: b.visit.job.id,
           jobName: b.visit.job.name,
           visitId: b.visit.id,
-          workerNames: [workerName(b.user)],
-          detail: `${workerName(b.user)} is assigned to overlapping visits · ${overlapMinutes} min overlap.`,
+          workerNames: [name],
+          conflict: {
+            workerId: userId,
+            workerName: name,
+            otherVisitId: a.visit.id,
+            otherClientName: a.visit.site.client.displayName,
+            otherSiteName: a.visit.site.name,
+            otherJobName: a.visit.job.name,
+            otherScheduledStart: a.visit.scheduledStart.toISOString(),
+            otherScheduledEnd: a.visit.scheduledEnd.toISOString(),
+            otherTimezone: a.visit.timezone,
+            overlapMinutes,
+          },
+          detail: `${name} is assigned to two visits at the same time.`,
         })
       }
     }
@@ -233,6 +251,7 @@ export async function buildScheduleHealth(input: {
   }
 
   for (const job of jobs) {
+    if (isManualExtraRecurrence(job.recurrence)) continue
     const parsed = recurrenceSchema.safeParse(job.recurrence ?? { frequency: 'once' })
     if (!parsed.success) continue
     const contractualEnd = job.endDate && job.endDate < input.to ? job.endDate : input.to
@@ -273,7 +292,7 @@ export async function buildScheduleHealth(input: {
           pauseVersion: earlyEndedVisit.servicePause?.version ?? null,
           requiredWorkers: job.requiredWorkers,
           activeWorkers: 0,
-          detail: 'Service resumed early. This future visit remains cancelled until a manager explicitly reviews and reschedules it.',
+          detail: 'Service resumed early. Review this cancelled visit before putting it back on the schedule.',
         })
         continue
       }
@@ -323,7 +342,7 @@ export async function buildScheduleHealth(input: {
           jobName: job.name,
           requiredWorkers: job.requiredWorkers,
           activeWorkers: 0,
-          detail: 'Recurring service says this visit should exist, but no visit was created.',
+          detail: 'This recurring service should have a visit here, but it has not been created yet.',
         })
       }
     }

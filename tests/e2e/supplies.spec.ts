@@ -22,7 +22,7 @@ test('full happy path: employee submits a supply request', async ({ page }) => {
   await page.goto('/supplies')
   await expect(page.getByRole('heading', { name: 'Materials control' })).toBeVisible()
   await page.getByRole('button', { name: 'Request', exact: true }).click()
-  await expect(page.getByLabel('Client site')).toHaveValue(/.+/)
+  await expect(page.getByRole('combobox', { name: 'Client site' })).toContainText(/.+/)
   await page.getByRole('button', { name: 'Normal', exact: true }).click()
   await page.getByLabel('All-purpose cleaner requested quantity').first().fill('3')
   await page.getByLabel('Reason / delivery note').fill(note)

@@ -1,3 +1,3 @@
-import WorkforceWorkspace from '../../../components/workforce/WorkforceWorkspace'
+import PeopleControlWorkspace from '../../../components/workforce/PeopleControlWorkspace'
 
-export default function PeoplePage() { return <WorkforceWorkspace /> }
+export default function PeoplePage() { return <PeopleControlWorkspace mode="plan" /> }

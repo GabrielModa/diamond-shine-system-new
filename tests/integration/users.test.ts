@@ -1,3 +1,4 @@
+import { assertIntegrationDatabaseSafe } from './database-safety'
 import { describe, it, expect, beforeAll, beforeEach, afterAll, vi } from 'vitest'
 import request from 'supertest'
 import { createServer } from 'http'
@@ -32,6 +33,7 @@ beforeAll(async () => {
 })
 
 beforeEach(async () => {
+  assertIntegrationDatabaseSafe()
   await prisma.authRateLimit.deleteMany()
   await prisma.auditLog.deleteMany()
   await prisma.authToken.deleteMany()

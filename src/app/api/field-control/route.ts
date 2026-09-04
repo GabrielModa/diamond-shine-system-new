@@ -10,7 +10,6 @@ const querySchema = z.object({
   to: z.coerce.date().optional(),
 })
 
-
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'visits.review')
   if ('response' in auth) return auth.response
@@ -21,6 +20,7 @@ export async function GET(request: NextRequest) {
   const fallback = operationalDayRange(new Date(), organization?.timezone ?? 'Europe/Dublin')
   const from = parsed.data.from ?? new Date(fallback.from)
   const to = parsed.data.to ?? new Date(fallback.to)
+  const reviewFrom = new Date(from.getTime() - 7 * 86_400_000)
   const [visits, reviewEntries, visitReviews, activeTimers, incidents] = await Promise.all([
     prisma.visit.findMany({
       where: { organizationId, status: { notIn: ['cancelled', 'missed'] }, scheduledStart: { gte: from, lt: to } },
@@ -29,7 +29,12 @@ export async function GET(request: NextRequest) {
         job: { select: { id: true, name: true } },
         assignments: { where: { status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] } }, include: { user: { select: { id: true, name: true, email: true } } } },
         taskResults: { select: { status: true } },
-        timeEntries: { select: { id: true, userId: true, status: true, startedAt: true, durationSeconds: true, startDistanceM: true, startLocationClass: true, reviewReason: true } },
+        // Live-board attention only needs unresolved execution state. Historical reviewReason
+        // remains on the TimeEntry audit record, but an approved entry must not keep a visit red forever.
+        timeEntries: {
+          where: { status: { in: ['running', 'needs_review'] } },
+          select: { id: true, userId: true, status: true, startedAt: true, durationSeconds: true, startDistanceM: true, startLocationClass: true, reviewReason: true },
+        },
         incidents: { where: { status: { notIn: ['resolved', 'closed'] } }, select: { id: true, category: true, severity: true, title: true, status: true, createdAt: true } },
         _count: { select: { evidenceAssets: true } },
       },
@@ -37,7 +42,15 @@ export async function GET(request: NextRequest) {
       take: 300,
     }),
     prisma.timeEntry.findMany({
-      where: { organizationId, status: 'needs_review', startedAt: { gte: new Date(from.getTime() - 7 * 86_400_000), lt: to } },
+      where: {
+        organizationId,
+        startedAt: { gte: reviewFrom, lt: to },
+        status: { not: 'running' },
+        OR: [
+          { status: 'needs_review' },
+          { disputes: { some: { status: 'open' } } },
+        ],
+      },
       include: {
         user: { select: { id: true, name: true, email: true } },
         visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
@@ -48,7 +61,7 @@ export async function GET(request: NextRequest) {
       take: 100,
     }),
     prisma.visit.findMany({
-      where: { organizationId, status: 'completed', completedAt: { gte: new Date(from.getTime() - 7 * 86_400_000), lt: to } },
+      where: { organizationId, status: 'completed', completedAt: { gte: reviewFrom, lt: to } },
       include: {
         site: { select: { name: true, client: { select: { displayName: true } } } },
         taskResults: { select: { status: true } },
@@ -60,7 +73,7 @@ export async function GET(request: NextRequest) {
       take: 100,
     }),
     prisma.timeEntry.findMany({
-      where: { organizationId, status: 'running' },
+      where: { organizationId, status: 'running', kind: 'visit' },
       include: {
         user: { select: { id: true, name: true, email: true } },
         visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
@@ -78,6 +91,7 @@ export async function GET(request: NextRequest) {
       take: 100,
     }),
   ])
+  const pendingVisitReviews = visitReviews.filter((visit) => visit.reviews[0]?.decision !== 'approved')
   return NextResponse.json({
     ok: true,
     data: {
@@ -88,13 +102,13 @@ export async function GET(request: NextRequest) {
         inProgress: visits.filter((visit) => visit.status === 'in_progress').length,
         blocked: visits.filter((visit) => visit.status === 'completion_blocked').length,
         activeTimers: activeTimers.length,
-        needsReview: reviewEntries.length + visitReviews.filter((visit) => visit.reviews[0]?.decision !== 'approved').length,
+        needsReview: reviewEntries.length + pendingVisitReviews.length,
         openIncidents: incidents.length,
         criticalIncidents: incidents.filter((incident) => incident.severity === 'critical').length,
       },
       visits,
       reviewEntries,
-      visitReviews: visitReviews.filter((visit) => visit.reviews[0]?.decision !== 'approved'),
+      visitReviews: pendingVisitReviews,
       activeTimers,
       incidents,
     },

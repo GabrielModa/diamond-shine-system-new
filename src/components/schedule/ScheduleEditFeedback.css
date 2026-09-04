@@ -1,0 +1,21 @@
+.schedule-edit-error {
+  grid-column: 1 / -1;
+  display: grid;
+  gap: 4px;
+  padding: 12px 14px;
+  border: 1px solid #efb4b8;
+  border-radius: 14px;
+  background: #fff3f4;
+  color: #7f1d2d;
+  box-shadow: 0 8px 22px rgba(159, 48, 56, .08);
+}
+
+.schedule-edit-error strong {
+  font-size: .82rem;
+}
+
+.schedule-edit-error span {
+  color: #7b3c46;
+  font-size: .76rem;
+  line-height: 1.45;
+}

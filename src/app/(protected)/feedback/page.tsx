@@ -1,5 +1,5 @@
-import QualityWorkspace from '../../../components/quality/QualityWorkspace'
+import ServiceFeedbackWorkspace from '../../../components/feedback/ServiceFeedbackWorkspace'
 
-export default function QualityPage() {
-  return <QualityWorkspace />
+export default function ServiceFeedbackPage() {
+  return <ServiceFeedbackWorkspace />
 }

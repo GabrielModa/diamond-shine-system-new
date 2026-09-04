@@ -4,7 +4,7 @@ This runbook is the deploy/operations contract after Product Readiness V11. V12 
 
 ## Production topology
 
-Use Node.js 20+, PostgreSQL 16+, HTTPS at the public origin, and persistent evidence storage mounted at the absolute path configured by `EVIDENCE_STORAGE_ROOT`. The application must not rely on the repository-local `.data/uploads` fallback in production.
+Use Node.js 20+, PostgreSQL 16+ and HTTPS at the public origin. Evidence must use durable private storage. On hosts with a persistent encrypted volume, set `EVIDENCE_STORAGE_PROVIDER=filesystem` and mount the absolute path configured by `EVIDENCE_STORAGE_ROOT`. On Vercel or another serverless/ephemeral host, set `EVIDENCE_STORAGE_PROVIDER=supabase` and use a private Supabase Storage bucket. The application must not rely on the repository-local `.data/uploads` fallback in production.
 
 The notification queue is durable in PostgreSQL, but delivery still needs a scheduler. Run `npm run notifications:worker` at least once per minute from the production platform scheduler/cron. The endpoint is protected by an independent `NOTIFICATION_WORKER_SECRET`.
 
@@ -17,11 +17,15 @@ The notification queue is durable in PostgreSQL, but delivery still needs a sche
 - `NEXTAUTH_URL`: public HTTPS origin.
 - `NOTIFICATION_WORKER_SECRET`: independent random secret, 32+ characters and different from `SESSION_SECRET`.
 - `SMTP_HOST`, `SMTP_PORT`, `SMTP_FROM` and paired `SMTP_USER`/`SMTP_PASS` when SMTP authentication is used. `EMAIL_TRANSPORT=json` is not production delivery.
-- `EVIDENCE_STORAGE_ROOT`: explicit absolute path backed by persistent storage/volume.
+- `EVIDENCE_STORAGE_PROVIDER`: `supabase` on Vercel/serverless, or `filesystem` only when a real persistent volume is mounted.
+- Supabase evidence storage: `SUPABASE_URL`, server-only `SUPABASE_SECRET_KEY` (legacy `SUPABASE_SERVICE_ROLE_KEY` is accepted temporarily) and `SUPABASE_EVIDENCE_BUCKET`.
+- Filesystem evidence storage: `EVIDENCE_STORAGE_ROOT`, an explicit absolute path backed by persistent storage/volume.
 - `GOOGLE_MAPS_API_KEY`: server-side Routes API key.
 - `EXPO_PUSH_ACCESS_TOKEN`: authenticated Expo push project token.
 
-Never commit `.env`, credentials, database dumps or evidence files.
+Never commit `.env`, credentials, database dumps or evidence files. Supabase secret/service-role keys are backend-only and must never be exposed to browser or mobile bundles.
+
+For Supabase Storage, create a **private** bucket (recommended name: `diamond-shine-evidence`) and configure the bucket for the image types the app accepts (`image/jpeg`, `image/png`, `image/webp`). The app authorizes evidence access itself and accesses the private bucket from server routes with the server-only Supabase key; clients do not receive direct bucket credentials.
 
 ## Deploy sequence
 
@@ -42,13 +46,15 @@ Do not run demo seed commands against production.
 
 `GET /api/health/live` proves the Node process can answer requests. It intentionally does not touch dependencies.
 
-`GET /api/health` is readiness. In production it fails closed (503) when required configuration is incomplete, PostgreSQL is unavailable, or evidence storage cannot be prepared. The response exposes check names/status only, never secret values.
+`GET /api/health` is readiness. In production it fails closed (503) when required configuration is incomplete, PostgreSQL is unavailable, or evidence storage cannot be prepared. For Supabase Storage, readiness also verifies that the configured bucket is reachable and private. The response exposes check names/status only, never secret values.
 
 Use liveness for process restarts. Use readiness to decide whether traffic should reach the instance.
 
 ## Evidence durability
 
-Evidence is operational proof and must survive application restarts/redeploys. Mount a persistent encrypted volume at `EVIDENCE_STORAGE_ROOT`. Back up that volume separately from PostgreSQL and test restoration. If the chosen hosting platform has ephemeral/serverless filesystem only, do not launch until this adapter is moved to durable object storage.
+Evidence is operational proof and must survive application restarts/redeploys. On Vercel, use private Supabase Storage; Vercel's application filesystem is ephemeral and must not be used for evidence. On infrastructure that provides a persistent encrypted volume, filesystem storage remains supported through `EVIDENCE_STORAGE_ROOT`. Back up evidence storage separately from PostgreSQL and test restoration.
+
+The authenticated server upload endpoint caps images at 4 MB to stay below Vercel Functions' 4.5 MB request/response payload ceiling with multipart overhead. Mobile capture should compress evidence before upload. If larger original-resolution evidence becomes a requirement, replace the server upload body with a short-lived signed direct-to-object-storage flow rather than increasing the server limit.
 
 ## Notification worker
 

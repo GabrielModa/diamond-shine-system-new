@@ -1,4 +1,5 @@
 import { prisma } from '../../src/lib/prisma'
+import { assertIntegrationDatabaseSafe } from './database-safety'
 import bcrypt from 'bcryptjs'
 import { createSessionToken } from '../../src/lib/session'
 import {
@@ -9,7 +10,10 @@ import {
 
 export const TEST_PASSWORD = 'password123'
 
+export { assertIntegrationDatabaseSafe } from './database-safety'
+
 export async function seedUsers() {
+  assertIntegrationDatabaseSafe()
   await cleanOperations()
   await prisma.notificationJob.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
@@ -77,6 +81,7 @@ export async function getAuthCookie(email: string, password = TEST_PASSWORD): Pr
 }
 
 export async function cleanSupplies() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.supplyRequest.deleteMany()
   await prisma.materialStockCountLine.deleteMany()
@@ -86,11 +91,13 @@ export async function cleanSupplies() {
 }
 
 export async function cleanFeedback() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.feedbackEntry.deleteMany()
 }
 
 export async function cleanOperations() {
+  assertIntegrationDatabaseSafe()
   await prisma.notificationJob.deleteMany()
   await prisma.availability.deleteMany()
   await prisma.operationalNoticeRecipient.deleteMany()
