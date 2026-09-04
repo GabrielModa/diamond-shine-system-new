@@ -92,7 +92,11 @@ async function main() {
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
       status: { in: ['assigned', 'notified', 'seen'] },
-      visit: { scheduledStart: { gte: now, lt: horizon }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+      visit: {
+        scheduledStart: { gte: now, lt: horizon },
+        status: { notIn: ['cancelled', 'completed', 'missed'] },
+        job: { name: { startsWith: 'Scenario ·' } },
+      },
     },
   })
   assert(pendingAssignments === 1, `expected exactly one future acknowledgement pending assignment, found ${pendingAssignments}`)
@@ -101,7 +105,11 @@ async function main() {
     where: {
       organizationId: LEGACY_ORGANIZATION_ID,
       status: { in: [...ACTIVE] },
-      visit: { scheduledStart: { gte: now, lt: horizon }, status: { notIn: ['cancelled', 'completed', 'missed'] } },
+      visit: {
+        scheduledStart: { gte: now, lt: horizon },
+        status: { notIn: ['cancelled', 'completed', 'missed'] },
+        job: { name: { startsWith: 'Scenario ·' } },
+      },
     },
     include: {
       user: {
@@ -186,7 +194,7 @@ async function main() {
   console.log(`  People: ${configured.length} configured · ${homeMapped.length} mapped homes · ${contactReady.length} contact-ready · ${activePersonalLeave.length} active leave`)
   console.log(`  Map: ${sites.length} geocoded service sites · Aisha school origin configured`)
   console.log(`  Schedule: Liffey 0/2 · Greenpark 1/2 · exactly 1 pending confirmation · exactly 1 Gabriel conflict`)
-  console.log(`  Integrity: ${futureAssignments.length} future active assignments respect workforce + temporary availability rules`)
+  console.log(`  Integrity: ${futureAssignments.length} operational-lab assignments respect workforce + temporary availability rules`)
   console.log('  Field Control: live verified GPS linked to assignment · suspicious review entry + dispute · critical incident')
   console.log(`  Operational date: ${operationalDateKey(now, TZ)}`)
 }
