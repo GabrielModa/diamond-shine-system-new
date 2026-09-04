@@ -130,7 +130,7 @@ async function main() {
         endsAt: leave.endsAt,
         reason: leave.reason,
       })),
-    }, assignment.visit.scheduledStart, assignment.visit.scheduledEnd, assignment.visit.timezone)
+    }, assignment.visit.scheduledStart, assignment.visit.scheduledEnd, TZ)
     assert(!workforceBlock, `${assignment.user.email} is assigned while blocked by ${workforceBlock?.kind ?? 'workforce rule'} at ${assignment.visit.site.name}`)
     const temporaryBlock = futureAvailability.find((entry) =>
       entry.userId === assignment.userId &&
