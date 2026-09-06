@@ -1,0 +1,41 @@
+.close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
+  padding: 0;
+  border: 1px solid var(--border, #e2e8f0);
+  border-radius: 12px;
+  background: #fff;
+  color: var(--text, #101326);
+  box-shadow: none;
+  font-size: 24px;
+  font-weight: 500;
+  line-height: 1;
+  cursor: pointer;
+}
+
+.close:hover {
+  border-color: #c7d2fe;
+  background: #f8f9ff;
+}
+
+.close:focus-visible {
+  outline: 3px solid rgba(99, 102, 241, .28);
+  outline-offset: 2px;
+}
+
+.close:active {
+  transform: translateY(1px);
+}
+
+@media (max-width: 700px) {
+  .close {
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+    border-radius: 13px;
+  }
+}
