@@ -3,16 +3,13 @@ import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { requireCapability } from '../../../lib/auth'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
+import { BOOKED_VISIT_STATUSES, CONFIRMED_VISIT_STATUSES, COUNTED_VISIT_TIME_STATUSES } from '../../../components/schedule/schedule-lifecycle'
 
 const querySchema = z.object({
   from: z.coerce.date(),
   to: z.coerce.date(),
   employeeId: z.string().min(1),
 })
-
-const BOOKED_STATUSES = ['scheduled', 'dispatched'] as const
-const CONFIRMED_STATUSES = ['acknowledged', 'in_progress', 'completion_blocked'] as const
-const COUNTED_TIME_STATUSES = ['completed', 'needs_review', 'approved'] as const
 
 function plannedMinutes(rows: Array<{ scheduledStart: Date; scheduledEnd: Date }>) {
   return rows.reduce((sum, visit) => sum + Math.max(0, Math.round((visit.scheduledEnd.getTime() - visit.scheduledStart.getTime()) / 60_000)), 0)
@@ -38,11 +35,11 @@ export async function GET(request: NextRequest) {
   }
   const [booked, confirmed, doneVisits, worked] = await Promise.all([
     prisma.visit.findMany({
-      where: { organizationId, scheduledStart: { gte: from, lt: to }, status: { in: [...BOOKED_STATUSES] }, assignments: assignmentScope },
+      where: { organizationId, scheduledStart: { gte: from, lt: to }, status: { in: [...BOOKED_VISIT_STATUSES] }, assignments: assignmentScope },
       select: { scheduledStart: true, scheduledEnd: true },
     }),
     prisma.visit.findMany({
-      where: { organizationId, scheduledStart: { gte: from, lt: to }, status: { in: [...CONFIRMED_STATUSES] }, assignments: assignmentScope },
+      where: { organizationId, scheduledStart: { gte: from, lt: to }, status: { in: [...CONFIRMED_VISIT_STATUSES] }, assignments: assignmentScope },
       select: { scheduledStart: true, scheduledEnd: true },
     }),
     prisma.visit.count({
@@ -53,7 +50,7 @@ export async function GET(request: NextRequest) {
         organizationId,
         userId: employeeId,
         kind: 'visit',
-        status: { in: [...COUNTED_TIME_STATUSES] },
+        status: { in: [...COUNTED_VISIT_TIME_STATUSES] },
         durationSeconds: { not: null },
         visit: { status: 'completed', scheduledStart: { gte: from, lt: to } },
       },
