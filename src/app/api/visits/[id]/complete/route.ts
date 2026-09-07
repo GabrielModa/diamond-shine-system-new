@@ -37,18 +37,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   // Clock-out and visit submission are intentionally separate product actions.
   // A cleaner records their end location by stopping the timer first. Only when
-  // every visit timer is closed can the service itself be submitted for review.
+  // every work/break timer linked to this visit is closed can it be submitted.
   const [runningTimers, ownRecordedTimer] = await Promise.all([
     prisma.timeEntry.findMany({
       where: {
         organizationId: auth.user.organizationId,
         visitId: visit.id,
-        kind: 'visit',
         status: 'running',
       },
       select: {
         id: true,
         userId: true,
+        kind: true,
         startedAt: true,
         user: { select: { name: true, email: true } },
       },
@@ -70,15 +70,19 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (runningTimers.length) {
     const ownTimerRunning = runningTimers.some((timer) => timer.userId === auth.user.id)
+    const ownBreakRunning = runningTimers.some((timer) => timer.userId === auth.user.id && timer.kind === 'break')
     return NextResponse.json({
       ok: false,
-      error: ownTimerRunning
-        ? 'Stop your timer before submitting this visit.'
-        : 'A teammate still has an active timer. The visit can be submitted after every team timer is stopped.',
+      error: ownBreakRunning
+        ? 'Resume or finish your paused work before submitting this visit.'
+        : ownTimerRunning
+          ? 'Finish your work timer before submitting this visit.'
+          : 'A teammate still has an active timer. The visit can be submitted after every team timer is finished.',
       code: 'VISIT_TIMERS_STILL_RUNNING',
       data: {
         count: runningTimers.length,
         ownTimerRunning,
+        ownBreakRunning,
         workers: runningTimers.map((timer) => timer.user.name ?? timer.user.email),
       },
     }, { status: 409 })
@@ -87,7 +91,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!ownRecordedTimer) {
     return NextResponse.json({
       ok: false,
-      error: 'Start and stop your work timer before submitting this visit.',
+      error: 'Start and finish your work timer before submitting this visit.',
       code: 'VISIT_TIME_RECORD_REQUIRED',
     }, { status: 409 })
   }
