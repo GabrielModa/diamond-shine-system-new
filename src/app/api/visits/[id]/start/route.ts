@@ -13,6 +13,8 @@ import { lockUserTimerStart } from '../../../../../modules/execution/timer-lock'
 class VisitStartConflict extends Error {}
 class ActiveTimerConflict extends Error {}
 
+const STARTABLE_VISIT_STATUSES = ['scheduled', 'dispatched', 'acknowledged', 'in_progress', 'completion_blocked'] as const
+
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'visits.execute')
   if ('response' in auth) return auth.response
@@ -48,7 +50,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     },
   })
   if (!visit) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  if (['completed', 'cancelled', 'missed'].includes(visit.status)) {
+  if (!STARTABLE_VISIT_STATUSES.includes(visit.status as (typeof STARTABLE_VISIT_STATUSES)[number])) {
     return NextResponse.json({ ok: false, error: 'This visit cannot be started.', code: 'VISIT_NOT_STARTABLE' }, { status: 409 })
   }
 
@@ -59,7 +61,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (active) {
     return NextResponse.json({
       ok: false,
-      error: active.visitId === visit.id ? 'This visit timer is already running.' : 'Another timer is already running.',
+      error: active.visitId === visit.id ? 'This visit already has an active timer for you.' : 'Another timer is already running.',
       code: 'ACTIVE_TIMER',
       data: active,
     }, { status: 409 })
@@ -90,11 +92,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       })
       if (activeTimer) throw new ActiveTimerConflict()
 
+      // Starting again is valid after a pause, and teammates may start their own
+      // timer after the Visit itself is already in progress. The guarded update
+      // still prevents starting a visit that became completed/cancelled/missed.
       const claimed = await tx.visit.updateMany({
         where: {
           id: visit.id,
           organizationId: auth.user.organizationId,
-          status: { in: ['scheduled', 'dispatched', 'acknowledged'] },
+          status: { in: [...STARTABLE_VISIT_STATUSES] },
         },
         data: {
           status: 'in_progress',
@@ -199,7 +204,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       })
       return NextResponse.json({
         ok: false,
-        error: current?.visitId === visit.id ? 'This visit timer is already running.' : 'Another timer is already running.',
+        error: current?.visitId === visit.id ? 'This visit already has an active timer for you.' : 'Another timer is already running.',
         code: 'ACTIVE_TIMER',
         data: current,
       }, { status: 409 })
