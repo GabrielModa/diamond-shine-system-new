@@ -4,6 +4,7 @@ import { generateOccurrences, generationKey } from './recurrence'
 import { recurrenceSchema } from './schemas'
 import { buildDefaultTeamAllocator } from './default-team'
 import { pauseAppliesTo, type PauseWindow } from './service-pause'
+import { acceptedRecurringUserIdsForJob } from './recurring-commitment'
 
 export type ContinuityResult = {
   jobsChecked: number
@@ -61,9 +62,15 @@ async function ensureJobContinuity(
   }) as PauseWindow[]
 
   const existingKeys = new Set(job.visits.map((visit) => visit.generationKey))
+  const defaultUserIds = job.defaultAssignees.map((item) => item.userId)
+  const acceptedUserIds = await acceptedRecurringUserIdsForJob(db, {
+    organizationId,
+    jobId: job.id,
+    userIds: defaultUserIds,
+  })
   const allocator = await buildDefaultTeamAllocator(db, {
     organizationId,
-    userIds: job.defaultAssignees.map((item) => item.userId),
+    userIds: defaultUserIds,
     from: start,
     to: contractualEnd,
     timezone: job.timezone,
@@ -89,6 +96,7 @@ async function ensureJobContinuity(
     }
 
     const assigneeIds = allocator.select(occurrence, end, job.requiredWorkers)
+    const allAccepted = assigneeIds.length > 0 && assigneeIds.every((userId) => acceptedUserIds.has(userId))
     sequenceNumber += 1
     try {
       await db.visit.create({
@@ -103,9 +111,14 @@ async function ensureJobContinuity(
           sequenceNumber,
           generationKey: key,
           requiredWorkers: job.requiredWorkers,
-          status: assigneeIds.length ? 'dispatched' : 'scheduled',
+          status: assigneeIds.length ? allAccepted ? 'acknowledged' : 'dispatched' : 'scheduled',
           assignments: assigneeIds.length ? {
-            create: assigneeIds.map((userId) => ({ organizationId, userId, status: 'assigned' })),
+            create: assigneeIds.map((userId) => ({
+              organizationId,
+              userId,
+              status: acceptedUserIds.has(userId) ? 'acknowledged' : 'assigned',
+              acknowledgedAt: acceptedUserIds.has(userId) ? new Date() : undefined,
+            })),
           } : undefined,
         },
       })
