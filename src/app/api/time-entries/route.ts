@@ -4,6 +4,7 @@ import { z } from 'zod'
 import { getAuthUser, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { prisma } from '../../../lib/prisma'
+import { assignedVisitFilter } from '../../../modules/execution/access'
 import { startTimeEntrySchema } from '../../../modules/execution/schemas'
 import { lockUserTimerStart } from '../../../modules/execution/timer-lock'
 
@@ -65,13 +66,31 @@ export async function POST(request: NextRequest) {
   const parsed = startTimeEntrySchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
 
+  if (parsed.data.visitId) {
+    if (parsed.data.kind !== 'break') {
+      return NextResponse.json({ ok: false, error: 'Only break time can be attached to a visit through this endpoint.', code: 'VISIT_TIMER_KIND_INVALID' }, { status: 400 })
+    }
+    const visit = await prisma.visit.findFirst({
+      where: {
+        id: parsed.data.visitId,
+        organizationId: auth.user.organizationId,
+        ...assignedVisitFilter(auth.user),
+        status: { in: ['in_progress', 'completion_blocked'] },
+      },
+      select: { id: true },
+    })
+    if (!visit) {
+      return NextResponse.json({ ok: false, error: 'This visit is not available for a break timer.', code: 'VISIT_BREAK_NOT_AVAILABLE' }, { status: 409 })
+    }
+  }
+
   if (parsed.data.clientMutationId) {
     const duplicate = await prisma.timeEntry.findFirst({
       where: { organizationId: auth.user.organizationId, clientMutationId: parsed.data.clientMutationId },
       include: { locationEvents: true },
     })
     if (duplicate) {
-      if (duplicate.userId !== auth.user.id || duplicate.kind !== parsed.data.kind) {
+      if (duplicate.userId !== auth.user.id || duplicate.kind !== parsed.data.kind || duplicate.visitId !== (parsed.data.visitId ?? null)) {
         return NextResponse.json(
           { ok: false, error: 'Mutation identifier is already in use.', code: 'MUTATION_ID_CONFLICT' },
           { status: 409 },
@@ -95,6 +114,7 @@ export async function POST(request: NextRequest) {
         const entry = await tx.timeEntry.create({
           data: {
             organizationId: auth.user.organizationId,
+            visitId: parsed.data.visitId ?? null,
             userId: auth.user.id,
             kind: parsed.data.kind,
             status: 'running',
@@ -133,7 +153,7 @@ export async function POST(request: NextRequest) {
           },
           include: { locationEvents: true },
         })
-        if (duplicate && duplicate.userId === auth.user.id && duplicate.kind === parsed.data.kind) {
+        if (duplicate && duplicate.userId === auth.user.id && duplicate.kind === parsed.data.kind && duplicate.visitId === (parsed.data.visitId ?? null)) {
           return { response: NextResponse.json({ ok: true, data: duplicate, duplicate: true }) } as const
         }
         return {
@@ -157,6 +177,6 @@ export async function POST(request: NextRequest) {
     }, { status: 409 })
   }
   const entry = timerStart.entry
-  await logAudit(auth.user.email, 'start_time_entry', 'time_entry', entry.id, { kind: entry.kind, source: entry.source }, auth.user.organizationId)
+  await logAudit(auth.user.email, 'start_time_entry', 'time_entry', entry.id, { kind: entry.kind, source: entry.source, visitId: entry.visitId }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: entry }, { status: 201 })
 }

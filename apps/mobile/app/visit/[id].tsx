@@ -23,8 +23,10 @@ type LocationAssessment = {
 };
 type StartVisitResult = TimeEntry & { location?: LocationAssessment | null };
 type StopVisitResult = TimeEntry & { location?: LocationAssessment | null };
+type TimerTone = 'on_track' | 'warning' | 'over';
 
 const ACTIVE_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged']);
+const PENDING_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen']);
 
 function formatElapsed(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
@@ -32,6 +34,25 @@ function formatElapsed(seconds: number) {
   const minutes = Math.floor((safe % 3600) / 60);
   const remainder = safe % 60;
   return [hours, minutes, remainder].map((value) => String(value).padStart(2, '0')).join(':');
+}
+
+function formatDuration(seconds: number) {
+  const safe = Math.max(0, Math.round(seconds));
+  const hours = Math.floor(safe / 3600);
+  const minutes = Math.floor((safe % 3600) / 60);
+  if (!hours) return `${minutes} min`;
+  if (!minutes) return `${hours}h`;
+  return `${hours}h ${minutes}m`;
+}
+
+function localTimerKind(timer: LocalTimer | null) {
+  return timer?.startMutationId.startsWith('visit-break-') ? 'break' as const : 'visit' as const;
+}
+
+function recordedSeconds(entry: TimeEntry) {
+  if (entry.durationSeconds != null) return Math.max(0, entry.durationSeconds);
+  if (!entry.endedAt) return 0;
+  return Math.max(0, Math.round((new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000));
 }
 
 function FlowStep({ number, label, state }: { number: string; label: string; state: 'done' | 'current' | 'next' }) {
@@ -56,6 +77,7 @@ export default function VisitScreen() {
   const [declining, setDeclining] = useState(false);
   const [declineReason, setDeclineReason] = useState('');
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
+  const [incidentOpen, setIncidentOpen] = useState(false);
   const [incident, setIncident] = useState({ title: '', description: '', severity: 'medium', category: 'other' });
   const [clockNow, setClockNow] = useState(Date.now());
 
@@ -84,20 +106,25 @@ export default function VisitScreen() {
     [session?.email, visit?.assignments],
   );
   const ownUserId = ownAssignment?.user.id ?? null;
-  const ownEntries = useMemo(
-    () => (visit?.timeEntries ?? []).filter((entry) => entry.kind === 'visit' && Boolean(ownUserId) && entry.user?.id === ownUserId),
+  const allOwnEntries = useMemo(
+    () => (visit?.timeEntries ?? []).filter((entry) => Boolean(ownUserId) && entry.user?.id === ownUserId),
     [ownUserId, visit?.timeEntries],
   );
+  const ownVisitEntries = useMemo(() => allOwnEntries.filter((entry) => entry.kind === 'visit'), [allOwnEntries]);
   const activeEntry = useMemo(
-    () => ownEntries.find((entry) => !entry.endedAt && entry.status === 'running') ?? null,
-    [ownEntries],
+    () => ownVisitEntries.find((entry) => !entry.endedAt && entry.status === 'running') ?? null,
+    [ownVisitEntries],
+  );
+  const activeBreakEntry = useMemo(
+    () => allOwnEntries.find((entry) => entry.kind === 'break' && !entry.endedAt && entry.status === 'running') ?? null,
+    [allOwnEntries],
   );
   const lastOwnCompletedEntry = useMemo(
-    () => ownEntries.find((entry) => Boolean(entry.endedAt)) ?? null,
-    [ownEntries],
+    () => ownVisitEntries.find((entry) => Boolean(entry.endedAt)) ?? null,
+    [ownVisitEntries],
   );
   const teamRunningEntries = useMemo(
-    () => (visit?.timeEntries ?? []).filter((entry) => entry.kind === 'visit' && !entry.endedAt && entry.status === 'running'),
+    () => (visit?.timeEntries ?? []).filter((entry) => !entry.endedAt && entry.status === 'running'),
     [visit?.timeEntries],
   );
   const otherRunningEntries = useMemo(
@@ -105,31 +132,43 @@ export default function VisitScreen() {
     [ownUserId, teamRunningEntries],
   );
 
-  const runningSince = activeEntry?.startedAt ?? localTimer?.startedAt ?? null;
+  const localKind = localTimerKind(localTimer);
+  const runningVisitSince = activeEntry?.startedAt ?? (localTimer && localKind === 'visit' ? localTimer.startedAt : null);
+  const pausedSince = activeBreakEntry?.startedAt ?? (localTimer && localKind === 'break' ? localTimer.startedAt : null);
+  const anyRunningSince = runningVisitSince ?? pausedSince;
+  const paused = Boolean(pausedSince);
   const fieldRole = session?.membershipRole === 'employee' || session?.membershipRole === 'field_supervisor';
   const canExecute = Boolean(fieldRole && ownAssignment && ACTIVE_ASSIGNMENTS.has(ownAssignment.status));
   const visitExecutionOpen = visit?.status === 'in_progress' || visit?.status === 'completion_blocked';
-  const canWork = canExecute && Boolean(runningSince || visitExecutionOpen);
+  const canFieldAction = Boolean(canExecute && visitExecutionOpen && visit?.status !== 'completed');
   const timezone = visit?.timezone ?? visit?.site.timezone ?? session?.timezone ?? 'Europe/Dublin';
   const expectedTasks = visit?.servicePlanVersion?.tasks.length ?? visit?.taskResults?.length ?? 0;
   const tasksHydrated = (visit?.taskResults?.length ?? 0) >= expectedTasks;
   const requiredDone = tasksHydrated && (visit?.taskResults?.filter((task) => task.versionTask.required).every((task) => task.status !== 'pending') ?? expectedTasks === 0);
   const ownTimerFinished = Boolean(lastOwnCompletedEntry?.endedAt);
   const visitSubmitted = visit?.status === 'completed';
-  const elapsedSeconds = runningSince ? Math.max(0, Math.floor((clockNow - new Date(runningSince).getTime()) / 1000)) : 0;
+  const completedWorkSeconds = ownVisitEntries.filter((entry) => Boolean(entry.endedAt)).reduce((sum, entry) => sum + recordedSeconds(entry), 0);
+  const currentWorkSeconds = runningVisitSince ? Math.max(0, Math.floor((clockNow - new Date(runningVisitSince).getTime()) / 1000)) : 0;
+  const workedSeconds = completedWorkSeconds + currentWorkSeconds;
+  const plannedSeconds = visit ? Math.max(1, Math.round((new Date(visit.scheduledEnd).getTime() - new Date(visit.scheduledStart).getTime()) / 1000)) : 1;
+  const remainingSeconds = plannedSeconds - workedSeconds;
+  const progressRatio = Math.max(0, workedSeconds / plannedSeconds);
+  const progressPercent = Math.min(100, Math.round(progressRatio * 100));
+  const progressWidth = `${progressPercent}%` as `${number}%`;
+  const timerTone: TimerTone = progressRatio >= 1 ? 'over' : progressRatio >= 0.8 ? 'warning' : 'on_track';
+  const pausedElapsedSeconds = pausedSince ? Math.max(0, Math.floor((clockNow - new Date(pausedSince).getTime()) / 1000)) : 0;
+  const closeoutReady = Boolean(canExecute && visitExecutionOpen && ownTimerFinished && !runningVisitSince && !pausedSince);
+  const canWorkChecklist = Boolean(closeoutReady && !visitSubmitted);
 
   useEffect(() => {
-    if (!runningSince) return;
+    if (!anyRunningSince) return;
     setClockNow(Date.now());
     const timer = setInterval(() => setClockNow(Date.now()), 1000);
     return () => clearInterval(timer);
-  }, [runningSince]);
+  }, [anyRunningSince]);
 
   const canSubmitVisit = Boolean(
-    canExecute
-      && visitExecutionOpen
-      && ownTimerFinished
-      && !runningSince
+    closeoutReady
       && otherRunningEntries.length === 0
       && requiredDone
       && !completionPending,
@@ -139,15 +178,17 @@ export default function VisitScreen() {
     ? 'This visit has been sent to Operations for review.'
     : completionPending
       ? 'Submission is saved offline and will be sent when the device reconnects.'
-      : runningSince
-        ? 'Stop your timer when the work is finished. Submitting the visit is a separate final step.'
-        : otherRunningEntries.length
-          ? `${otherRunningEntries.length} teammate${otherRunningEntries.length === 1 ? '' : 's'} still ${otherRunningEntries.length === 1 ? 'has' : 'have'} an active timer.`
-          : !ownTimerFinished
-            ? 'Start and stop your work timer before submitting the visit.'
-            : !requiredDone
-              ? 'Record every required checklist item before submitting.'
-              : 'Time is recorded and required work is complete. Submit the visit for review.';
+      : runningVisitSince
+        ? 'Finish your work timer before the closeout checklist becomes available.'
+        : pausedSince
+          ? 'Resume or finish paused work before closing the visit.'
+          : otherRunningEntries.length
+            ? `${otherRunningEntries.length} teammate${otherRunningEntries.length === 1 ? '' : 's'} still ${otherRunningEntries.length === 1 ? 'has' : 'have'} an active timer.`
+            : !ownTimerFinished
+              ? 'Record your work time before submitting the visit.'
+              : !requiredDone
+                ? 'Complete every required closeout item before submitting.'
+                : 'Time and required work are recorded. Submit the visit for review.';
 
   async function withAction(action: () => Promise<void>) {
     setBusy(true);
@@ -182,7 +223,10 @@ export default function VisitScreen() {
     await withAction(async () => {
       const otherTimer = await getAnyLocalTimer();
       if (otherTimer && otherTimer.visitId !== visit.id) {
-        throw new Error('Another timer is already running on this device. Stop it before starting this visit.');
+        throw new Error('Another timer is already running on this device. Finish it before starting this visit.');
+      }
+      if (otherTimer && otherTimer.visitId === visit.id) {
+        throw new Error(localTimerKind(otherTimer) === 'break' ? 'This visit is paused. Resume it instead.' : 'This visit timer is already running.');
       }
       const location = await coordinates();
       const clientMutationId = mutationId('visit-start');
@@ -197,7 +241,7 @@ export default function VisitScreen() {
         const localVisit = { ...visit, status: 'in_progress' };
         setVisit(localVisit);
         await updateCachedVisit(localVisit);
-        setMessage('Timer started offline. Your clock-in is queued for sync.');
+        setMessage('Work started offline. Your clock-in is queued for sync.');
       };
 
       if (!(await networkConnected())) return saveOffline();
@@ -206,7 +250,7 @@ export default function VisitScreen() {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-        setMessage(locationMessage('Timer started', result.location));
+        setMessage(locationMessage('Work started', result.location));
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -227,16 +271,150 @@ export default function VisitScreen() {
       });
       setDeclining(false);
       setDeclineReason('');
-      setMessage(status === 'acknowledged' ? 'Visit confirmed. Operations can see your response.' : 'Operations has been notified that you cannot attend.');
+      setMessage(status === 'acknowledged' ? 'Visit confirmed.' : 'Operations has been notified that you cannot attend.');
       await load();
     });
   }
 
-  async function stopVisit() {
-    if (!session || !visit || !canExecute || (!activeEntry && !localTimer)) return;
+  function locallyFinishEntry(entry: TimeEntry | null, startMutationId: string | undefined, kind: 'visit' | 'break', endedAt: string) {
+    const startedAt = entry?.startedAt ?? localTimer?.startedAt ?? endedAt;
+    const durationSeconds = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
+    const finishedEntry: TimeEntry = entry
+      ? { ...entry, status: 'completed', endedAt, durationSeconds }
+      : {
+          id: `local:${startMutationId}`,
+          kind,
+          status: 'completed',
+          startedAt,
+          endedAt,
+          durationSeconds,
+          user: ownAssignment?.user,
+        };
+    return { finishedEntry, startedAt, durationSeconds };
+  }
+
+  async function pauseVisit() {
+    if (!session || !visit || !canExecute || !runningVisitSince) return;
     await withAction(async () => {
+      const deviceId = await getDeviceId();
+      const endedAt = new Date().toISOString();
+      const breakStartedAt = new Date(new Date(endedAt).getTime() + 1).toISOString();
+      const stopMutationId = mutationId('time-pause');
+      const breakMutationId = mutationId('visit-break');
+      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const breakPayload = { kind: 'break', visitId: visit.id, startedAt: breakStartedAt, capturedAt: breakStartedAt, clientMutationId: breakMutationId, deviceId };
+
+      const saveOffline = async () => {
+        const startMutationId = localTimer?.startMutationId;
+        await enqueue({
+          clientMutationId: stopMutationId,
+          type: 'time.stop',
+          entityId: activeEntry?.id ?? startMutationId!,
+          clientCreatedAt: endedAt,
+          payload: { ...stopPayload, startMutationId, visitId: visit.id },
+        });
+        await enqueue({
+          clientMutationId: breakMutationId,
+          type: 'time.start',
+          entityId: 'break',
+          clientCreatedAt: breakStartedAt,
+          payload: { visitId: visit.id, startedAt: breakStartedAt },
+        });
+        const timer = { visitId: visit.id, startMutationId: breakMutationId, startedAt: breakStartedAt };
+        await setLocalTimer(timer);
+        setLocalTimerState(timer);
+
+        const { finishedEntry } = locallyFinishEntry(activeEntry, startMutationId, 'visit', endedAt);
+        const breakEntry: TimeEntry = { id: `local:${breakMutationId}`, kind: 'break', status: 'running', startedAt: breakStartedAt, user: ownAssignment?.user };
+        const entries = activeEntry
+          ? (visit.timeEntries ?? []).map((entry) => entry.id === activeEntry.id ? finishedEntry : entry)
+          : [finishedEntry, ...(visit.timeEntries ?? [])];
+        const localVisit: Visit = { ...visit, status: 'in_progress', timeEntries: [breakEntry, ...entries] };
+        setVisit(localVisit);
+        await updateCachedVisit(localVisit);
+        setMessage('Work paused offline. Break time will not count as worked time.');
+      };
+
+      if (!(await networkConnected()) || !activeEntry) return saveOffline();
+      try {
+        await apiFetch(session, `/api/time-entries/${activeEntry.id}/stop`, { method: 'POST', body: JSON.stringify(stopPayload) });
+        await apiFetch(session, '/api/time-entries', { method: 'POST', body: JSON.stringify(breakPayload) });
+        if (localTimer) await clearLocalTimer(visit.id);
+        setLocalTimerState(null);
+        setMessage('Work paused. Break time is excluded from worked hours.');
+        await load();
+      } catch (cause) {
+        if (!isNetworkApiError(cause)) throw cause;
+        await saveOffline();
+      }
+    });
+  }
+
+  async function resumeVisit() {
+    if (!session || !visit || !canExecute || !pausedSince) return;
+    await withAction(async () => {
+      const deviceId = await getDeviceId();
+      const endedAt = new Date().toISOString();
+      const resumedAt = new Date(new Date(endedAt).getTime() + 1).toISOString();
+      const stopMutationId = mutationId('break-stop');
+      const resumeMutationId = mutationId('visit-resume');
       const location = await coordinates();
-      const clientMutationId = mutationId('time-stop');
+      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const resumePayload = { ...location, capturedAt: resumedAt, clientMutationId: resumeMutationId, deviceId };
+
+      const saveOffline = async () => {
+        const startMutationId = localTimer?.startMutationId;
+        await enqueue({
+          clientMutationId: stopMutationId,
+          type: 'time.stop',
+          entityId: activeBreakEntry?.id ?? startMutationId!,
+          clientCreatedAt: endedAt,
+          payload: { ...stopPayload, startMutationId, visitId: visit.id },
+        });
+        await enqueue({
+          clientMutationId: resumeMutationId,
+          type: 'visit.start',
+          entityId: visit.id,
+          clientCreatedAt: resumedAt,
+          payload: location ?? {},
+        });
+        const timer = { visitId: visit.id, startMutationId: resumeMutationId, startedAt: resumedAt };
+        await setLocalTimer(timer);
+        setLocalTimerState(timer);
+
+        const { finishedEntry } = locallyFinishEntry(activeBreakEntry, startMutationId, 'break', endedAt);
+        const workEntry: TimeEntry = { id: `local:${resumeMutationId}`, kind: 'visit', status: 'running', startedAt: resumedAt, user: ownAssignment?.user };
+        const entries = activeBreakEntry
+          ? (visit.timeEntries ?? []).map((entry) => entry.id === activeBreakEntry.id ? finishedEntry : entry)
+          : [finishedEntry, ...(visit.timeEntries ?? []).filter((entry) => entry.id !== `local:${startMutationId}`)];
+        const localVisit: Visit = { ...visit, status: 'in_progress', timeEntries: [workEntry, ...entries] };
+        setVisit(localVisit);
+        await updateCachedVisit(localVisit);
+        setMessage('Work resumed offline.');
+      };
+
+      if (!(await networkConnected()) || !activeBreakEntry) return saveOffline();
+      try {
+        await apiFetch(session, `/api/time-entries/${activeBreakEntry.id}/stop`, { method: 'POST', body: JSON.stringify(stopPayload) });
+        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(resumePayload) });
+        if (localTimer) await clearLocalTimer(visit.id);
+        setLocalTimerState(null);
+        setMessage(locationMessage('Work resumed', result.location));
+        await load();
+      } catch (cause) {
+        if (!isNetworkApiError(cause)) throw cause;
+        await saveOffline();
+      }
+    });
+  }
+
+  async function finishWork() {
+    if (!session || !visit || !canExecute || (!runningVisitSince && !pausedSince)) return;
+    await withAction(async () => {
+      const currentEntry = paused ? activeBreakEntry : activeEntry;
+      const currentKind = paused ? 'break' as const : 'visit' as const;
+      const location = await coordinates();
+      const clientMutationId = mutationId('time-finish');
       const endedAt = new Date().toISOString();
       const payload = { ...location, endedAt, clientMutationId, deviceId: await getDeviceId() };
 
@@ -245,48 +423,29 @@ export default function VisitScreen() {
         await enqueue({
           clientMutationId,
           type: 'time.stop',
-          entityId: activeEntry?.id ?? startMutationId!,
+          entityId: currentEntry?.id ?? startMutationId!,
           clientCreatedAt: endedAt,
           payload: { ...payload, startMutationId, visitId: visit.id },
         });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
 
-        const startedAt = activeEntry?.startedAt ?? localTimer?.startedAt ?? endedAt;
-        const durationSeconds = Math.max(0, Math.round((new Date(endedAt).getTime() - new Date(startedAt).getTime()) / 1000));
-        const finishedEntry: TimeEntry = activeEntry
-          ? { ...activeEntry, status: 'completed', endedAt, durationSeconds }
-          : {
-              id: `local:${startMutationId}`,
-              kind: 'visit',
-              status: 'completed',
-              startedAt,
-              endedAt,
-              durationSeconds,
-              user: ownAssignment?.user,
-            };
-        const localVisit: Visit = {
-          ...visit,
-          status: 'in_progress',
-          timeEntries: activeEntry
-            ? (visit.timeEntries ?? []).map((entry) => entry.id === activeEntry.id ? finishedEntry : entry)
-            : [finishedEntry, ...(visit.timeEntries ?? [])],
-        };
+        const { finishedEntry } = locallyFinishEntry(currentEntry, startMutationId, currentKind, endedAt);
+        const entries = currentEntry
+          ? (visit.timeEntries ?? []).map((entry) => entry.id === currentEntry.id ? finishedEntry : entry)
+          : [finishedEntry, ...(visit.timeEntries ?? []).filter((entry) => entry.id !== `local:${startMutationId}`)];
+        const localVisit: Visit = { ...visit, status: 'in_progress', timeEntries: entries };
         setVisit(localVisit);
         await updateCachedVisit(localVisit);
-        setMessage('Timer stopped offline. Your clock-out is queued; finish the checklist and submit when ready.');
+        setMessage('Work finished offline. Your clock-out is queued; closeout is ready.');
       };
 
-      if (!(await networkConnected())) return saveOffline();
+      if (!(await networkConnected()) || !currentEntry) return saveOffline();
       try {
-        if (!activeEntry) return saveOffline();
-        const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${activeEntry.id}/stop`, {
-          method: 'POST',
-          body: JSON.stringify(payload),
-        });
+        const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(`${locationMessage('Timer stopped', result.location)} Finish the checklist and submit the visit when ready.`);
+        setMessage(`${locationMessage('Work finished', result.location)} Complete the closeout checklist when ready.`);
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -296,7 +455,7 @@ export default function VisitScreen() {
   }
 
   async function updateTask(task: TaskResult, status: TaskResult['status']) {
-    if (!session || !visit || !canWork) return;
+    if (!session || !visit || !canWorkChecklist) return;
     await withAction(async () => {
       const note = taskNotes[task.id]?.trim() || task.note || null;
       if (status === 'problem' && !note) throw new Error('Describe the problem before marking it.');
@@ -335,7 +494,7 @@ export default function VisitScreen() {
   }
 
   async function reportIncident() {
-    if (!session || !visit || !canWork || !incident.title.trim() || !incident.description.trim()) return;
+    if (!session || !visit || !canFieldAction || !incident.title.trim() || !incident.description.trim()) return;
     await withAction(async () => {
       const payload = { ...incident, title: incident.title.trim(), description: incident.description.trim() };
 
@@ -348,6 +507,7 @@ export default function VisitScreen() {
           payload,
         });
         setIncident({ title: '', description: '', severity: 'medium', category: 'other' });
+        setIncidentOpen(false);
         setMessage('Issue saved offline and will be sent automatically.');
       };
 
@@ -355,6 +515,7 @@ export default function VisitScreen() {
       try {
         await apiFetch(session, `/api/visits/${visit.id}/incidents`, { method: 'POST', body: JSON.stringify(payload) });
         setIncident({ title: '', description: '', severity: 'medium', category: 'other' });
+        setIncidentOpen(false);
         setMessage('Issue reported to operations.');
         await load();
       } catch (cause) {
@@ -402,10 +563,12 @@ export default function VisitScreen() {
   if (!visit) return <Screen><EmptyState title="Visit unavailable" body="Reconnect to download this visit before working offline." /></Screen>;
 
   const address = [visit.site.addressLine1, visit.site.addressLine2, visit.site.city, visit.site.postalCode].filter(Boolean).join(', ');
-  const timerStepState = visitSubmitted || ownTimerFinished ? 'done' : 'current';
-  const checklistStepState = visitSubmitted || requiredDone ? 'done' : runningSince || ownTimerFinished ? 'current' : 'next';
-  const submitStepState = visitSubmitted ? 'done' : ownTimerFinished && requiredDone && !runningSince ? 'current' : 'next';
-  const finishedDuration = lastOwnCompletedEntry?.durationSeconds ?? null;
+  const timerStepState = visitSubmitted || closeoutReady ? 'done' : 'current';
+  const checklistStepState = visitSubmitted || requiredDone ? 'done' : closeoutReady ? 'current' : 'next';
+  const submitStepState = visitSubmitted ? 'done' : closeoutReady && requiredDone ? 'current' : 'next';
+  const timerToneLabel = paused ? 'Paused' : timerTone === 'over' ? 'Over planned time' : timerTone === 'warning' ? 'Approaching planned time' : 'On track';
+  const remainingLabel = remainingSeconds >= 0 ? `${formatDuration(remainingSeconds)} planned remaining` : `${formatDuration(Math.abs(remainingSeconds))} over planned time`;
+  const scheduleResponseNeeded = Boolean(ownAssignment && PENDING_ASSIGNMENTS.has(ownAssignment.status) && !visitExecutionOpen && !visitSubmitted);
 
   return <Screen>
     <View style={styles.hero}>
@@ -433,11 +596,11 @@ export default function VisitScreen() {
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
 
-    {ownAssignment && ownAssignment.status !== 'removed' ? <Card style={[styles.assignment, ownAssignment.status === 'declined' && styles.assignmentDeclined]}>
+    {scheduleResponseNeeded ? <Card style={styles.assignment}>
       <View>
         <Text style={styles.timerLabel}>Schedule response</Text>
-        <Text style={styles.assignmentTitle}>{ownAssignment.status === 'acknowledged' ? 'You confirmed this visit' : ownAssignment.status === 'declined' ? 'You cannot attend' : 'Can you attend this visit?'}</Text>
-        {ownAssignment.declineReason ? <Text style={styles.sectionSub}>{ownAssignment.declineReason}</Text> : null}
+        <Text style={styles.assignmentTitle}>Can you attend this visit?</Text>
+        <Text style={styles.sectionSub}>For recurring assignments, use My Work to accept the ongoing schedule once.</Text>
       </View>
       {declining ? <>
         <TextInput value={declineReason} onChangeText={setDeclineReason} style={styles.input} placeholder="Reason or availability detail" multiline />
@@ -446,16 +609,24 @@ export default function VisitScreen() {
           <Button title="Notify operations" variant="danger" compact loading={busy} onPress={() => void respondToAssignment('declined')} />
         </View>
       </> : <View style={styles.assignmentActions}>
-        {ownAssignment.status !== 'acknowledged' ? <Button title="Confirm" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} /> : null}
-        <Button title={ownAssignment.status === 'declined' ? 'Change response' : "Can't attend"} variant="secondary" compact onPress={() => setDeclining(true)} />
+        <Button title="Confirm this visit" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} />
+        <Button title="Can't attend" variant="secondary" compact onPress={() => setDeclining(true)} />
       </View>}
     </Card> : null}
 
-    <Card style={[styles.execution, runningSince && styles.executionRunning, ownTimerFinished && !visitSubmitted && styles.executionFinished, visitSubmitted && styles.executionSubmitted]}>
+    <Card style={[
+      styles.execution,
+      runningVisitSince && styles.executionRunning,
+      paused && styles.executionPaused,
+      timerTone === 'warning' && runningVisitSince && styles.executionWarning,
+      timerTone === 'over' && runningVisitSince && styles.executionOver,
+      closeoutReady && !visitSubmitted && styles.executionFinished,
+      visitSubmitted && styles.executionSubmitted,
+    ]}>
       <View style={styles.flowRow}>
         <FlowStep number="1" label="Time" state={timerStepState} />
         <View style={styles.flowLine} />
-        <FlowStep number="2" label="Checklist" state={checklistStepState} />
+        <FlowStep number="2" label="Closeout" state={checklistStepState} />
         <View style={styles.flowLine} />
         <FlowStep number="3" label="Submit" state={submitStepState} />
       </View>
@@ -464,20 +635,36 @@ export default function VisitScreen() {
         <Text style={styles.executionEyebrow}>VISIT SUBMITTED</Text>
         <Text style={styles.executionValue}>Sent for review</Text>
         <Text style={styles.executionDetail}>Your recorded time, checklist, evidence and location events are now available to Operations.</Text>
-      </View> : runningSince ? <View style={styles.executionCopy}>
-        <Text style={styles.executionEyebrow}>TIMER RUNNING</Text>
-        <Text style={styles.timerClock}>{formatElapsed(elapsedSeconds)}</Text>
-        <Text style={styles.executionDetail}>Started {formatOperationalTime(runningSince, timezone)}{localTimer ? ' · offline' : ''}. Stop the timer when the cleaning work is finished.</Text>
-        {canExecute ? <Button title="Stop timer" variant="secondary" loading={busy} onPress={() => void stopVisit()} /> : null}
-      </View> : ownTimerFinished ? <View style={styles.executionCopy}>
-        <Text style={styles.executionEyebrow}>TIME RECORDED</Text>
-        <Text style={styles.executionValue}>{finishedDuration == null ? 'Work finished' : formatElapsed(finishedDuration)}</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. You can still finish notes, checklist items and evidence before submitting the visit.</Text>
+      </View> : runningVisitSince || pausedSince ? <View style={styles.executionCopy}>
+        <View style={styles.timerStatusRow}>
+          <Text style={[styles.executionEyebrow, timerTone === 'warning' && styles.warningText, timerTone === 'over' && styles.overText]}>{paused ? 'WORK PAUSED' : 'WORK IN PROGRESS'}</Text>
+          <Text style={[styles.timerTone, timerTone === 'warning' && styles.warningText, timerTone === 'over' && styles.overText]}>{timerToneLabel}</Text>
+        </View>
+        <Text style={styles.timerClock}>{formatElapsed(workedSeconds)}</Text>
+        <Text style={styles.executionDetail}>Worked · {remainingLabel}</Text>
+        <View style={styles.progressTrack}><View style={[styles.progressFill, timerTone === 'warning' && styles.progressWarning, timerTone === 'over' && styles.progressOver, { width: progressWidth }]} /></View>
+        <View style={styles.timerMetrics}>
+          <View><Text style={styles.metricLabel}>Planned</Text><Text style={styles.metricValue}>{formatDuration(plannedSeconds)}</Text></View>
+          <View><Text style={styles.metricLabel}>{paused ? 'Paused for' : 'Current segment'}</Text><Text style={styles.metricValue}>{formatElapsed(paused ? pausedElapsedSeconds : currentWorkSeconds)}</Text></View>
+          <View><Text style={styles.metricLabel}>Window ends</Text><Text style={styles.metricValue}>{formatOperationalTime(visit.scheduledEnd, timezone)}</Text></View>
+        </View>
+        {paused ? <View style={styles.timerActions}>
+          <View style={styles.timerAction}><Button title="Resume work" loading={busy} onPress={() => void resumeVisit()} /></View>
+          <View style={styles.timerAction}><Button title="Finish work" variant="secondary" loading={busy} onPress={() => void finishWork()} /></View>
+        </View> : <View style={styles.timerActions}>
+          <View style={styles.timerAction}><Button title="Pause" variant="secondary" loading={busy} onPress={() => void pauseVisit()} /></View>
+          <View style={styles.timerAction}><Button title="Finish work" loading={busy} onPress={() => void finishWork()} /></View>
+        </View>}
+        <Text style={styles.timerHint}>Pause time is excluded from worked hours. Finish work opens the closeout checklist.</Text>
+      </View> : closeoutReady ? <View style={styles.executionCopy}>
+        <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
+        <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
+        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then submit the visit.</Text>
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
-        <Text style={styles.executionValue}>Start your timer</Text>
-        <Text style={styles.executionDetail}>Starting records your clock-in and current location. It does not complete or submit the visit.</Text>
-        {canExecute ? <Button title="Start timer" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
+        <Text style={styles.executionValue}>Start work</Text>
+        <Text style={styles.executionDetail}>Starting records your clock-in and current location. Planned time is {formatDuration(plannedSeconds)}.</Text>
+        {canExecute ? <Button title="Start work" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
       </View>}
     </Card>
 
@@ -486,47 +673,57 @@ export default function VisitScreen() {
       <Text style={styles.copy}>{visit.dispatchNotes}</Text>
     </Card> : null}
 
-    <View style={styles.sectionHead}>
+    {canFieldAction ? <Card style={styles.quickActions}>
       <View>
-        <Text style={styles.sectionTitle}>Cleaning checklist</Text>
-        <Text style={styles.sectionSub}>{visit.taskResults?.filter((task) => task.status !== 'pending').length ?? 0}/{visit.taskResults?.length ?? 0} recorded</Text>
+        <Text style={styles.sectionTitle}>Need something?</Text>
+        <Text style={styles.sectionSub}>Keep field exceptions out of WhatsApp and attached to this visit.</Text>
       </View>
-      <Text style={styles.materials} onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id } })}>Materials →</Text>
-    </View>
-
-    {visit.taskResults?.map((task) => <Card key={task.id} style={[styles.task, task.status === 'done' && styles.taskDone, task.status === 'problem' && styles.taskProblem]}>
-      <View style={styles.taskHead}>
-        <Text style={styles.taskTitle}>{task.versionTask.title}</Text>
-        <Text style={styles.taskStatus}>{task.status.replaceAll('_', ' ')}</Text>
+      <View style={styles.quickActionRow}>
+        <View style={styles.timerAction}><Button title={incidentOpen ? 'Close issue form' : 'Report issue'} variant="secondary" compact onPress={() => setIncidentOpen((value) => !value)} /></View>
+        <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id } })} /></View>
       </View>
-      {task.versionTask.instructions ? <Text style={styles.copy}>{task.versionTask.instructions}</Text> : null}
-      <TextInput editable={canWork} value={taskNotes[task.id] ?? task.note ?? ''} onChangeText={(value) => setTaskNotes((current) => ({ ...current, [task.id]: value }))} style={styles.input} placeholder="Add note or describe a problem" multiline />
-      {canWork ? <>
-        <View style={styles.taskActions}>
-          <Pressable disabled={busy} onPress={() => void updateTask(task, 'done')} style={[styles.pill, styles.pillDone]}><Text style={styles.pillDoneText}>Done</Text></Pressable>
-          <Pressable disabled={busy} onPress={() => void updateTask(task, 'problem')} style={[styles.pill, styles.pillProblem]}><Text style={styles.pillProblemText}>Problem</Text></Pressable>
-          <Pressable disabled={busy} onPress={() => void updateTask(task, 'not_applicable')} style={styles.pill}><Text style={styles.pillText}>N/A</Text></Pressable>
+      {incidentOpen ? <View style={styles.incidentForm}>
+        <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
+        <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
+        <View style={styles.severity}>
+          {['low', 'medium', 'high', 'critical'].map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
+            <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
+          </Pressable>)}
         </View>
-        <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ''}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
-      </> : null}
-    </Card>)}
-
-    {canWork ? <Button title="Add finishing photo" variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} /> : null}
-
-    {canWork ? <Card>
-      <Text style={styles.sectionTitle}>Report an issue</Text>
-      <Text style={styles.sectionSub}>Access, damage, safety, equipment or client problem — without WhatsApp.</Text>
-      <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
-      <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
-      <View style={styles.severity}>
-        {['low', 'medium', 'high', 'critical'].map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
-          <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
-        </Pressable>)}
-      </View>
-      <Button title="Send to operations" variant="secondary" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} />
+        <Button title="Send to operations" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} />
+      </View> : null}
     </Card> : null}
 
-    {canExecute && (visitExecutionOpen || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
+    {closeoutReady || visitSubmitted || completionPending ? <>
+      <View style={styles.sectionHead}>
+        <View>
+          <Text style={styles.sectionTitle}>Closeout checklist</Text>
+          <Text style={styles.sectionSub}>{visit.taskResults?.filter((task) => task.status !== 'pending').length ?? 0}/{visit.taskResults?.length ?? 0} recorded</Text>
+        </View>
+        {!visitSubmitted ? <Text style={styles.closeoutBadge}>After clock-out</Text> : null}
+      </View>
+
+      {visit.taskResults?.map((task) => <Card key={task.id} style={[styles.task, task.status === 'done' && styles.taskDone, task.status === 'problem' && styles.taskProblem]}>
+        <View style={styles.taskHead}>
+          <Text style={styles.taskTitle}>{task.versionTask.title}</Text>
+          <Text style={styles.taskStatus}>{task.status.replaceAll('_', ' ')}</Text>
+        </View>
+        {task.versionTask.instructions ? <Text style={styles.copy}>{task.versionTask.instructions}</Text> : null}
+        <TextInput editable={canWorkChecklist} value={taskNotes[task.id] ?? task.note ?? ''} onChangeText={(value) => setTaskNotes((current) => ({ ...current, [task.id]: value }))} style={styles.input} placeholder="Add note or describe a problem" multiline />
+        {canWorkChecklist ? <>
+          <View style={styles.taskActions}>
+            <Pressable disabled={busy} onPress={() => void updateTask(task, 'done')} style={[styles.pill, styles.pillDone]}><Text style={styles.pillDoneText}>Done</Text></Pressable>
+            <Pressable disabled={busy} onPress={() => void updateTask(task, 'problem')} style={[styles.pill, styles.pillProblem]}><Text style={styles.pillProblemText}>Problem</Text></Pressable>
+            <Pressable disabled={busy} onPress={() => void updateTask(task, 'not_applicable')} style={styles.pill}><Text style={styles.pillText}>N/A</Text></Pressable>
+          </View>
+          <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ''}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
+        </> : null}
+      </Card>)}
+
+      {canWorkChecklist ? <Button title="Add finishing photo" variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} /> : null}
+    </> : null}
+
+    {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
       <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'FINAL STEP'}</Text>
       <Text style={styles.sectionTitle}>{visitSubmitted ? 'Submitted for review' : 'Submit visit'}</Text>
       <Text style={styles.sectionSub}>{submitHint}</Text>
@@ -535,7 +732,7 @@ export default function VisitScreen() {
   </Screen>;
 }
 
-function locationMessage(action: 'Timer started' | 'Timer stopped', assessment?: LocationAssessment | null) {
+function locationMessage(action: 'Work started' | 'Work resumed' | 'Work finished', assessment?: LocationAssessment | null) {
   if (!assessment || assessment.classification === 'unavailable') return `${action}. GPS could not verify the site and the record will need review.`;
   const distance = assessment.distanceM == null ? 'distance unavailable' : `${assessment.distanceM}m from site`;
   const accuracy = assessment.accuracyM == null ? 'GPS accuracy unknown' : `GPS ±${assessment.accuracyM}m`;
@@ -556,13 +753,15 @@ const styles = StyleSheet.create({
   error: { padding: 12, borderRadius: 12, color: colors.danger, fontWeight: '700', backgroundColor: '#FDECEA' },
   readOnly: { borderColor: '#BFD0DC', backgroundColor: '#F6FAFC' },
   assignment: { borderLeftWidth: 5, borderLeftColor: colors.primary },
-  assignmentDeclined: { borderLeftColor: colors.warning },
   assignmentTitle: { color: colors.ink, fontSize: 17, fontWeight: '900', marginTop: 3 },
   assignmentActions: { flexDirection: 'row', gap: 8, justifyContent: 'flex-end' },
   rework: { borderColor: colors.warning, backgroundColor: '#FFF8EA' },
   reworkMeta: { color: colors.muted, fontSize: 12, lineHeight: 18 },
   execution: { gap: 16 },
   executionRunning: { borderColor: '#8DCDB5', backgroundColor: '#FBFEFC' },
+  executionPaused: { borderColor: '#AFC0CF', backgroundColor: '#F8FAFC' },
+  executionWarning: { borderColor: '#E2B15D', backgroundColor: '#FFFCF5' },
+  executionOver: { borderColor: '#E39A86', backgroundColor: '#FFF9F7' },
   executionFinished: { borderColor: '#B9C9D6', backgroundColor: '#FBFCFD' },
   executionSubmitted: { borderColor: '#A9DEC3', backgroundColor: '#F4FCF7' },
   flowRow: { flexDirection: 'row', alignItems: 'center' },
@@ -578,13 +777,30 @@ const styles = StyleSheet.create({
   executionCopy: { gap: 7 },
   executionEyebrow: { color: colors.primaryDark, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
   executionValue: { color: colors.ink, fontSize: 23, lineHeight: 28, fontWeight: '900' },
-  timerClock: { color: colors.ink, fontSize: 35, lineHeight: 40, fontWeight: '900', fontVariant: ['tabular-nums'] },
+  timerClock: { color: colors.ink, fontSize: 38, lineHeight: 44, fontWeight: '900', fontVariant: ['tabular-nums'] },
   executionDetail: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  timerStatusRow: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', gap: 8 },
+  timerTone: { color: colors.success, fontSize: 10, fontWeight: '900' },
+  warningText: { color: colors.warning },
+  overText: { color: colors.danger },
+  progressTrack: { height: 8, borderRadius: 4, overflow: 'hidden', backgroundColor: '#E7ECEF' },
+  progressFill: { height: '100%', borderRadius: 4, backgroundColor: colors.success },
+  progressWarning: { backgroundColor: colors.warning },
+  progressOver: { backgroundColor: colors.danger },
+  timerMetrics: { flexDirection: 'row', justifyContent: 'space-between', gap: 8, paddingTop: 4 },
+  metricLabel: { color: colors.muted, fontSize: 9, fontWeight: '700' },
+  metricValue: { color: colors.ink, fontSize: 12, fontWeight: '900', marginTop: 2 },
+  timerActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
+  timerAction: { flex: 1 },
+  timerHint: { color: colors.muted, fontSize: 10, lineHeight: 15 },
   sectionHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end' },
   sectionTitle: { color: colors.ink, fontSize: 19, fontWeight: '900' },
   sectionSub: { color: colors.muted, fontSize: 12, lineHeight: 17, marginTop: 3 },
-  materials: { color: colors.primary, fontWeight: '800' },
+  closeoutBadge: { color: colors.primaryDark, fontSize: 9, fontWeight: '900', textTransform: 'uppercase', backgroundColor: colors.primarySoft, paddingHorizontal: 9, paddingVertical: 5, borderRadius: 10 },
   copy: { color: colors.ink, fontSize: 13, lineHeight: 20 },
+  quickActions: { gap: 13 },
+  quickActionRow: { flexDirection: 'row', gap: 8 },
+  incidentForm: { gap: 10, paddingTop: 4 },
   task: { borderLeftWidth: 5, borderLeftColor: colors.border },
   taskDone: { borderLeftColor: colors.success, backgroundColor: '#FBFEFC' },
   taskProblem: { borderLeftColor: colors.danger, backgroundColor: '#FFF9F8' },
