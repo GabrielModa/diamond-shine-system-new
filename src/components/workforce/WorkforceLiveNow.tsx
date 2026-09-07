@@ -70,6 +70,7 @@ function secondaryLine(employee: LiveEmployee, timezone: string) {
   if (employee.currentVisit) return `${employee.currentVisit.site.client.displayName} · ${employee.currentVisit.site.name}`
   if (employee.nextVisit) return `${formatTime(employee.nextVisit.scheduledStart, timezone)} · ${employee.nextVisit.site.name}`
   if (employee.state === 'expected_school') return employee.expectedContext.school?.label ?? 'Study schedule'
+  if (employee.state === 'available' && employee.mapPoint?.kind === 'expected_home') return 'Expected home base · not live GPS'
   if (employee.state === 'available') return 'No active visit right now'
   return employee.expectedContext.temporaryReason ?? 'Off operational map'
 }
@@ -82,6 +83,7 @@ function mapSource(employee: LiveEmployee) {
   }
   if (employee.mapPoint?.kind === 'expected_visit_site') return 'Expected service site · not live GPS'
   if (employee.mapPoint?.kind === 'expected_school') return 'Expected school · study schedule'
+  if (employee.mapPoint?.kind === 'expected_home') return 'Expected home base · not live GPS'
   return 'Not mapped in Live now'
 }
 
@@ -230,11 +232,11 @@ export default function WorkforceLiveNow() {
       <div className={styles.layout}>
         <section className={styles.mapCard}>
           <header className={styles.mapHeader}>
-            <div><h2>Live operations map</h2><p>Live GPS, expected service sites and school context are intentionally shown as different sources.</p></div>
+            <div><h2>Live operations map</h2><p>Live GPS and expected visit, school or home context are intentionally shown as different sources.</p></div>
             <span className={styles.updated}>{mapEmployees.length} mapped</span>
           </header>
           <WorkforceLiveMap employees={mapEmployees} selectedId={selectedId} onSelect={(employee) => setSelectedId(employee.id)} />
-          <div className={styles.privacy}>Work GPS appears only from an active visit timer. Stale GPS is labelled last known. Home remains a planning origin in Plan ahead.</div>
+          <div className={styles.privacy}>Work GPS appears only from an active visit timer. Home and school markers are expected planning context, never presented as observed live location.</div>
         </section>
 
         <aside className={styles.activityCard}>
@@ -274,7 +276,7 @@ export default function WorkforceLiveNow() {
                 <div><span>Expected context</span><strong>{selected.expectedContext.school?.label ?? 'School'}</strong><small>Based on the registered study schedule, not a live location.</small></div>
               </div> : <div className={styles.visitContext}>
                 <WorkforceLiveIcon name="available" />
-                <div><span>Capacity now</span><strong>Available right now</strong><small>No active or imminent visit in the live window. Future scheduled work is shown in Schedule.</small></div>
+                <div><span>Capacity now</span><strong>Available right now</strong><small>{selected.mapPoint?.kind === 'expected_home' ? 'Expected home base is shown for planning; this is not live GPS.' : 'No active or imminent visit in the live window. Future scheduled work is shown in Schedule.'}</small></div>
               </div>}
 
               <div className={styles.actions}>
