@@ -50,6 +50,10 @@ describe('recurring assignment commitment', () => {
   it('accepts a recurring job once and carries acceptance into later generated visits', async () => {
     const plan = await recurringPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const membership = await prisma.membership.findFirstOrThrow({
+      where: { userId: employee.id, status: 'active' },
+      select: { organizationId: true },
+    })
     const created = await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
       servicePlanId: plan.id,
       name: 'Mon Wed recurring clean',
@@ -88,7 +92,7 @@ describe('recurring assignment commitment', () => {
     expect(pending.body.data.filter((item: { jobId: string }) => item.jobId === jobId)).toHaveLength(0)
 
     await ensureScheduleContinuity({
-      organizationId: employee.organizationId,
+      organizationId: membership.organizationId,
       from: new Date('2026-12-12T00:00:00.000Z'),
       to: new Date('2026-12-19T00:00:00.000Z'),
       jobIds: [jobId],
