@@ -138,7 +138,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   if (blockers.length) {
     if (visit.status !== 'completion_blocked') {
-      await prisma.visit.update({ where: { id: visit.id }, data: { status: 'completion_blocked', version: { increment: 1 } } })
+      await prisma.visit.updateMany({
+        where: {
+          id: visit.id,
+          organizationId: auth.user.organizationId,
+          status: { in: ['scheduled', 'dispatched', 'acknowledged', 'in_progress'] },
+        },
+        data: { status: 'completion_blocked', version: { increment: 1 } },
+      })
     }
     return NextResponse.json({
       ok: false,
@@ -149,9 +156,26 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const completedAt = parsed.data.completedAt ?? parsed.data.capturedAt ?? new Date()
-  const updated = await prisma.visit.update({
-    where: { id: visit.id },
+  const claimedCompletion = await prisma.visit.updateMany({
+    where: {
+      id: visit.id,
+      organizationId: auth.user.organizationId,
+      status: { in: ['scheduled', 'dispatched', 'acknowledged', 'in_progress', 'completion_blocked'] },
+    },
     data: { status: 'completed', completedAt, version: { increment: 1 } },
+  })
+  if (claimedCompletion.count !== 1) {
+    const latest = await prisma.visit.findFirst({
+      where: { id: visit.id, organizationId: auth.user.organizationId },
+      include: { taskResults: true, evidenceAssets: true, incidents: true },
+    })
+    if (latest?.status === 'completed') {
+      return NextResponse.json({ ok: true, duplicate: true, data: latest })
+    }
+    return NextResponse.json({ ok: false, error: 'This visit can no longer be completed.', code: 'VISIT_NOT_COMPLETABLE' }, { status: 409 })
+  }
+  const updated = await prisma.visit.findFirstOrThrow({
+    where: { id: visit.id, organizationId: auth.user.organizationId },
     include: { taskResults: true, evidenceAssets: true, incidents: true },
   })
 

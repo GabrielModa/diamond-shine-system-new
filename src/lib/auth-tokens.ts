@@ -56,6 +56,15 @@ export async function setPasswordWithAuthToken(rawToken: string, type: AuthToken
         data: { status: 'active' },
       })
     }
+    if (type === 'password_reset') {
+      // Password reset is a credential-recovery boundary. Revoke every native
+      // bearer session for the account so a lost or stolen device cannot keep
+      // using a token issued before the password changed.
+      await tx.mobileSession.updateMany({
+        where: { userId: token.userId, revokedAt: null },
+        data: { revokedAt: now },
+      })
+    }
     return user
   })
 }

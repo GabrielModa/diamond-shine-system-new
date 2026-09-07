@@ -3,6 +3,7 @@ import { getAuthUser } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { hasCapability } from '../../../../../lib/permissions'
 import { prisma } from '../../../../../lib/prisma'
+import { evidenceStorageKeyMatchesScope } from '../../../../../lib/evidence-storage'
 import { assignedVisitFilter } from '../../../../../modules/execution/access'
 import { evidenceCreateSchema } from '../../../../../modules/execution/schemas'
 import { asInputJson } from '../../../../../modules/operations/json'
@@ -44,6 +45,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     select: { id: true },
   })
   if (!visit) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
+  if (!evidenceStorageKeyMatchesScope(parsed.data.storageKey, user.organizationId, id)) {
+    return NextResponse.json({ ok: false, error: 'Evidence storage key is outside this visit.' }, { status: 400 })
+  }
   if (parsed.data.taskResultId) {
     const task = await prisma.visitTaskResult.findFirst({
       where: { id: parsed.data.taskResultId, visitId: id, organizationId: user.organizationId },

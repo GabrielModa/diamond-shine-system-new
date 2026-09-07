@@ -47,6 +47,15 @@ function storagePath(storageKey: string) {
   return destination
 }
 
+export function evidenceStorageKeyMatchesScope(storageKey: string, organizationId: string, visitId: string) {
+  try {
+    const normalized = normalizedStorageKey(storageKey)
+    return normalized.startsWith(`evidence/${organizationId}/${visitId}/`)
+  } catch {
+    return false
+  }
+}
+
 function supabaseStorageConfig(env: NodeJS.ProcessEnv = process.env) {
   const rawUrl = env.SUPABASE_URL?.trim() ?? ''
   const secretKey = env.SUPABASE_SECRET_KEY?.trim() || env.SUPABASE_SERVICE_ROLE_KEY?.trim() || ''

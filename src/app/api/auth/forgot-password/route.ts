@@ -37,7 +37,10 @@ export async function POST(request: NextRequest) {
   const { token } = await issueAuthToken(user.id, 'password_reset', membership.organizationId)
   const baseUrl = getApplicationUrl()
   const resetUrl = `${baseUrl.replace(/\/$/, '')}/reset-password?token=${encodeURIComponent(token)}`
-  await sendPasswordReset({ to: user.email, name: user.name ?? user.email, resetUrl })
+  await sendPasswordReset(
+    { to: user.email, name: user.name ?? user.email, resetUrl },
+    membership.organizationId,
+  )
 
   return NextResponse.json(genericResponse)
 }

@@ -30,7 +30,7 @@ beforeAll(async () => {
 beforeEach(() => cleanOperations())
 afterAll(async () => { await cleanOperations(); await nextApp.close() })
 
-async function executionVisit(options: { evidence?: boolean; assigned?: boolean; startAt?: string } = {}) {
+async function executionVisit(options: { evidence?: boolean; assigned?: boolean; startAt?: string; evidenceVisibility?: 'internal' | 'client_safe' } = {}) {
   const client = (await request(app).post('/api/clients').set('Cookie', adminCookie).send({ displayName: 'Execution Client' })).body.data
   const site = (await request(app).post('/api/sites').set('Cookie', adminCookie).send({
     clientId: client.id,
@@ -65,7 +65,7 @@ async function executionVisit(options: { evidence?: boolean; assigned?: boolean;
       responseType: 'done_na_problem',
       required: true,
       evidenceRequired: options.evidence ?? false,
-      evidenceVisibility: 'client_safe',
+      evidenceVisibility: options.evidenceVisibility ?? 'client_safe',
     }],
   })).body.data
   await request(app).post(`/api/service-plans/${plan.id}/publish`).set('Cookie', adminCookie)
@@ -119,6 +119,51 @@ describe('field execution', () => {
     expect(mine.status).toBe(200)
     expect(mine.body.data.map((entry: { kind: string }) => entry.kind).sort()).toEqual(['break', 'office'])
     expect(mine.body.data.every((entry: { status: string }) => entry.status === 'completed')).toBe(true)
+  })
+
+  it('serializes concurrent timer starts for the same worker', async () => {
+    const responses = await Promise.all([
+      request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'office' }),
+      request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'break' }),
+    ])
+
+    expect(responses.map((response) => response.status).sort()).toEqual([201, 409])
+    expect(await prisma.timeEntry.count({ where: { userId: (await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })).id, status: 'running' } })).toBe(1)
+  })
+
+  it('records a concurrent timer stop only once', async () => {
+    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+      kind: 'office',
+      latitude: 53.3498,
+      longitude: -6.2603,
+    })
+    expect(started.status).toBe(201)
+
+    const responses = await Promise.all([
+      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
+      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
+    ])
+    expect(responses.every((response) => response.status === 200)).toBe(true)
+    expect(responses.filter((response) => response.body.duplicate === true)).toHaveLength(1)
+    const saved = await prisma.timeEntry.findUniqueOrThrow({
+      where: { id: started.body.data.id },
+    })
+    expect(saved.status).toBe('completed')
+    expect(saved.endedAt).not.toBeNull()
+  })
+
+  it('applies an optimistic task version only once under concurrent edits', async () => {
+    const { visit } = await executionVisit()
+    await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const task = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
+
+    const responses = await Promise.all([
+      request(app).patch(`/api/visits/${visit.id}/tasks/${task.id}`).set('Cookie', employeeCookie).send({ version: task.version, status: 'done' }),
+      request(app).patch(`/api/visits/${visit.id}/tasks/${task.id}`).set('Cookie', employeeCookie).send({ version: task.version, status: 'problem', note: 'Concurrent edit' }),
+    ])
+
+    expect(responses.map((response) => response.status).sort()).toEqual([200, 409])
+    expect((await prisma.visitTaskResult.findUniqueOrThrow({ where: { id: task.id } })).version).toBe(task.version + 1)
   })
 
   it('starts idempotently, prevents parallel timers, and stops with verified GPS', async () => {
@@ -210,9 +255,13 @@ describe('field execution', () => {
     expect(dispute.body.data.status).toBe('open')
     const forbidden = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', adminCookie).send({ reason: 'Trying to submit a correction for someone else.' })
     expect(forbidden.status).toBe(403)
-    const resolved = await request(app).patch(`/api/time-entry-disputes/${dispute.body.data.id}`).set('Cookie', adminCookie).send({ decision: 'accepted', resolution: 'Confirmed against the supervisor record.' })
-    expect(resolved.status).toBe(200)
-    expect(resolved.body.data.status).toBe('accepted')
+    const resolutions = await Promise.all([
+      request(app).patch(`/api/time-entry-disputes/${dispute.body.data.id}`).set('Cookie', adminCookie).send({ decision: 'accepted', resolution: 'Confirmed against the supervisor record.' }),
+      request(app).patch(`/api/time-entry-disputes/${dispute.body.data.id}`).set('Cookie', adminCookie).send({ decision: 'declined', resolution: 'A second manager decision must not overwrite the first.' }),
+    ])
+    expect(resolutions.map((response) => response.status).sort()).toEqual([200, 409])
+    const persistedDispute = await prisma.timeEntryDispute.findUniqueOrThrow({ where: { id: dispute.body.data.id } })
+    expect(['accepted', 'declined']).toContain(persistedDispute.status)
   })
 
   it('keeps the original completion when a supervisor sends visit evidence back for rework', async () => {
@@ -249,10 +298,22 @@ describe('field execution', () => {
     expect(blocked.status).toBe(409)
     expect(blocked.body.blockers.map((item: { code: string }) => item.code)).toEqual(expect.arrayContaining(['TASK_EVIDENCE_REQUIRED', 'FINISH_PHOTO_REQUIRED']))
 
+    const crossTenantEvidence = await request(app).post(`/api/visits/${visit.id}/evidence`).set('Cookie', employeeCookie).send({
+      taskResultId: result.id,
+      kind: 'photo',
+      storageKey: `evidence/another-organization/${visit.id}/finish.jpg`,
+      fileName: 'finish.jpg',
+      mimeType: 'image/jpeg',
+      sizeBytes: 1024,
+      visibility: 'client_safe',
+      metadata: { phase: 'finish' },
+    })
+    expect(crossTenantEvidence.status).toBe(400)
+
     const evidence = await request(app).post(`/api/visits/${visit.id}/evidence`).set('Cookie', employeeCookie).send({
       taskResultId: result.id,
       kind: 'photo',
-      storageKey: `visits/${visit.id}/finish.jpg`,
+      storageKey: `evidence/${visit.organizationId}/${visit.id}/finish.jpg`,
       fileName: 'finish.jpg',
       mimeType: 'image/jpeg',
       sizeBytes: 1024,
@@ -351,6 +412,17 @@ describe('field execution', () => {
     expect(duplicate.body.results.every((result: { status: string }) => result.status === 'duplicate')).toBe(true)
     expect(await prisma.timeEntry.count({ where: { visitId: visit.id } })).toBe(1)
 
+    const identifierCollision = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'integration-device',
+      operations: [{
+        ...operations[1],
+        payload: { ...operations[1].payload, status: 'problem', note: 'This must not reuse another stored result.' },
+      }],
+    })
+    expect(identifierCollision.status).toBe(207)
+    expect(identifierCollision.body.results[0]).toEqual(expect.objectContaining({ status: 'conflicted', httpStatus: 409 }))
+    expect(identifierCollision.body.results[0].data).toBeUndefined()
+
     const bootstrap = await request(app)
       .get('/api/sync?from=2026-08-23T00:00:00.000Z&to=2026-08-25T00:00:00.000Z')
       .set('Cookie', employeeCookie)
@@ -367,6 +439,73 @@ describe('field execution', () => {
       .set('Cookie', employeeCookie)
     expect(revoked.status).toBe(200)
     expect(revoked.body.data).toHaveLength(0)
+  })
+
+  it('claims a concurrent offline mutation only once', async () => {
+    const { visit } = await executionVisit()
+    const body = {
+      deviceId: 'concurrent-sync-device',
+      operations: [{
+        clientMutationId: 'concurrent-incident-0001',
+        type: 'visit.incident.create',
+        entityId: visit.id,
+        clientCreatedAt: '2026-08-24T08:30:00.000Z',
+        payload: {
+          category: 'access',
+          severity: 'medium',
+          title: 'Concurrent offline incident',
+          description: 'The same queued mutation was retried at the same time.',
+        },
+      }],
+    }
+
+    const responses = await Promise.all([
+      request(app).post('/api/sync').set('Cookie', employeeCookie).send(body),
+      request(app).post('/api/sync').set('Cookie', employeeCookie).send(body),
+    ])
+    const resultStatuses = responses.map((response) => response.body.results[0].status)
+    expect(resultStatuses.filter((status: string) => status === 'processed')).toHaveLength(1)
+    expect(resultStatuses.filter((status: string) => status === 'duplicate' || status === 'conflicted')).toHaveLength(1)
+    expect(await prisma.incident.count({ where: { visitId: visit.id, title: 'Concurrent offline incident' } })).toBe(1)
+  })
+
+  it('reclaims an abandoned offline mutation lease after a crashed request', async () => {
+    const { visit, employee } = await executionVisit()
+    const operation = {
+      clientMutationId: 'stale-sync-incident-0001',
+      type: 'visit.incident.create',
+      entityId: visit.id,
+      clientCreatedAt: '2026-08-24T08:35:00.000Z',
+      payload: {
+        category: 'access',
+        severity: 'medium',
+        title: 'Recovered offline incident',
+        description: 'This mutation was left processing by an interrupted request.',
+      },
+    }
+    await prisma.offlineMutation.create({
+      data: {
+        organizationId: visit.organizationId,
+        userId: employee.id,
+        clientMutationId: operation.clientMutationId,
+        deviceId: 'stale-sync-device',
+        mutationType: operation.type,
+        entityId: operation.entityId,
+        payload: operation.payload,
+        status: 'failed',
+        error: 'PROCESSING',
+        clientCreatedAt: new Date(operation.clientCreatedAt),
+        processedAt: new Date(Date.now() - 11 * 60_000),
+      },
+    })
+
+    const response = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+      deviceId: 'stale-sync-device',
+      operations: [operation],
+    })
+    expect(response.status).toBe(200)
+    expect(response.body.results[0].status).toBe('processed')
+    expect(await prisma.incident.count({ where: { visitId: visit.id, title: 'Recovered offline incident' } })).toBe(1)
   })
 
   it('turns a site stock count into one actionable replenishment request', async () => {
@@ -455,10 +594,12 @@ describe('field execution', () => {
     expect(JSON.stringify(clientReport.body.data)).not.toContain('employee@ds.ie')
 
     let action = inspection.body.data.actions[0]
-    const accepted = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
-      status: 'accepted', version: action.version,
-    })
-    expect(accepted.status).toBe(200)
+    const acceptanceAttempts = await Promise.all([
+      request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({ status: 'accepted', version: action.version }),
+      request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({ status: 'accepted', version: action.version }),
+    ])
+    expect(acceptanceAttempts.map((response) => response.status).sort()).toEqual([200, 409])
+    const accepted = acceptanceAttempts.find((response) => response.status === 200)!
     action = accepted.body.data
     const resolved = await request(app).patch(`/api/quality/actions/${action.id}`).set('Cookie', adminCookie).send({
       status: 'resolved', version: action.version, resolutionNote: 'Basins recleaned and supervisor photo reviewed.',
@@ -532,6 +673,25 @@ describe('field execution', () => {
       .set('Authorization', `Bearer ${employeeToken}`)
     expect(response.status).toBe(200)
     expect(response.body.ok).toBe(true)
+  })
+
+  it('does not let native uploads override an internal-only evidence policy', async () => {
+    const { visit } = await executionVisit({ evidence: true, evidenceVisibility: 'internal' })
+    await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
+    const task = await prisma.visitTaskResult.findFirstOrThrow({ where: { visitId: visit.id } })
+    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9])
+
+    const uploaded = await request(app)
+      .post(`/api/visits/${visit.id}/evidence-upload`)
+      .set('Cookie', employeeCookie)
+      .field('taskResultId', task.id)
+      .field('visibility', 'client_safe')
+      .field('phase', 'task')
+      .attach('file', jpegBytes, { filename: 'internal-proof.jpg', contentType: 'image/jpeg' })
+
+    expect(uploaded.status).toBe(400)
+    expect(uploaded.body.error).toContain('internal only')
+    expect(await prisma.evidenceAsset.count({ where: { visitId: visit.id } })).toBe(0)
   })
 
   it('accepts authenticated field photo evidence and links it to the checklist item', async () => {

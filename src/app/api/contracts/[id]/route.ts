@@ -52,8 +52,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const contract = await prisma.$transaction(async (tx) => {
-    await tx.contract.update({
-      where: { id },
+    const claimed = await tx.contract.updateMany({
+      where: {
+        id,
+        organizationId: auth.user.organizationId,
+        version: parsed.data.version,
+        archivedAt: null,
+      },
       data: {
         clientId,
         name: parsed.data.name,
@@ -66,12 +71,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         version: { increment: 1 },
       },
     })
+    if (claimed.count !== 1) return null
     if (siteIds) {
       await tx.contractSite.deleteMany({ where: { contractId: id } })
       await tx.contractSite.createMany({ data: siteIds.map((siteId) => ({ contractId: id, siteId })) })
     }
     return tx.contract.findUniqueOrThrow({ where: { id }, include: { sites: { include: { site: true } } } })
   })
+  if (!contract) {
+    return NextResponse.json({ ok: false, error: 'Version conflict' }, { status: 409 })
+  }
   await logAudit(auth.user.email, 'update_contract', 'contract', id, { version: contract.version }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: contract })
 }

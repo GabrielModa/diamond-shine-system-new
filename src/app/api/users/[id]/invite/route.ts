@@ -18,7 +18,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { token, expiresAt } = await issueAuthToken(membership.user.id, 'invite', auth.user.organizationId)
   const baseUrl = getApplicationUrl()
   const inviteUrl = `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(token)}`
-  const sent = await sendUserInvite({ to: membership.user.email, name: membership.user.name ?? membership.user.email, inviteUrl })
+  const sent = await sendUserInvite(
+    { to: membership.user.email, name: membership.user.name ?? membership.user.email, inviteUrl },
+    auth.user.organizationId,
+  )
   await logAudit(auth.user.email, 'resend_user_invite', 'user', membership.user.id, { email: membership.user.email, sent: sent.ok }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: {
     emailSent: sent.ok,

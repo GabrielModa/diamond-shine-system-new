@@ -179,6 +179,95 @@ describe('cleaning domain foundation', () => {
     expect(stale.status).toBe(409)
   })
 
+  it('allows only one concurrent writer to claim an optimistic version', async () => {
+    const client = (await createClient()).body.data
+    const site = (await createSite(client.id)).body.data
+    const contract = (await request(app).post('/api/contracts').set('Cookie', adminCookie).send({
+      clientId: client.id,
+      name: 'Concurrency Contract',
+      status: 'active',
+      siteIds: [site.id],
+    })).body.data
+    const plan = (await request(app).post('/api/service-plans').set('Cookie', adminCookie).send({
+      contractId: contract.id,
+      siteId: site.id,
+      name: 'Concurrency Plan',
+      expectedDurationMinutes: 60,
+      requiredWorkers: 1,
+      tasks: [{ areaId: site.areas[0].id, title: 'Concurrency task', sortOrder: 0 }],
+    })).body.data
+
+    const siteUpdates = await Promise.all([
+      request(app).patch(`/api/sites/${site.id}`).set('Cookie', adminCookie).send({ version: site.version, name: 'Site writer A' }),
+      request(app).patch(`/api/sites/${site.id}`).set('Cookie', adminCookie).send({ version: site.version, name: 'Site writer B' }),
+    ])
+    expect(siteUpdates.map((response) => response.status).sort()).toEqual([200, 409])
+    const storedSite = await prisma.site.findUniqueOrThrow({ where: { id: site.id } })
+    expect(storedSite.version).toBe(site.version + 1)
+    expect(['Site writer A', 'Site writer B']).toContain(storedSite.name)
+
+    const contractUpdates = await Promise.all([
+      request(app).patch(`/api/contracts/${contract.id}`).set('Cookie', adminCookie).send({ version: contract.version, name: 'Contract writer A' }),
+      request(app).patch(`/api/contracts/${contract.id}`).set('Cookie', adminCookie).send({ version: contract.version, name: 'Contract writer B' }),
+    ])
+    expect(contractUpdates.map((response) => response.status).sort()).toEqual([200, 409])
+    const storedContract = await prisma.contract.findUniqueOrThrow({ where: { id: contract.id } })
+    expect(storedContract.version).toBe(contract.version + 1)
+
+    const planUpdates = await Promise.all([
+      request(app).patch(`/api/service-plans/${plan.id}`).set('Cookie', adminCookie).send({ version: plan.version, expectedDurationMinutes: 70 }),
+      request(app).patch(`/api/service-plans/${plan.id}`).set('Cookie', adminCookie).send({ version: plan.version, expectedDurationMinutes: 80 }),
+    ])
+    expect(planUpdates.map((response) => response.status).sort()).toEqual([200, 409])
+    const storedPlan = await prisma.servicePlan.findUniqueOrThrow({ where: { id: plan.id } })
+    expect(storedPlan.version).toBe(plan.version + 1)
+    expect([70, 80]).toContain(storedPlan.expectedDurationMinutes)
+  })
+
+  it('keeps service-plan references inside the organization and selected site', async () => {
+    const client = (await createClient()).body.data
+    const firstSite = (await createSite(client.id)).body.data
+    const secondSite = (await request(app).post('/api/sites').set('Cookie', adminCookie).send({
+      clientId: client.id,
+      name: 'South Office',
+      addressLine1: '3 Demo Avenue',
+      city: 'Dublin',
+      postalCode: 'D02 DEMO',
+      countryCode: 'IE',
+      timezone: 'Europe/Dublin',
+      areas: [{ name: 'South Floor', type: 'floor', sortOrder: 0 }],
+    })).body.data
+    const plan = (await request(app).post('/api/service-plans').set('Cookie', adminCookie).send({
+      siteId: firstSite.id,
+      name: 'Scoped Plan',
+      expectedDurationMinutes: 45,
+      requiredWorkers: 1,
+      tasks: [{ areaId: firstSite.areas[0].id, title: 'Scoped task', sortOrder: 0 }],
+    })).body.data
+
+    const organization = await prisma.organization.create({
+      data: { name: 'Plan Tenant B', slug: `plan-tenant-b-${Date.now()}`, timezone: 'Europe/Dublin' },
+    })
+    const foreignPolicy = await prisma.evidencePolicy.create({
+      data: { organizationId: organization.id, name: 'Foreign evidence policy' },
+    })
+
+    const crossTenantPolicy = await request(app).patch(`/api/service-plans/${plan.id}`).set('Cookie', adminCookie).send({
+      version: plan.version,
+      evidencePolicyId: foreignPolicy.id,
+    })
+    expect(crossTenantPolicy.status).toBe(400)
+
+    const moveWithOldAreas = await request(app).patch(`/api/service-plans/${plan.id}`).set('Cookie', adminCookie).send({
+      version: plan.version,
+      siteId: secondSite.id,
+    })
+    expect(moveWithOldAreas.status).toBe(400)
+    const unchanged = await prisma.servicePlan.findUniqueOrThrow({ where: { id: plan.id } })
+    expect(unchanged.siteId).toBe(firstSite.id)
+    expect(unchanged.version).toBe(plan.version)
+  })
+
   it('allows field users to read operations but not manage them', async () => {
     const created = await createClient(employeeCookie, 'Unauthorized write')
     expect(created.status).toBe(403)

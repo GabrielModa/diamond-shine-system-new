@@ -23,19 +23,37 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const now = new Date()
   if (now >= pause.endsAt) return NextResponse.json({ ok: false, error: 'This service pause has already finished.' }, { status: 409 })
 
-  const affectedFutureVisits = await prisma.visit.count({
-    where: {
-      organizationId: auth.user.organizationId,
-      ...scopeVisitWhere(pause),
-      servicePauseId: pause.id,
-      status: 'cancelled',
-      scheduledStart: { gt: now, lt: pause.endsAt },
-    },
+  const result = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.servicePause.updateMany({
+      where: {
+        id: pause.id,
+        organizationId: auth.user.organizationId,
+        version: parsed.data.version,
+        endedEarlyAt: null,
+        endsAt: { gt: now },
+      },
+      data: { endedEarlyAt: now, endedEarlyById: auth.user.id, version: { increment: 1 } },
+    })
+    if (claimed.count !== 1) return null
+
+    const [affectedFutureVisits, updated] = await Promise.all([
+      tx.visit.count({
+        where: {
+          organizationId: auth.user.organizationId,
+          ...scopeVisitWhere(pause),
+          servicePauseId: pause.id,
+          status: 'cancelled',
+          scheduledStart: { gt: now, lt: pause.endsAt },
+        },
+      }),
+      tx.servicePause.findUniqueOrThrow({ where: { id: pause.id } }),
+    ])
+    return { affectedFutureVisits, updated }
   })
-  const updated = await prisma.servicePause.update({
-    where: { id: pause.id },
-    data: { endedEarlyAt: now, endedEarlyById: auth.user.id, version: { increment: 1 } },
-  })
+  if (!result) {
+    return NextResponse.json({ ok: false, error: 'Service pause changed. Refresh and try again.' }, { status: 409 })
+  }
+  const { affectedFutureVisits, updated } = result
   await logAudit(auth.user.email, 'end_service_pause_early', 'service_pause', pause.id, {
     previousEndsAt: pause.endsAt,
     endedEarlyAt: now,

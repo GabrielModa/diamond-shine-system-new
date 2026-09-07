@@ -135,8 +135,12 @@ describe('schedule intelligence and service continuity', () => {
     expect(health.body.data.summary.paused).toBe(3)
     expect(health.body.data.summary.missingSchedule).toBe(0)
 
-    const ended = await request(app).patch(`/api/service-pauses/${pause.id}`).set('Cookie', adminCookie).send({ version: pause.version })
-    expect(ended.status).toBe(200)
+    const earlyResumeAttempts = await Promise.all([
+      request(app).patch(`/api/service-pauses/${pause.id}`).set('Cookie', adminCookie).send({ version: pause.version }),
+      request(app).patch(`/api/service-pauses/${pause.id}`).set('Cookie', adminCookie).send({ version: pause.version }),
+    ])
+    expect(earlyResumeAttempts.map((response) => response.status).sort()).toEqual([200, 409])
+    const ended = earlyResumeAttempts.find((response) => response.status === 200)!
     expect(ended.body.data.affectedFutureVisits).toBe(3)
     expect(await prisma.visit.count({ where: { servicePauseId: pause.id, status: 'cancelled' } })).toBe(3)
 

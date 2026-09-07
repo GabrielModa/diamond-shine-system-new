@@ -31,6 +31,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (!parsed.success) {
     return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
   }
+
   const current = await prisma.servicePlan.findFirst({
     where: { id, organizationId: auth.user.organizationId, archivedAt: null },
   })
@@ -38,25 +39,68 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (current.version !== parsed.data.version) {
     return NextResponse.json({ ok: false, error: 'Version conflict' }, { status: 409 })
   }
+
   const siteId = parsed.data.siteId ?? current.siteId
-  const areaIds = parsed.data.tasks?.flatMap((task) => task.areaId ? [task.areaId] : []) ?? []
+  const contractId = parsed.data.contractId === undefined ? current.contractId : parsed.data.contractId
+  const evidencePolicyId = parsed.data.evidencePolicyId === undefined ? current.evidencePolicyId : parsed.data.evidencePolicyId
   const site = await prisma.site.findFirst({
     where: { id: siteId, organizationId: auth.user.organizationId, archivedAt: null },
     select: { id: true, clientId: true },
   })
   if (!site) return NextResponse.json({ ok: false, error: 'Site not found' }, { status: 400 })
-  if (areaIds.length) {
-    const count = await prisma.area.count({
-      where: { id: { in: [...new Set(areaIds)] }, siteId, organizationId: auth.user.organizationId, active: true },
+
+  if (contractId) {
+    const contract = await prisma.contract.findFirst({
+      where: {
+        id: contractId,
+        organizationId: auth.user.organizationId,
+        clientId: site.clientId,
+        archivedAt: null,
+        sites: { some: { siteId } },
+      },
+      select: { id: true },
     })
-    if (count !== new Set(areaIds).size) {
+    if (!contract) {
+      return NextResponse.json({ ok: false, error: 'Contract must include this site' }, { status: 400 })
+    }
+  }
+
+  if (evidencePolicyId) {
+    const policy = await prisma.evidencePolicy.findFirst({
+      where: { id: evidencePolicyId, organizationId: auth.user.organizationId, archivedAt: null },
+      select: { id: true },
+    })
+    if (!policy) {
+      return NextResponse.json({ ok: false, error: 'Evidence policy not found' }, { status: 400 })
+    }
+  }
+
+  let areaIds = parsed.data.tasks?.flatMap((task) => task.areaId ? [task.areaId] : []) ?? []
+  if (!parsed.data.tasks && siteId !== current.siteId) {
+    const existingTasks = await prisma.taskTemplate.findMany({
+      where: { servicePlanId: id, organizationId: auth.user.organizationId, areaId: { not: null } },
+      select: { areaId: true },
+    })
+    areaIds = existingTasks.flatMap((task) => task.areaId ? [task.areaId] : [])
+  }
+  const uniqueAreaIds = [...new Set(areaIds)]
+  if (uniqueAreaIds.length) {
+    const count = await prisma.area.count({
+      where: { id: { in: uniqueAreaIds }, siteId, organizationId: auth.user.organizationId, active: true },
+    })
+    if (count !== uniqueAreaIds.length) {
       return NextResponse.json({ ok: false, error: 'Every task area must belong to the selected site' }, { status: 400 })
     }
   }
 
   const plan = await prisma.$transaction(async (tx) => {
-    await tx.servicePlan.update({
-      where: { id },
+    const claimed = await tx.servicePlan.updateMany({
+      where: {
+        id,
+        organizationId: auth.user.organizationId,
+        version: parsed.data.version,
+        archivedAt: null,
+      },
       data: {
         contractId: parsed.data.contractId,
         siteId: parsed.data.siteId,
@@ -69,6 +113,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         version: { increment: 1 },
       },
     })
+    if (claimed.count !== 1) return null
+
     if (parsed.data.tasks) {
       await tx.taskTemplate.deleteMany({ where: { servicePlanId: id } })
       await tx.taskTemplate.createMany({
@@ -89,11 +135,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         })),
       })
     }
+
     return tx.servicePlan.findUniqueOrThrow({
       where: { id },
       include: { tasks: { include: { area: true }, orderBy: { sortOrder: 'asc' } } },
     })
   })
+  if (!plan) {
+    return NextResponse.json({ ok: false, error: 'Version conflict' }, { status: 409 })
+  }
   await logAudit(auth.user.email, 'update_service_plan', 'service_plan', id, {
     version: plan.version,
     taskCount: plan.tasks.length,

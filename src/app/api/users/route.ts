@@ -96,7 +96,10 @@ export async function POST(request: NextRequest) {
   const inviteUrl = authToken
     ? `${baseUrl.replace(/\/$/, '')}/set-password?token=${encodeURIComponent(authToken.token)}`
     : `${baseUrl.replace(/\/$/, '')}/login`
-  const inviteResult = await sendUserInvite({ to: created.email, name: created.name ?? created.email, inviteUrl })
+  const inviteResult = await sendUserInvite(
+    { to: created.email, name: created.name ?? created.email, inviteUrl },
+    auth.user.organizationId,
+  )
   await logAudit(auth.user.email, 'invite_email', 'user', created.id, { email: created.email, sent: inviteResult.ok }, auth.user.organizationId)
 
   return NextResponse.json({ ok: true, data: {

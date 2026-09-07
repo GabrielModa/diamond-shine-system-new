@@ -40,8 +40,13 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
   }
   const now = new Date()
   const updated = await prisma.$transaction(async (tx) => {
-    const action = await tx.correctiveAction.update({
-      where: { id },
+    const claimed = await tx.correctiveAction.updateMany({
+      where: {
+        id,
+        organizationId,
+        version: parsed.data.version,
+        status: current.status,
+      },
       data: {
         status: parsed.data.status,
         assignedToId: parsed.data.assignedToId === undefined ? current.assignedToId : parsed.data.assignedToId,
@@ -52,6 +57,11 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
         verifiedAt: parsed.data.status === 'verified' ? now : current.verifiedAt,
         version: { increment: 1 },
       },
+    })
+    if (claimed.count !== 1) return null
+
+    const action = await tx.correctiveAction.findUniqueOrThrow({
+      where: { id },
       include: {
         assignedTo: { select: { id: true, name: true, email: true } },
         site: { select: { name: true, client: { select: { displayName: true } } } },
@@ -59,17 +69,24 @@ export async function PATCH(request: NextRequest, context: { params: Promise<{ i
     })
     if (parsed.data.status === 'verified' || parsed.data.status === 'waived') {
       const remaining = await tx.correctiveAction.count({
-        where: { inspectionId: current.inspectionId, status: { notIn: ['verified', 'waived'] } },
+        where: {
+          organizationId,
+          inspectionId: current.inspectionId,
+          status: { notIn: ['verified', 'waived'] },
+        },
       })
       if (remaining === 0) {
-        await tx.qualityInspection.update({
-          where: { id: current.inspectionId },
+        await tx.qualityInspection.updateMany({
+          where: { id: current.inspectionId, organizationId },
           data: { status: 'closed', closedAt: now },
         })
       }
     }
     return action
   })
+  if (!updated) {
+    return NextResponse.json({ ok: false, error: 'This action changed. Refresh and try again.' }, { status: 409 })
+  }
 
   await enqueueNotification({
     organizationId,

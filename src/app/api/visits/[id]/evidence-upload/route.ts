@@ -37,8 +37,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     taskResultId = task.id
   }
   if (taskResultId) {
-    const task = await prisma.visitTaskResult.findFirst({ where: { id: taskResultId, visitId: id, organizationId: auth.user.organizationId }, select: { id: true } })
+    const task = await prisma.visitTaskResult.findFirst({
+      where: { id: taskResultId, visitId: id, organizationId: auth.user.organizationId },
+      select: { id: true, versionTask: { select: { evidenceVisibility: true } } },
+    })
     if (!task) return NextResponse.json({ ok: false, error: 'Checklist item not found' }, { status: 404 })
+    if (visibility === 'client_safe' && task.versionTask.evidenceVisibility !== 'client_safe') {
+      return NextResponse.json({ ok: false, error: 'This task evidence is internal only.' }, { status: 400 })
+    }
   }
 
   const bytes = new Uint8Array(await file.arrayBuffer())

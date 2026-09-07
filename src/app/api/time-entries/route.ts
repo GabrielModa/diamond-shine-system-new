@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { Prisma } from '@prisma/client'
 import { z } from 'zod'
 import { getAuthUser, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { prisma } from '../../../lib/prisma'
 import { startTimeEntrySchema } from '../../../modules/execution/schemas'
+import { lockUserTimerStart } from '../../../modules/execution/timer-lock'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
@@ -68,42 +70,93 @@ export async function POST(request: NextRequest) {
       where: { organizationId: auth.user.organizationId, clientMutationId: parsed.data.clientMutationId },
       include: { locationEvents: true },
     })
-    if (duplicate) return NextResponse.json({ ok: true, data: duplicate, duplicate: true })
+    if (duplicate) {
+      if (duplicate.userId !== auth.user.id || duplicate.kind !== parsed.data.kind) {
+        return NextResponse.json(
+          { ok: false, error: 'Mutation identifier is already in use.', code: 'MUTATION_ID_CONFLICT' },
+          { status: 409 },
+        )
+      }
+      return NextResponse.json({ ok: true, data: duplicate, duplicate: true })
+    }
   }
-  const running = await prisma.timeEntry.findFirst({
-    where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-    select: { id: true, kind: true },
-  })
-  if (running) return NextResponse.json({ ok: false, error: `Stop the current ${running.kind} timer before starting another.`, code: 'TIMER_ALREADY_RUNNING' }, { status: 409 })
-
   const startedAt = parsed.data.startedAt ?? parsed.data.capturedAt ?? new Date()
   const hasLocation = parsed.data.latitude != null && parsed.data.longitude != null
-  const entry = await prisma.timeEntry.create({
-    data: {
-      organizationId: auth.user.organizationId,
-      userId: auth.user.id,
-      kind: parsed.data.kind,
-      status: 'running',
-      startedAt,
-      startLatitude: parsed.data.latitude,
-      startLongitude: parsed.data.longitude,
-      startAccuracyM: parsed.data.accuracyM,
-      startLocationClass: hasLocation ? 'unavailable' : null,
-      source: parsed.data.source,
-      clientMutationId: parsed.data.clientMutationId,
-      locationEvents: hasLocation ? { create: {
-        organizationId: auth.user.organizationId,
-        kind: 'clock_in',
-        latitude: parsed.data.latitude!,
-        longitude: parsed.data.longitude!,
-        accuracyM: parsed.data.accuracyM,
-        classification: 'unavailable',
-        capturedAt: parsed.data.capturedAt ?? startedAt,
-        source: parsed.data.source,
-      } } : undefined,
-    },
-    include: { locationEvents: true },
-  })
+  const timerStart = await (async () => {
+    try {
+      return await prisma.$transaction(async (tx) => {
+        await lockUserTimerStart(tx, auth.user.organizationId, auth.user.id)
+        const running = await tx.timeEntry.findFirst({
+          where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
+          select: { id: true, kind: true },
+        })
+        if (running) return { running } as const
+
+        const entry = await tx.timeEntry.create({
+          data: {
+            organizationId: auth.user.organizationId,
+            userId: auth.user.id,
+            kind: parsed.data.kind,
+            status: 'running',
+            startedAt,
+            startLatitude: parsed.data.latitude,
+            startLongitude: parsed.data.longitude,
+            startAccuracyM: parsed.data.accuracyM,
+            startLocationClass: hasLocation ? 'unavailable' : null,
+            source: parsed.data.source,
+            clientMutationId: parsed.data.clientMutationId,
+            locationEvents: hasLocation ? { create: {
+              organizationId: auth.user.organizationId,
+              kind: 'clock_in',
+              latitude: parsed.data.latitude!,
+              longitude: parsed.data.longitude!,
+              accuracyM: parsed.data.accuracyM,
+              classification: 'unavailable',
+              capturedAt: parsed.data.capturedAt ?? startedAt,
+              source: parsed.data.source,
+            } } : undefined,
+          },
+          include: { locationEvents: true },
+        })
+        return { entry } as const
+      })
+    } catch (error) {
+      if (
+        parsed.data.clientMutationId
+        && error instanceof Prisma.PrismaClientKnownRequestError
+        && error.code === 'P2002'
+      ) {
+        const duplicate = await prisma.timeEntry.findFirst({
+          where: {
+            organizationId: auth.user.organizationId,
+            clientMutationId: parsed.data.clientMutationId,
+          },
+          include: { locationEvents: true },
+        })
+        if (duplicate && duplicate.userId === auth.user.id && duplicate.kind === parsed.data.kind) {
+          return { response: NextResponse.json({ ok: true, data: duplicate, duplicate: true }) } as const
+        }
+        return {
+          response: NextResponse.json(
+            { ok: false, error: 'Mutation identifier is already in use.', code: 'MUTATION_ID_CONFLICT' },
+            { status: 409 },
+          ),
+        } as const
+      }
+      throw error
+    }
+  })()
+  if ('response' in timerStart) return timerStart.response
+  if ('running' in timerStart) {
+    return NextResponse.json({
+      ok: false,
+      error: timerStart.running
+        ? `Stop the current ${timerStart.running.kind} timer before starting another.`
+        : 'Another timer is already running. Stop it before starting another.',
+      code: 'TIMER_ALREADY_RUNNING',
+    }, { status: 409 })
+  }
+  const entry = timerStart.entry
   await logAudit(auth.user.email, 'start_time_entry', 'time_entry', entry.id, { kind: entry.kind, source: entry.source }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: entry }, { status: 201 })
 }

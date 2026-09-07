@@ -292,6 +292,27 @@ describe('POST /api/supplies/:id/notify', () => {
     expect(updated?.status).toBe('Requested')
   })
 
+  it('reclaims a stale processing notification after a worker crash', async () => {
+    const job = await prisma.notificationJob.create({
+      data: {
+        kind: 'client_supply',
+        status: 'processing',
+        payload: { to: 'client@example.com', subject: 'Retry', htmlBody: '<p>retry</p>' },
+        createdBy: 'admin@ds.ie',
+        attempts: 1,
+        maxAttempts: 5,
+        lastAttemptAt: new Date(Date.now() - 11 * 60_000),
+        nextAttemptAt: new Date(Date.now() + 60 * 60_000),
+      },
+    })
+
+    const result = await processNotificationJob(job.id)
+    expect(result?.status).toBe('sent')
+    const saved = await prisma.notificationJob.findUniqueOrThrow({ where: { id: job.id } })
+    expect(saved.status).toBe('sent')
+    expect(saved.attempts).toBe(2)
+  })
+
   it('sets emailSentAt only after the queued notification is delivered', async () => {
     await prisma.supplyRequest.create({
       data: {

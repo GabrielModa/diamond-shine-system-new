@@ -1,5 +1,5 @@
 import { prisma } from './prisma'
-import { Prisma } from '@prisma/client'
+import { lockTransactionKey } from './postgres-lock'
 
 type RateLimitPolicy = {
   limit: number
@@ -20,31 +20,39 @@ export async function rateLimitKey(scope: string, headers: Headers, identity: st
   return sha256(`${scope}:${clientAddress(headers)}:${identity.trim().toLowerCase()}`)
 }
 
+/**
+ * Consume one attempt atomically.
+ *
+ * Login/reset bursts for the same key used to perform a read and increment in
+ * separate statements without any serialization. Concurrent requests could all
+ * observe the same counter and temporarily exceed the configured limit. The
+ * transaction-scoped advisory lock serializes only that hashed key.
+ */
 export async function consumeRateLimit(key: string, policy: RateLimitPolicy) {
-  const now = new Date()
-  const existing = await prisma.authRateLimit.findUnique({ where: { key } })
+  return prisma.$transaction(async (tx) => {
+    await lockTransactionKey(tx, `auth-rate-limit:${key}`)
 
-  if (existing && existing.resetAt > now && existing.attempts >= policy.limit) {
-    return { allowed: false, retryAfter: Math.max(1, Math.ceil((existing.resetAt.getTime() - now.getTime()) / 1000)) }
-  }
+    const now = new Date()
+    const existing = await tx.authRateLimit.findUnique({ where: { key } })
 
-  const resetAt = new Date(now.getTime() + policy.windowSeconds * 1000)
-  if (!existing) {
-    try {
-      await prisma.authRateLimit.create({ data: { key, attempts: 1, resetAt } })
-    } catch (error) {
-      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
-        return consumeRateLimit(key, policy)
+    if (existing && existing.resetAt > now && existing.attempts >= policy.limit) {
+      return {
+        allowed: false,
+        retryAfter: Math.max(1, Math.ceil((existing.resetAt.getTime() - now.getTime()) / 1000)),
       }
-      throw error
     }
-  } else if (existing.resetAt <= now) {
-    await prisma.authRateLimit.update({ where: { key }, data: { attempts: 1, resetAt } })
-  } else {
-    await prisma.authRateLimit.update({ where: { key }, data: { attempts: { increment: 1 } } })
-  }
 
-  return { allowed: true, retryAfter: 0 }
+    const resetAt = new Date(now.getTime() + policy.windowSeconds * 1000)
+    if (!existing) {
+      await tx.authRateLimit.create({ data: { key, attempts: 1, resetAt } })
+    } else if (existing.resetAt <= now) {
+      await tx.authRateLimit.update({ where: { key }, data: { attempts: 1, resetAt } })
+    } else {
+      await tx.authRateLimit.update({ where: { key }, data: { attempts: { increment: 1 } } })
+    }
+
+    return { allowed: true, retryAfter: 0 }
+  })
 }
 
 export async function clearRateLimit(key: string): Promise<void> {

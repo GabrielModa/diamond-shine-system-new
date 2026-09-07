@@ -51,6 +51,8 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
   return { ok: false, error: `Unsupported notification kind: ${kind}` }
 }
 
+const PROCESSING_LEASE_MS = 10 * 60_000
+
 function retryAt(attempts: number) {
   const delayMinutes = Math.min(60, 2 ** Math.max(0, attempts - 1))
   return new Date(Date.now() + delayMinutes * 60_000)
@@ -58,13 +60,37 @@ function retryAt(attempts: number) {
 
 export async function processNotificationJob(id: string, organizationId?: string) {
   const now = new Date()
+  const staleBefore = new Date(now.getTime() - PROCESSING_LEASE_MS)
+  const due: Prisma.NotificationJobWhereInput = {
+    OR: [
+      { status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: now } },
+      { status: 'processing', lastAttemptAt: { lte: staleBefore } },
+    ],
+  }
+
+  const candidate = await prisma.notificationJob.findFirst({
+    where: { id, ...(organizationId ? { organizationId } : {}), ...due },
+    select: { attempts: true, maxAttempts: true },
+  })
+  if (!candidate) return null
+
+  if (candidate.attempts >= candidate.maxAttempts) {
+    await prisma.notificationJob.updateMany({
+      where: { id, ...(organizationId ? { organizationId } : {}), status: { notIn: ['sent', 'exhausted'] } },
+      data: { status: 'exhausted', lastError: 'Maximum delivery attempts reached.' },
+    })
+    return { id, status: 'exhausted' as const }
+  }
+
+  // attempts is part of the claim predicate so two workers that selected the
+  // same row cannot both increment and deliver it. A stale processing lease is
+  // reclaimable after a worker crash instead of remaining stuck forever.
   const claimed = await prisma.notificationJob.updateMany({
     where: {
       id,
       ...(organizationId ? { organizationId } : {}),
-      status: { in: ['queued', 'failed'] },
-      nextAttemptAt: { lte: now },
-      attempts: { lt: 5 },
+      attempts: candidate.attempts,
+      ...due,
     },
     data: { status: 'processing', attempts: { increment: 1 }, lastAttemptAt: now, lastError: null },
   })
@@ -99,8 +125,16 @@ export async function processNotificationJob(id: string, organizationId?: string
 }
 
 export async function processDueNotifications(organizationId: string, limit = 20) {
+  const now = new Date()
+  const staleBefore = new Date(now.getTime() - PROCESSING_LEASE_MS)
   const jobs = await prisma.notificationJob.findMany({
-    where: { organizationId, status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: new Date() } },
+    where: {
+      organizationId,
+      OR: [
+        { status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: now } },
+        { status: 'processing', lastAttemptAt: { lte: staleBefore } },
+      ],
+    },
     orderBy: { createdAt: 'asc' },
     take: Math.min(50, Math.max(1, limit)),
     select: { id: true },
@@ -109,8 +143,15 @@ export async function processDueNotifications(organizationId: string, limit = 20
 }
 
 export async function processGlobalDueNotifications(limit = 100) {
+  const now = new Date()
+  const staleBefore = new Date(now.getTime() - PROCESSING_LEASE_MS)
   const jobs = await prisma.notificationJob.findMany({
-    where: { status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: new Date() } },
+    where: {
+      OR: [
+        { status: { in: ['queued', 'failed'] }, nextAttemptAt: { lte: now } },
+        { status: 'processing', lastAttemptAt: { lte: staleBefore } },
+      ],
+    },
     orderBy: { createdAt: 'asc' },
     take: Math.min(250, Math.max(1, limit)),
     select: { id: true },
