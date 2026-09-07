@@ -104,7 +104,9 @@ export default function WorkforceLiveMap({
             : `Last known work GPS · ${ageLabel(employee.signal.ageSeconds)}`
           : point.kind === 'expected_school'
             ? 'Expected from study schedule · not live GPS'
-            : 'Expected service site · not live GPS'
+            : point.kind === 'expected_home'
+              ? 'Expected home base · not live GPS'
+              : 'Expected service site · not live GPS'
         const marker = L.marker([latitude, longitude], {
           icon: L.divIcon({
             className,
@@ -140,6 +142,7 @@ export default function WorkforceLiveMap({
       <span><i className={styles.markerAttention} />Attention</span>
       <span><i className={styles.expected} />Expected visit</span>
       <span><i className={styles.school} />Expected school</span>
+      <span><i className={styles.expected} />Expected home</span>
     </div>
   </div>
 }
