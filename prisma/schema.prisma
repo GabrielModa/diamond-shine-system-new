@@ -1203,6 +1203,9 @@ model FeedbackEntry {
   @@index([employeeId])
   @@index([createdAt])
   @@index([organizationId, createdAt])
+  @@index([organizationId, submittedBy, createdAt])
+  @@index([organizationId, employeeName, createdAt])
+  @@index([organizationId, category, createdAt])
   @@map("feedback_entries")
 }
 
