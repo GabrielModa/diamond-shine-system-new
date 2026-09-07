@@ -8,6 +8,7 @@ import OpsIcon from '../ui/OpsIcon'
 import StandardSelect from '../ui/StandardSelect'
 import GooglePlaceAutocomplete, { type PlaceSelection } from '../workforce/GooglePlaceAutocomplete'
 import { localDateTimeToUtc } from '../../modules/scheduling/recurrence'
+import { nextServiceChangeDate } from './service-change-defaults'
 import './ClientsWorkspace.css'
 
 type TeamMember = { id: string; name?: string | null; email: string }
@@ -179,6 +180,10 @@ function endOfLocalDate(date: string, timezone: string) {
 function timeInZone(value: string, timezone: string) {
   const parts = new Intl.DateTimeFormat('en-GB', { timeZone: timezone, hour: '2-digit', minute: '2-digit', hourCycle: 'h23' }).formatToParts(new Date(value))
   return `${parts.find((part) => part.type === 'hour')?.value ?? '09'}:${parts.find((part) => part.type === 'minute')?.value ?? '00'}`
+}
+
+function serviceLocationLabel(site: Site) {
+  return `${site.addressLine1}${site.addressLine2 ? `, ${site.addressLine2}` : ''}, ${site.city} · ${site.postalCode}`
 }
 
 function newServiceDraft(siteId = ''): ServiceDraft {
@@ -374,15 +379,16 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   function openServiceChange(site: Site, plan: ServicePlan) {
     const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
     const recurrence = recurrenceDraft(job?.recurrence)
+    const timezone = site.timezone || 'Europe/Dublin'
     setChangeTarget({ site, plan })
     setChangeDraft({
       siteId: site.id,
       serviceName: plan.name,
-      startDate: localDateInput(1),
+      startDate: nextServiceChangeDate(job, timezone),
       endDate: plan.contract?.endDate?.slice(0, 10) ?? '',
       frequency: recurrence.frequency,
       weekdays: recurrence.weekdays,
-      time: job ? timeInZone(job.startDate, site.timezone || 'Europe/Dublin') : '09:00',
+      time: job ? timeInZone(job.startDate, timezone) : '09:00',
       durationMinutes: plan.expectedDurationMinutes,
       requiredWorkers: plan.requiredWorkers,
       instructions: plan.tasks.map((task) => task.title).join('\n'),
@@ -491,7 +497,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     <DetailDialog open={serviceOpen} title="Set up cleaning service" eyebrow="Simple service setup" onClose={() => setServiceOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={activateService}>
         <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Define the service once</strong><span>Diamond creates the contract, protected service version and future Visits behind the scenes.</span></div></div>
-        <div className="client-form-field"><span>Location</span><StandardSelect searchable={client.sites.length > 8} value={serviceDraft.siteId} onChange={(value) => setServiceDraft({ ...serviceDraft, siteId: value })} ariaLabel="Service location" placeholder="Select location" searchPlaceholder="Search location…" options={client.sites.map((site) => ({ value: site.id, label: site.name, description: `${site.city} · ${site.postalCode}` }))} /></div>
+        {client.sites.length > 1 ? <div className="client-form-field"><span>Location</span><StandardSelect searchable={client.sites.length > 8} value={serviceDraft.siteId} onChange={(value) => setServiceDraft({ ...serviceDraft, siteId: value })} ariaLabel="Service location" placeholder="Select location" searchPlaceholder="Search location…" options={client.sites.map((site) => ({ value: site.id, label: site.name, description: `${site.city} · ${site.postalCode}` }))} /></div> : client.sites[0] ? <div className="client-setup-note"><OpsIcon name="map" /><div><strong>Service location · {client.sites[0].name}</strong><span>{serviceLocationLabel(client.sites[0])}</span></div></div> : null}
         <label>Service name<input required value={serviceDraft.serviceName} onChange={(event) => setServiceDraft({ ...serviceDraft, serviceName: event.target.value })} /></label>
         <div className="client-form-pair"><label>Service starts<input required type="date" value={serviceDraft.startDate} onChange={(event) => setServiceDraft({ ...serviceDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={serviceDraft.startDate} value={serviceDraft.endDate} onChange={(event) => setServiceDraft({ ...serviceDraft, endDate: event.target.value })} /></label></div>
         <div className="client-form-pair"><div className="client-form-field"><span>Frequency</span><StandardSelect value={serviceDraft.frequency} onChange={(value) => setServiceDraft({ ...serviceDraft, frequency: value as Frequency })} ariaLabel="Service frequency" options={FREQUENCY_OPTIONS} /></div><label>Preferred time<input required type="time" value={serviceDraft.time} onChange={(event) => setServiceDraft({ ...serviceDraft, time: event.target.value })} /></label></div>
@@ -505,8 +511,9 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     <DetailDialog open={changeOpen} title="Change cleaning service" eyebrow="Future service change" onClose={() => setChangeOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={applyServiceChange}>
         <div className="client-change-note"><OpsIcon name="calendar" /><div><strong>Past work and extra Visits stay exactly as recorded</strong><span>The current service remains valid until the effective date. Only future Visits generated by the recurring rule are replaced.</span></div></div>
-        <div className="client-change-current"><span>Current service</span><strong>{changeTarget?.plan.name ?? ''}</strong><small>{changeTarget?.site.name ?? ''} · version {changeTarget?.plan.versions[0]?.versionNumber ?? '—'}</small></div>
-        <div className="client-form-pair"><label>Effective from<input required type="date" min={localDateInput()} value={changeDraft.startDate} onChange={(event) => setChangeDraft({ ...changeDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={changeDraft.startDate} value={changeDraft.endDate} onChange={(event) => setChangeDraft({ ...changeDraft, endDate: event.target.value })} /></label></div>
+        <div className="client-change-current"><span>Current service</span><strong>{changeTarget?.plan.name ?? ''}</strong><small>Version {changeTarget?.plan.versions[0]?.versionNumber ?? '—'}</small></div>
+        {changeTarget ? <div className="client-setup-note"><OpsIcon name="map" /><div><strong>Service location · {changeTarget.site.name}</strong><span>{serviceLocationLabel(changeTarget.site)}</span></div></div> : null}
+        <div className="client-form-pair"><label>Effective from <small>Defaults to the next current visit</small><input required type="date" min={localDateInput()} value={changeDraft.startDate} onChange={(event) => setChangeDraft({ ...changeDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={changeDraft.startDate} value={changeDraft.endDate} onChange={(event) => setChangeDraft({ ...changeDraft, endDate: event.target.value })} /></label></div>
         <div className="client-form-pair"><div className="client-form-field"><span>Frequency</span><StandardSelect value={changeDraft.frequency} onChange={(value) => setChangeDraft({ ...changeDraft, frequency: value as Frequency })} ariaLabel="Service frequency" options={FREQUENCY_OPTIONS} /></div><label>Preferred time<input required type="time" value={changeDraft.time} onChange={(event) => setChangeDraft({ ...changeDraft, time: event.target.value })} /></label></div>
         {(changeDraft.frequency === 'weekly' || changeDraft.frequency === 'fortnightly') ? <fieldset className="client-weekdays"><legend>Service days</legend><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} className={changeDraft.weekdays.includes(day.value) ? 'selected' : ''} onClick={() => toggleWeekday(day.value, 'change')}>{day.short}</button>)}</div></fieldset> : null}
         <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={changeDraft.requiredWorkers} onChange={(event) => setChangeDraft({ ...changeDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={changeDraft.durationMinutes} onChange={(event) => setChangeDraft({ ...changeDraft, durationMinutes: Number(event.target.value) })} /></label></div>
