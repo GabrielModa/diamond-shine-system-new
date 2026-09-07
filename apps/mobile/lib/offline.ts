@@ -133,9 +133,11 @@ async function coalesce(operation: OfflineOperation) {
   const rows = await connection.getAllAsync<{ id: string; payload: string }>('SELECT id, payload FROM mutation_queue');
   for (const row of rows) {
     const pending = JSON.parse(row.payload) as OfflineOperation;
+    // Visit work may contain several start/stop segments after pauses. Never
+    // collapse visit.start operations or their paired stops.
     const sameEntitySingleton = pending.entityId === operation.entityId
       && pending.type === operation.type
-      && ['visit.start', 'visit.complete', 'material.stock.count'].includes(operation.type);
+      && ['visit.complete', 'material.stock.count'].includes(operation.type);
     const sameTask = pending.type === 'visit.task.update'
       && operation.type === 'visit.task.update'
       && pending.entityId === operation.entityId
