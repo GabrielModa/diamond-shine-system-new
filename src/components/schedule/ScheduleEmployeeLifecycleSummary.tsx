@@ -23,8 +23,6 @@ type TimeEntry = {
   visit: { id: string; status: string } | null
 }
 
-type Filter = 'attention' | ScheduleLifecycleBucket
-
 function workedSeconds(entry: TimeEntry) {
   if (entry.status === 'rejected') return 0
   if (entry.durationSeconds != null) return Math.max(0, entry.durationSeconds)
@@ -47,7 +45,7 @@ export default function ScheduleEmployeeLifecycleSummary({
   visits: SummaryVisit[]
   from: string
   to: string
-  activeFilter: Filter
+  activeFilter: string
   canReviewTime: boolean
   onFilter: (filter: ScheduleLifecycleBucket) => void
 }) {
@@ -56,8 +54,7 @@ export default function ScheduleEmployeeLifecycleSummary({
   useEffect(() => {
     if (!canReviewTime) { setEntries(null); return }
     const controller = new AbortController()
-    const query = new URLSearchParams({ employeeId, from, to })
-    query.set('userId', employeeId)
+    const query = new URLSearchParams({ userId: employeeId, from, to })
     void fetch(`/api/time-entries?${query}`, { credentials: 'include', cache: 'no-store', signal: controller.signal })
       .then(async (response) => {
         const body = await response.json().catch(() => null)
