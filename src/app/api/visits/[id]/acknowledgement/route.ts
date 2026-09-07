@@ -190,5 +190,5 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     reason: updated.declineReason,
     activeCoverage,
   }, auth.user.organizationId)
-  return NextResponse.json({ ok: true, data: updated, scope: parsed.data.scope, affectedVisits })
+  return NextResponse.json({ ok: true, data: { ...updated, responseScope: parsed.data.scope, affectedVisits } })
 }
