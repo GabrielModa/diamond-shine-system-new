@@ -30,7 +30,7 @@ The development seed creates `admin@ds.ie`, `super@ds.ie`, `employee@ds.ie`, and
 
 ## Field app
 
-From `apps/mobile`, copy `.env.example` to `.env.local`, set `EXPO_PUBLIC_API_URL` to an HTTPS endpoint reachable by the device and set `EXPO_PUBLIC_EAS_PROJECT_ID`. Native builds use `apps/mobile/eas.json`; configure FCM v1 and APNs credentials in EAS before production submission.
+From the repository root, use `npm run dev:all` for local web/API and the Android development client. See the canonical [development and release runbook](docs/DEVELOPMENT_AND_RELEASE_WORKFLOW.md) for first-time setup, production API mode, EAS builds/OTA, `EXPO_TOKEN`, and Windows troubleshooting. Never copy the root `.env` into mobile.
 
 The mobile app stores its session in the platform keychain and its offline queue in SQLite. Each mobile sign-in creates a server-side session that can be revoked. Logging out deactivates the device push token and revokes the session.
 
