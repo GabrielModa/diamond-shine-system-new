@@ -26,6 +26,7 @@ export const startVisitSchema = z.object({
 export const startTimeEntrySchema = z.object({
   ...locationFields,
   kind: z.enum(['driving', 'office', 'supplies', 'break', 'general']),
+  visitId: z.string().trim().min(1).max(160).optional().nullable(),
   startedAt: z.coerce.date().optional(),
   clientMutationId: z.string().trim().min(8).max(160).optional(),
   deviceId: z.string().trim().min(1).max(160).optional(),
