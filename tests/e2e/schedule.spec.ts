@@ -65,7 +65,7 @@ test('attention overview deduplicates visits, preserves colours and sends undate
     await page.locator('.schedule-health-active-filter').getByRole('button', { name: 'Clear', exact: true }).click()
     await expect(page.locator('.visit-card')).toHaveCount(3)
   }
-  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await expect(page.locator('.visit-card')).toHaveCount(4)
   await expect(pending).toHaveCount(0)
   await page.getByRole('button', { name: 'Needs attention', exact: true }).click()
@@ -131,7 +131,7 @@ test('conflict count represents actionable overlap cases while all affected visi
 })
 
 test('week view always exposes Add visit on every day', async ({ page }) => {
-  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await page.getByRole('button', { name: 'Week', exact: true }).click()
   const columns = page.locator('.week-column')
   await expect(columns.first()).toBeVisible()
@@ -229,7 +229,7 @@ test('schedule and health drawer stay within the viewport', async ({ page }) => 
 })
 
 test('rejected occurrence save stays failed and stale error clears when the current team changes', async ({ page }) => {
-  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await page.getByRole('button', { name: 'Week', exact: true }).click()
 
   const firstVisit = page.locator('.visit-card').first()
@@ -270,7 +270,7 @@ test('rejected occurrence save stays failed and stale error clears when the curr
   await expect(editor.locator('.schedule-edit-error')).toHaveCount(0)
 })
 
-test('employee scope follows A to B to all and browser history, including health and capacity', async ({ page }, testInfo) => {
+test('employee scope follows A to B to all and browser history, including health, capacity and lifecycle hours', async ({ page }, testInfo) => {
   const members = [
     { id: 'audit-a', name: 'Audit Alpha', email: 'alpha@example.test', role: 'employee' },
     { id: 'audit-b', name: 'Audit Beta', email: 'beta@example.test', role: 'employee' },
@@ -284,6 +284,11 @@ test('employee scope follows A to B to all and browser history, including health
   await page.route('**/api/team', (route) => route.fulfill(reply(members)))
   await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
   await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
+  await page.route('**/api/schedule-employee-summary?**', (route) => {
+    const employeeId = new URL(route.request().url()).searchParams.get('employeeId') ?? 'audit-a'
+    const employee = members.find((member) => member.id === employeeId) ?? members[0]
+    return route.fulfill(reply({ employee, booked: { visits: 1, minutes: 120 }, confirmed: { visits: 2, minutes: 240 }, done: { visits: 1, minutes: 95 } }))
+  })
   let lastScope: string | null = null
   await page.route('**/api/schedule-health?**', async (route) => {
     const query = new URL(route.request().url()).searchParams
@@ -300,6 +305,13 @@ test('employee scope follows A to B to all and browser history, including health
   await expect(page.locator('.visit-card')).toContainText('Audit Alpha')
   await expect.poll(() => lastScope).toBe('audit-a')
   await expect(page.getByRole('button', { name: 'Needs attention', exact: true })).toBeVisible()
+  const hours = page.getByRole('region', { name: 'Audit Alpha schedule hours' })
+  await expect(hours).toContainText('Booked')
+  await expect(hours).toContainText('2h')
+  await expect(hours).toContainText('Confirmed')
+  await expect(hours).toContainText('4h')
+  await expect(hours).toContainText('Done')
+  await expect(hours).toContainText('1h 35m')
 
   let capacityIds: string[] = []
   await page.route('**/api/schedule-capacity', async (route) => {
@@ -332,6 +344,6 @@ test('employee scope follows A to B to all and browser history, including health
   await expect(drawer).toContainText('Audit Beta')
   await page.screenshot({ path: testInfo.outputPath('employee-scope.png') })
   await drawer.getByRole('button', { name: 'Close', exact: true }).click()
-  await page.getByRole('button', { name: 'Upcoming', exact: true }).click()
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await expect(page.locator('.schedule-health-active-filter')).toHaveCount(0)
 })
