@@ -103,6 +103,62 @@ export async function GET(request: NextRequest) {
     }),
   ])
 
+  const entriesByUser = new Map<string, typeof entries>()
+  for (const entry of entries) {
+    const current = entriesByUser.get(entry.userId)
+    if (current) current.push(entry)
+    else entriesByUser.set(entry.userId, [entry])
+  }
+
+  const feedbackByEmployee = new Map<string, typeof feedback>()
+  for (const item of feedback) {
+    if (item.employeeId == null) continue
+    const current = feedbackByEmployee.get(item.employeeId)
+    if (current) current.push(item)
+    else feedbackByEmployee.set(item.employeeId, [item])
+  }
+  for (const items of feedbackByEmployee.values()) {
+    items.sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+  }
+
+  const assignedVisitsByUser = new Map<string, typeof visits>()
+  const periodAssignedVisitsByUser = new Map<string, typeof visits>()
+  const sitesById = new Map<string, (typeof visits)[number]['site']>()
+  const upcomingVisitsBySite = new Map<string, typeof visits>()
+
+  for (const visit of visits) {
+    sitesById.set(visit.site.id, visit.site)
+
+    if (
+      visit.scheduledStart >= now
+      && ['cancelled', 'completed', 'missed'].includes(visit.status) === false
+    ) {
+      const upcoming = upcomingVisitsBySite.get(visit.site.id)
+      if (upcoming) upcoming.push(visit)
+      else upcomingVisitsBySite.set(visit.site.id, [visit])
+    }
+
+    if (visit.status === 'cancelled' || visit.status === 'missed') continue
+
+    const activeUserIds = new Set(
+      visit.assignments
+        .filter((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status))
+        .map((assignment) => assignment.userId),
+    )
+
+    for (const userId of activeUserIds) {
+      const assigned = assignedVisitsByUser.get(userId)
+      if (assigned) assigned.push(visit)
+      else assignedVisitsByUser.set(userId, [visit])
+
+      if (visit.scheduledStart >= period.from && visit.scheduledStart < period.toExclusive) {
+        const periodAssigned = periodAssignedVisitsByUser.get(userId)
+        if (periodAssigned) periodAssigned.push(visit)
+        else periodAssignedVisitsByUser.set(userId, [visit])
+      }
+    }
+  }
+
   const employees = users.map((user) => {
     const db = user.workforceProfile
     const setupRequired = !db || !db.weeklyTargetConfigured
@@ -152,12 +208,10 @@ export async function GET(request: NextRequest) {
         }
       : { ...resolvedContext, temporaryUnavailability: null }
 
-    const allAssigned = visits.filter((visit) =>
-      visit.status !== 'cancelled' && visit.status !== 'missed' && visit.assignments.some((a) => a.userId === user.id && ACTIVE_ASSIGNMENT_STATUSES.includes(a.status)))
-    const periodAssigned = allAssigned.filter((visit) =>
-      visit.scheduledStart >= period.from && visit.scheduledStart < period.toExclusive)
+    const allAssigned = assignedVisitsByUser.get(user.id) ?? []
+    const periodAssigned = periodAssignedVisitsByUser.get(user.id) ?? []
     const completed = periodAssigned.filter((visit) => visit.status === 'completed')
-    const relatedEntries = entries.filter((entry) => entry.userId === user.id)
+    const relatedEntries = entriesByUser.get(user.id) ?? []
 
     const plannedMinutes = periodAssigned.reduce((sum, visit) =>
       sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0)
@@ -170,9 +224,7 @@ export async function GET(request: NextRequest) {
     const nextVisit = allAssigned.find((visit) =>
       visit.status !== 'completed' && visit.status !== 'cancelled' && visit.scheduledStart >= now) ?? null
 
-    const employeeFeedback = feedback
-      .filter((item) => item.employeeId === user.id)
-      .sort((a, b) => b.createdAt.getTime() - a.createdAt.getTime())
+    const employeeFeedback = feedbackByEmployee.get(user.id) ?? []
     const ratings = employeeFeedback.map((item) => item.overall)
     const lowFeedbackCount = employeeFeedback.filter((item) => item.overall < 3.5).length
     const qualityAverage = ratings.length
@@ -257,11 +309,8 @@ export async function GET(request: NextRequest) {
     }
   })
 
-  const sites = Array.from(new Map(visits.map((visit) => [visit.site.id, visit.site])).values()).map((site) => {
-    const upcomingVisits = visits.filter((visit) =>
-      visit.site.id === site.id &&
-      visit.scheduledStart >= now &&
-      !['cancelled', 'completed', 'missed'].includes(visit.status))
+  const sites = Array.from(sitesById.values()).map((site) => {
+    const upcomingVisits = upcomingVisitsBySite.get(site.id) ?? []
     const assignedEmployeeIds = Array.from(new Set(upcomingVisits.flatMap((visit) =>
       visit.assignments.filter((assignment) => ACTIVE_ASSIGNMENT_STATUSES.includes(assignment.status)).map((assignment) => assignment.userId))))
     const needsStaff = upcomingVisits.some((visit) =>
