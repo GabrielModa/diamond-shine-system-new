@@ -9,6 +9,15 @@ function releaseId() {
   return process.env.GIT_SHA || process.env.VERCEL_GIT_COMMIT_SHA || process.env.RAILWAY_GIT_COMMIT_SHA || 'unknown'
 }
 
+async function timed<T>(run: () => Promise<T>) {
+  const startedAt = performance.now()
+  const value = await run()
+  return {
+    value,
+    durationMs: Math.round((performance.now() - startedAt) * 10) / 10,
+  }
+}
+
 export async function GET() {
   const timestamp = new Date().toISOString()
   const configuration = assessProductionReadiness()
@@ -29,7 +38,10 @@ export async function GET() {
   }
 
   try {
-    await Promise.all([prisma.$queryRaw`SELECT 1`, ensureEvidenceStorageReady()])
+    const [database, evidenceStorage] = await Promise.all([
+      timed(() => prisma.$queryRaw`SELECT 1`),
+      timed(() => ensureEvidenceStorageReady()),
+    ])
     return NextResponse.json(
       {
         ok: true,
@@ -38,11 +50,20 @@ export async function GET() {
           release: releaseId(),
           database: 'available',
           evidenceStorage: 'available',
+          latencyMs: {
+            database: database.durationMs,
+            evidenceStorage: evidenceStorage.durationMs,
+          },
           configuration: configuration.strict ? 'validated' : 'development',
           timestamp,
         },
       },
-      { headers: { 'Cache-Control': 'no-store' } }
+      {
+        headers: {
+          'Cache-Control': 'no-store',
+          'Server-Timing': `db;dur=${database.durationMs}, storage;dur=${evidenceStorage.durationMs}`,
+        },
+      }
     )
   } catch {
     return NextResponse.json(
