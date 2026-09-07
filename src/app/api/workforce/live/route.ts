@@ -276,7 +276,14 @@ export async function GET(request: NextRequest) {
               longitude: school.longitude,
               label: school.label,
             }
-          : null
+          : live.state === 'available' && contextState === 'home' && home?.latitude != null && home.longitude != null
+            ? {
+                kind: 'expected_home' as const,
+                latitude: home.latitude,
+                longitude: home.longitude,
+                label: home.label,
+              }
+            : null
 
     const signalAgeSeconds = signalCapturedAt
       ? Math.max(0, Math.round((now.getTime() - signalCapturedAt.getTime()) / 1000))
