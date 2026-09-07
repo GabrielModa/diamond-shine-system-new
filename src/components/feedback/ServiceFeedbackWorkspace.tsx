@@ -92,9 +92,10 @@ export default function ServiceFeedbackWorkspace() {
     return () => window.clearTimeout(timer)
   }, [refresh])
 
+  const evaluationLabel = total === 1 ? 'evaluation' : 'evaluations'
   const scopeLabel = employee || category || query.trim()
-    ? `${total} matching evaluations`
-    : `${total} evaluations`
+    ? `${total} matching ${evaluationLabel}`
+    : `${total} ${evaluationLabel}`
 
   return <main className={`page-shell ${styles.workspace}`}>
     <header className={styles.hero}>
