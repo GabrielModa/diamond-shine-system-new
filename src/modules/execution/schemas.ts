@@ -34,6 +34,7 @@ export const startTimeEntrySchema = z.object({
 
 export const stopTimeEntrySchema = z.object({
   ...locationFields,
+  mode: z.enum(['finish', 'pause', 'resume']).default('finish'),
   endedAt: z.coerce.date().optional(),
   clientMutationId: z.string().trim().min(8).max(160).optional(),
   deviceId: z.string().trim().min(1).max(160).optional(),
