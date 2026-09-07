@@ -32,6 +32,7 @@ export const visitUpdateSchema = z.object({
 
 export const acknowledgementSchema = z.object({
   status: z.enum(['seen', 'acknowledged', 'declined']),
+  scope: z.enum(['visit', 'recurring']).default('visit'),
   reason: z.string().trim().max(1000).optional().nullable(),
 })
 
