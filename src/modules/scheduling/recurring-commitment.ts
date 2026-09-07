@@ -30,6 +30,28 @@ export async function acceptedRecurringJobIds(
   return new Set(rows.flatMap((row) => row.notice.visit?.jobId ? [row.notice.visit.jobId] : []))
 }
 
+export async function acceptedRecurringUserIdsForJob(
+  db: Prisma.TransactionClient,
+  input: { organizationId: string; jobId: string; userIds: string[] },
+) {
+  const userIds = [...new Set(input.userIds)]
+  if (!userIds.length) return new Set<string>()
+  const rows = await db.operationalNoticeRecipient.findMany({
+    where: {
+      organizationId: input.organizationId,
+      userId: { in: userIds },
+      acknowledgedAt: { not: null },
+      acknowledgement: RECURRING_ACK,
+      notice: {
+        organizationId: input.organizationId,
+        visit: { jobId: input.jobId },
+      },
+    },
+    select: { userId: true },
+  })
+  return new Set(rows.map((row) => row.userId))
+}
+
 export async function markRecurringCommitmentAccepted(
   db: Prisma.TransactionClient,
   input: {
