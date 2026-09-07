@@ -64,7 +64,15 @@
     "release:source-check": "node scripts/release-source-check.mjs",
     "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke",
     "mobile:source-check": "node scripts/mobile-pilot-source-check.mjs",
-    "test:integration:mobile-hardening": "vitest run --config vitest.mobile-hardening.config.ts"
+    "test:integration:mobile-hardening": "vitest run --config vitest.mobile-hardening.config.ts",
+    "dev:web": "node scripts/dev-all.mjs web",
+    "dev:mobile": "node scripts/dev-all.mjs mobile",
+    "dev:mobile:prod-api": "node scripts/dev-all.mjs prod-api",
+    "doctor:mobile": "node scripts/doctor-mobile.mjs",
+    "test:workflow": "node --test tests/workflow/*.test.mjs",
+    "mobile:build:development": "node scripts/eas.mjs build --platform android --profile development",
+    "mobile:build:preview": "node scripts/eas.mjs build --platform android --profile preview",
+    "mobile:build:production": "node scripts/eas.mjs build --platform android --profile production"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",

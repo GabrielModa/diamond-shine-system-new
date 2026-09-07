@@ -1,5 +1,14 @@
+import { execFileSync } from 'node:child_process'
+import { readFileSync } from 'node:fs'
+let gitSha = process.env.VERCEL_GIT_COMMIT_SHA || process.env.GITHUB_SHA || 'unknown'
+if (gitSha === 'unknown') { try { gitSha = execFileSync('git', ['rev-parse', 'HEAD'], { encoding: 'utf8' }).trim() } catch {} }
 /** @type {import('next').NextConfig} */
 const nextConfig = {
+  env: {
+    DIAMOND_BUILD_SHA: gitSha,
+    DIAMOND_BUILD_TIME: new Date().toISOString(),
+    DIAMOND_APP_VERSION: JSON.parse(readFileSync(new URL('./package.json', import.meta.url), 'utf8')).version,
+  },
   // Integration tests use an isolated Next build directory, so a running local
   // development server remains available while the API suite is executing.
   distDir: process.env.NEXT_TEST_DIST_DIR || '.next',

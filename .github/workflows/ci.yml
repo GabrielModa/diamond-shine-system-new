@@ -31,7 +31,7 @@ jobs:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: 20
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm --prefix apps/mobile ci
@@ -41,6 +41,7 @@ jobs:
       - run: npm run mobile:typecheck
       - run: npm run lint
       - run: npm run test:unit
+      - run: npm run test:workflow
       - run: npm run test:integration
       - run: npm run db:seed:demo
       - run: npm run db:check:demo

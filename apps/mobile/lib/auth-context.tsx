@@ -8,7 +8,7 @@ import type { Session } from './types';
 
 const SESSION_KEY = 'diamond-shine-session-v1';
 const SERVER_KEY = 'diamond-shine-server-v1';
-const fallbackUrl = process.env.EXPO_PUBLIC_API_URL ?? 'http://localhost:3000';
+const fallbackUrl = process.env.EXPO_PUBLIC_API_URL ?? '';
 
 type AuthContextValue = {
   session: Session | null;
@@ -48,12 +48,16 @@ export function AuthProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     void (async () => {
       const [saved, server] = await Promise.all([secureGet(SESSION_KEY), secureGet(SERVER_KEY)]);
-      if (server) setDefaultServerUrl(server);
+      if (server && !fallbackUrl) setDefaultServerUrl(server);
       if (!saved) return;
       try {
         const restored = JSON.parse(saved) as unknown;
         if (!isRestorableSession(restored)) {
           await secureDelete(SESSION_KEY);
+          return;
+        }
+        if (fallbackUrl && normalizeBaseUrl(restored.baseUrl) !== normalizeBaseUrl(fallbackUrl)) {
+          // Never send an old environment's credentials/queued work to a new API.
           return;
         }
         if (restored.expiresAt && new Date(restored.expiresAt) <= new Date()) {
