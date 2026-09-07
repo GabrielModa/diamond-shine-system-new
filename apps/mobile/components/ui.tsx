@@ -20,6 +20,10 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
   return <Pressable accessibilityRole="button" onPress={onPress} disabled={disabled || loading} style={({ pressed }) => [styles.button, styles[`button_${variant}`], compact && styles.compact, (disabled || loading) && styles.disabled, pressed && styles.pressed]}>{loading ? <ActivityIndicator color={variant === 'primary' || variant === 'danger' ? '#fff' : colors.primary} /> : <Text style={[styles.buttonText, styles[`buttonText_${variant}`]]}>{title}</Text>}</Pressable>;
 }
 
+export function CloseButton({ onPress, label = 'Close' }: { onPress(): void; label?: string }) {
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} hitSlop={8} onPress={onPress} style={({ pressed }) => [styles.closeButton, pressed && styles.closeButtonPressed]}><Text accessibilityElementsHidden style={styles.closeButtonText}>×</Text></Pressable>;
+}
+
 export function EmptyState({ title, body }: { title: string; body: string }) { return <Card style={styles.empty}><Text style={styles.emptyTitle}>{title}</Text><Text style={styles.subtitle}>{body}</Text></Card>; }
 const styles = StyleSheet.create({
   safe: { flex: 1, backgroundColor: colors.canvas }, flex: { flex: 1 }, content: { padding: 18, paddingBottom: 120, gap: 16 },
@@ -29,5 +33,8 @@ const styles = StyleSheet.create({
   button: { minHeight: 48, paddingHorizontal: 18, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: 'transparent' }, compact: { minHeight: 40, paddingHorizontal: 13 },
   button_primary: { backgroundColor: colors.primary }, button_secondary: { backgroundColor: colors.surface, borderColor: colors.primary }, button_danger: { backgroundColor: colors.danger }, button_ghost: { backgroundColor: colors.primarySoft },
   buttonText: { fontSize: 15, fontWeight: '800' }, buttonText_primary: { color: '#fff' }, buttonText_secondary: { color: colors.primary }, buttonText_danger: { color: '#fff' }, buttonText_ghost: { color: colors.primaryDark },
+  closeButton: { width: 44, height: 44, borderRadius: 13, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  closeButtonPressed: { transform: [{ scale: 0.97 }], backgroundColor: colors.primarySoft },
+  closeButtonText: { color: colors.ink, fontSize: 28, lineHeight: 30, fontWeight: '500', marginTop: -2 },
   disabled: { opacity: 0.5 }, pressed: { transform: [{ scale: 0.985 }], opacity: 0.9 }, empty: { alignItems: 'center', paddingVertical: 28 }, emptyTitle: { color: colors.ink, fontSize: 18, fontWeight: '800' },
 });
