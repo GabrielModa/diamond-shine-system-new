@@ -11,7 +11,6 @@ export async function GET(request: NextRequest) {
 
   const organizationId = auth.user.organizationId
   const [
-    supplyTotal,
     supplyStatusGroups,
     activePriorityGroups,
     recentSupplies,
@@ -21,7 +20,6 @@ export async function GET(request: NextRequest) {
     excellentCount,
     recentFeedback,
   ] = await Promise.all([
-    prisma.supplyRequest.count({ where: { organizationId } }),
     prisma.supplyRequest.groupBy({
       by: ['status'],
       where: { organizationId },
@@ -73,6 +71,8 @@ export async function GET(request: NextRequest) {
     if (group.status === 'Rejected') byStatus.rejected = group._count._all
     if (group.status === 'Cancelled') byStatus.cancelled = group._count._all
   }
+
+  const supplyTotal = supplyStatusGroups.reduce((total, group) => total + group._count._all, 0)
 
   const byPriority = { urgent: 0, normal: 0, low: 0 }
   for (const group of activePriorityGroups) {
