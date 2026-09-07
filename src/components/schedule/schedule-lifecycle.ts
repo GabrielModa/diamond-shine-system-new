@@ -1,3 +1,5 @@
+import { isActiveAssignmentStatus } from '../../modules/scheduling/assignment-lifecycle'
+
 type AssignmentLike = { status: string; user: { id: string } }
 type TimeEntryLike = { userId: string; kind: string; status: string; durationSeconds?: number | null }
 
@@ -12,11 +14,13 @@ type VisitLike = {
 export type ScheduleLifecycleFilter = 'attention' | 'booked' | 'confirmed' | 'done' | 'history'
 export type ScheduleLifecycleState = 'booked' | 'confirmed' | 'in_progress' | 'completion_blocked' | 'done' | 'cancelled' | 'missed'
 
-const ACTIVE_ASSIGNMENT_STATUSES = new Set(['assigned', 'notified', 'seen', 'acknowledged'])
-const COUNTED_TIME_STATUSES = new Set(['completed', 'needs_review', 'approved'])
+export const BOOKED_VISIT_STATUSES = ['scheduled', 'dispatched'] as const
+export const CONFIRMED_VISIT_STATUSES = ['acknowledged', 'in_progress', 'completion_blocked'] as const
+export const COUNTED_VISIT_TIME_STATUSES = ['completed', 'needs_review', 'approved'] as const
+const COUNTED_TIME_STATUSES = new Set<string>(COUNTED_VISIT_TIME_STATUSES)
 
 export function scheduleLifecycleState(status: string): ScheduleLifecycleState {
-  if (status === 'scheduled' || status === 'dispatched') return 'booked'
+  if ((BOOKED_VISIT_STATUSES as readonly string[]).includes(status)) return 'booked'
   if (status === 'acknowledged') return 'confirmed'
   if (status === 'in_progress') return 'in_progress'
   if (status === 'completion_blocked') return 'completion_blocked'
@@ -50,7 +54,7 @@ function plannedMinutes(visit: VisitLike) {
 }
 
 function employeeAssigned(visit: VisitLike, employeeId: string) {
-  return visit.assignments.some((assignment) => assignment.user.id === employeeId && ACTIVE_ASSIGNMENT_STATUSES.has(assignment.status))
+  return visit.assignments.some((assignment) => assignment.user.id === employeeId && isActiveAssignmentStatus(assignment.status))
 }
 
 function employeeActualMinutes(visit: VisitLike, employeeId: string) {
