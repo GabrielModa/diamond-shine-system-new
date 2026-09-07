@@ -175,20 +175,20 @@ export default function VisitScreen() {
   );
 
   const submitHint = visitSubmitted
-    ? 'This visit has been sent to Operations for review.'
+    ? 'This visit is complete and available to Operations.'
     : completionPending
-      ? 'Submission is saved offline and will be sent when the device reconnects.'
+      ? 'Finishing is saved offline and will sync automatically when the device reconnects.'
       : runningVisitSince
-        ? 'Finish your work timer before the closeout checklist becomes available.'
+        ? 'Finish your work timer before the closeout becomes available.'
         : pausedSince
           ? 'Resume or finish paused work before closing the visit.'
           : otherRunningEntries.length
             ? `${otherRunningEntries.length} teammate${otherRunningEntries.length === 1 ? '' : 's'} still ${otherRunningEntries.length === 1 ? 'has' : 'have'} an active timer.`
             : !ownTimerFinished
-              ? 'Record your work time before submitting the visit.'
+              ? 'Record your work time before finishing the visit.'
               : !requiredDone
-                ? 'Complete every required closeout item before submitting.'
-                : 'Time and required work are recorded. Submit the visit for review.';
+                ? 'Complete every required closeout item before finishing the visit.'
+                : 'Everything required is recorded. Finish the visit to send it to Operations.';
 
   async function withAction(action: () => Promise<void>) {
     setBusy(true);
@@ -445,7 +445,7 @@ export default function VisitScreen() {
         const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(`${locationMessage('Work finished', result.location)} Complete the closeout checklist when ready.`);
+        setMessage(`${locationMessage('Work finished', result.location)} Complete the closeout when ready.`);
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -535,13 +535,13 @@ export default function VisitScreen() {
       const saveOffline = async () => {
         await enqueue({ clientMutationId, type: 'visit.complete', entityId: visit.id, clientCreatedAt: completedAt, payload });
         setCompletionPending(true);
-        setMessage('Visit submission saved offline. It will be sent to Operations when the device reconnects.');
+        setMessage('Finishing the visit is saved offline. It will sync automatically.');
       };
 
       if (!(await networkConnected())) return saveOffline();
       try {
         await apiFetch(session, `/api/visits/${visit.id}/complete`, { method: 'POST', body: JSON.stringify(payload) });
-        setMessage('Visit submitted to Operations for review.');
+        setMessage('Visit complete.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -590,7 +590,7 @@ export default function VisitScreen() {
     {visit.reopenedAt ? <Card style={styles.rework}>
       <Text style={styles.sectionTitle}>Rework requested</Text>
       <Text style={styles.sectionSub}>{visit.reopenReason ?? 'A supervisor asked for a correction before this visit can be approved.'}</Text>
-      <Text style={styles.reworkMeta}>Your original completion is preserved. Add the requested proof or correction, then submit the visit again.</Text>
+      <Text style={styles.reworkMeta}>Your original completion is preserved. Add the requested proof or correction, then finish the visit again.</Text>
     </Card> : null}
 
     {message ? <Text style={styles.success}>{message}</Text> : null}
@@ -628,13 +628,13 @@ export default function VisitScreen() {
         <View style={styles.flowLine} />
         <FlowStep number="2" label="Closeout" state={checklistStepState} />
         <View style={styles.flowLine} />
-        <FlowStep number="3" label="Submit" state={submitStepState} />
+        <FlowStep number="3" label="Finish" state={submitStepState} />
       </View>
 
       {visitSubmitted ? <View style={styles.executionCopy}>
-        <Text style={styles.executionEyebrow}>VISIT SUBMITTED</Text>
-        <Text style={styles.executionValue}>Sent for review</Text>
-        <Text style={styles.executionDetail}>Your recorded time, checklist, evidence and location events are now available to Operations.</Text>
+        <Text style={styles.executionEyebrow}>VISIT COMPLETE</Text>
+        <Text style={styles.executionValue}>Done</Text>
+        <Text style={styles.executionDetail}>Time, closeout and evidence are available to Operations.</Text>
       </View> : runningVisitSince || pausedSince ? <View style={styles.executionCopy}>
         <View style={styles.timerStatusRow}>
           <Text style={[styles.executionEyebrow, timerTone === 'warning' && styles.warningText, timerTone === 'over' && styles.overText]}>{paused ? 'WORK PAUSED' : 'WORK IN PROGRESS'}</Text>
@@ -655,15 +655,15 @@ export default function VisitScreen() {
           <View style={styles.timerAction}><Button title="Pause" variant="secondary" loading={busy} onPress={() => void pauseVisit()} /></View>
           <View style={styles.timerAction}><Button title="Finish work" loading={busy} onPress={() => void finishWork()} /></View>
         </View>}
-        <Text style={styles.timerHint}>Pause time is excluded from worked hours. Finish work opens the closeout checklist.</Text>
+        <Text style={styles.timerHint}>Pause time is excluded from worked hours. Finish work opens closeout; Finish visit sends the completed visit to Operations.</Text>
       </View> : closeoutReady ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
         <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then submit the visit.</Text>
+        <Text style={styles.executionDetail}>Complete the closeout. Finish visit sends everything to Operations in the same action.</Text>
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
         <Text style={styles.executionValue}>Start work</Text>
-        <Text style={styles.executionDetail}>Starting records your clock-in and current location. Planned time is {formatDuration(plannedSeconds)}.</Text>
+        <Text style={styles.executionDetail}>Starting records your work time. Planned time is {formatDuration(plannedSeconds)}.</Text>
         {canExecute ? <Button title="Start work" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
       </View>}
     </Card>
@@ -724,21 +724,16 @@ export default function VisitScreen() {
     </> : null}
 
     {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
-      <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'FINAL STEP'}</Text>
-      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Submitted for review' : 'Submit visit'}</Text>
+      <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'READY TO FINISH'}</Text>
+      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Visit complete' : 'Finish visit'}</Text>
       <Text style={styles.sectionSub}>{submitHint}</Text>
-      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
+      {!visitSubmitted ? <Button title={completionPending ? 'Finishing when online' : 'Finish visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
     </Card> : null}
   </Screen>;
 }
 
-function locationMessage(action: 'Work started' | 'Work resumed' | 'Work finished', assessment?: LocationAssessment | null) {
-  if (!assessment || assessment.classification === 'unavailable') return `${action}. GPS could not verify the site and the record will need review.`;
-  const distance = assessment.distanceM == null ? 'distance unavailable' : `${assessment.distanceM}m from site`;
-  const accuracy = assessment.accuracyM == null ? 'GPS accuracy unknown' : `GPS ±${assessment.accuracyM}m`;
-  if (assessment.risk === 'verified') return `${action} · location verified (${distance} · ${accuracy}).`;
-  if (assessment.risk === 'watch') return `${action} · location watch (${distance} · ${accuracy}).`;
-  return `${action} · location needs review (${distance} · ${accuracy}).`;
+function locationMessage(action: 'Work started' | 'Work resumed' | 'Work finished', _assessment?: LocationAssessment | null) {
+  return `${action}.`;
 }
 
 const styles = StyleSheet.create({
