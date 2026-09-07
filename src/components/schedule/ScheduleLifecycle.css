@@ -1,0 +1,60 @@
+.visit-lifecycle {
+  display: inline-flex;
+  align-items: center;
+  width: fit-content;
+  margin-top: 6px;
+  padding: 3px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  color: var(--muted);
+  background: var(--surface);
+  font-size: 11px;
+  font-weight: 800;
+  line-height: 1.2;
+}
+
+.visit-card[data-status="acknowledged"] .visit-lifecycle {
+  color: var(--text);
+  background: var(--surface-subtle, var(--surface));
+}
+
+.visit-card[data-status="in_progress"] {
+  box-shadow: inset 3px 0 0 var(--success, #16835d);
+}
+
+.visit-card[data-status="in_progress"] .visit-lifecycle {
+  border-color: color-mix(in srgb, var(--success, #16835d) 35%, var(--border));
+  color: var(--success, #16835d);
+  background: color-mix(in srgb, var(--success, #16835d) 8%, var(--surface));
+}
+
+.visit-card[data-status="completion_blocked"] .visit-lifecycle {
+  color: var(--warning, #8b5d00);
+}
+
+.visit-card[data-status="completed"] {
+  opacity: .72;
+}
+
+.visit-card[data-status="completed"] > div > strong {
+  text-decoration: line-through;
+  text-decoration-thickness: 1px;
+  text-decoration-color: color-mix(in srgb, currentColor 45%, transparent);
+}
+
+.visit-card[data-status="completed"] .visit-lifecycle {
+  opacity: .82;
+}
+
+.schedule-focus-tabs {
+  overflow-x: auto;
+  scrollbar-width: none;
+}
+
+.schedule-focus-tabs::-webkit-scrollbar {
+  display: none;
+}
+
+.schedule-focus-tabs > button {
+  flex: 0 0 auto;
+}
