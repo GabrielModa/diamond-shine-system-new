@@ -3,7 +3,7 @@ import { z } from 'zod'
 import { prisma } from '../../../lib/prisma'
 import { requireCapability } from '../../../lib/auth'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
-import { BOOKED_VISIT_STATUSES, CONFIRMED_VISIT_STATUSES, COUNTED_VISIT_TIME_STATUSES } from '../../../components/schedule/schedule-lifecycle'
+import { BOOKED_VISIT_STATUSES, CONFIRMED_VISIT_STATUSES, COUNTED_VISIT_TIME_STATUSES } from '../../../modules/scheduling/schedule-lifecycle'
 
 const querySchema = z.object({
   from: z.coerce.date(),
