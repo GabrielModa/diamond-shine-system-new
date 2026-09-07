@@ -59,6 +59,7 @@ const result = spawnSync(command, ['prisma', 'migrate', 'status', '--schema', 'p
   cwd: process.cwd(),
   env: process.env,
   stdio: 'inherit',
+  shell: process.platform === 'win32',
 })
 
 if (result.error) {
