@@ -4,6 +4,7 @@ import { assessProductionReadiness } from '../../src/lib/production-readiness'
 const readyEnv = {
   NODE_ENV: 'production',
   DATABASE_URL: 'postgresql://diamond:secret@db.internal:5432/diamond_shine?sslmode=require',
+  DATABASE_CONNECTION_MODE: 'direct',
   SESSION_SECRET: 'session-secret-that-is-definitely-long-enough-123',
   NEXTAUTH_URL: 'https://ops.diamondshine.ie',
   NOTIFICATION_WORKER_SECRET: 'worker-secret-that-is-independent-and-long-456',
@@ -34,6 +35,7 @@ describe('production readiness', () => {
     const result = assessProductionReadiness({
       ...readyEnv,
       VERCEL: '1',
+      DATABASE_CONNECTION_MODE: 'pooled',
       EVIDENCE_STORAGE_PROVIDER: 'supabase',
       EVIDENCE_STORAGE_ROOT: '',
       SUPABASE_URL: 'https://project-ref.supabase.co',
@@ -41,13 +43,33 @@ describe('production readiness', () => {
       SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
     })
     expect(result.ready).toBe(true)
+    expect(result.checks.find((check) => check.key === 'database-connection-mode')?.ok).toBe(true)
     expect(JSON.stringify(result)).not.toContain('sb_secret_server-only-value')
+  })
+
+  it('flags a direct database connection on Vercel without blocking an existing release', () => {
+    const result = assessProductionReadiness({
+      ...readyEnv,
+      VERCEL: '1',
+      DATABASE_CONNECTION_MODE: 'direct',
+      EVIDENCE_STORAGE_PROVIDER: 'supabase',
+      EVIDENCE_STORAGE_ROOT: '',
+      SUPABASE_URL: 'https://project-ref.supabase.co',
+      SUPABASE_SECRET_KEY: 'sb_secret_server-only-value',
+      SUPABASE_EVIDENCE_BUCKET: 'diamond-shine-evidence',
+    })
+    expect(result.ready).toBe(true)
+    expect(result.checks.find((check) => check.key === 'database-connection-mode')).toMatchObject({
+      ok: false,
+      level: 'recommended',
+    })
   })
 
   it('temporarily accepts the legacy Supabase service-role key for migration', () => {
     const result = assessProductionReadiness({
       ...readyEnv,
       VERCEL: '1',
+      DATABASE_CONNECTION_MODE: 'pooled',
       EVIDENCE_STORAGE_PROVIDER: 'supabase',
       EVIDENCE_STORAGE_ROOT: '',
       SUPABASE_URL: 'https://project-ref.supabase.co',

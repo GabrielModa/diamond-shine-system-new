@@ -1,6 +1,7 @@
 import { PrismaClient } from '@prisma/client'
 declare global {
   var prisma: PrismaClient | undefined
+  var prismaMiddlewareConfigured: boolean | undefined
 }
 export const prisma = global.prisma ?? new PrismaClient()
 
@@ -35,13 +36,25 @@ function normalizeData(data: unknown): unknown {
   return normalized
 }
 
+function slowQueryThresholdMs() {
+  const fallback = process.env.NODE_ENV === 'production' ? 500 : 0
+  const configured = Number(process.env.PRISMA_SLOW_QUERY_MS ?? fallback)
+  return Number.isFinite(configured) && configured > 0 ? configured : 0
+}
+
+type MiddlewareParams = {
+  action: string
+  model?: string
+  args?: Record<string, unknown>
+}
+
 type MiddlewareFn = (
-  params: { action: string; args?: Record<string, unknown> },
-  next: (params: { action: string; args?: Record<string, unknown> }) => Promise<unknown>
+  params: MiddlewareParams,
+  next: (params: MiddlewareParams) => Promise<unknown>
 ) => Promise<unknown>
 
 const useFn = (prisma as unknown as { $use?: (cb: MiddlewareFn) => void }).$use
-if (typeof useFn === 'function') {
+if (typeof useFn === 'function' && global.prismaMiddlewareConfigured !== true) {
   useFn.call(prisma, async (params, next) => {
     const operation = params.action
 
@@ -66,8 +79,25 @@ if (typeof useFn === 'function') {
       }
     }
 
-    return next(params)
+    const startedAt = performance.now()
+    try {
+      return await next(params)
+    } finally {
+      const thresholdMs = slowQueryThresholdMs()
+      const durationMs = Math.round((performance.now() - startedAt) * 10) / 10
+      if (thresholdMs > 0 && durationMs >= thresholdMs) {
+        console.warn(JSON.stringify({
+          event: 'slow_db_operation',
+          model: params.model ?? 'raw',
+          action: params.action,
+          durationMs,
+          thresholdMs,
+          timestamp: new Date().toISOString(),
+        }))
+      }
+    }
   })
+  global.prismaMiddlewareConfigured = true
 }
 
 if (process.env.NODE_ENV !== 'production') global.prisma = prisma

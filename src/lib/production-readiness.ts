@@ -64,6 +64,21 @@ function evidenceStorageReady(env: NodeJS.ProcessEnv) {
   }
 }
 
+function databaseConnectionMode(env: NodeJS.ProcessEnv) {
+  const mode = env.DATABASE_CONNECTION_MODE?.trim().toLowerCase()
+  const serverless = env.VERCEL === '1'
+  if (serverless) {
+    return {
+      ok: mode === 'pooled',
+      message: 'Serverless production should set DATABASE_CONNECTION_MODE=pooled and point DATABASE_URL at the provider transaction pooler.',
+    }
+  }
+  return {
+    ok: mode === 'direct' || mode === 'pooled',
+    message: 'Set DATABASE_CONNECTION_MODE to direct or pooled so the runtime connection strategy is explicit.',
+  }
+}
+
 export function assessProductionReadiness(env: NodeJS.ProcessEnv = process.env): ProductionReadiness {
   const strict = env.NODE_ENV === 'production' || env.PRODUCTION_READINESS_STRICT === 'true'
   if (!strict) return { ready: true, strict: false, checks: [] }
@@ -76,6 +91,9 @@ export function assessProductionReadiness(env: NodeJS.ProcessEnv = process.env):
     databaseOk = ['postgres:', 'postgresql:'].includes(database.protocol) && present(database.hostname) && present(database.pathname.replace(/^\//, ''))
   } catch { databaseOk = false }
   add(checks, 'database', databaseOk, 'DATABASE_URL must be a non-placeholder PostgreSQL connection string.')
+
+  const connectionMode = databaseConnectionMode(env)
+  add(checks, 'database-connection-mode', connectionMode.ok, connectionMode.message, 'recommended')
 
   const sessionSecret = env.SESSION_SECRET?.trim() ?? ''
   add(checks, 'session-secret', present(sessionSecret) && sessionSecret.length >= 32, 'SESSION_SECRET must contain at least 32 non-placeholder characters.')
