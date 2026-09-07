@@ -57,7 +57,7 @@ test('feedback filters recalculate the summary and preserve the exact evaluation
   await search.fill(marker)
 
   const summary = page.getByRole('region', { name: 'Feedback summary' })
-  await expect(page.getByText(/1 of \d+ evaluations/)).toBeVisible()
+  await expect(page.getByText('1 matching evaluation', { exact: true })).toBeVisible()
   await expect(summary.locator('article').filter({ hasText: 'Average rating' }).locator('strong')).toHaveText('5.0')
   await expect(summary.locator('article').filter({ hasText: 'Cleanliness' }).locator('strong')).toHaveText('5.0')
   await expect(summary.locator('article').filter({ hasText: 'Client relations' }).locator('strong')).toHaveText('5.0')

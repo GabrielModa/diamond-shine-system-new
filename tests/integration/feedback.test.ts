@@ -124,6 +124,48 @@ describe('GET /api/feedback', () => {
     ])
   })
 
+  it('paginates items while keeping totals and metrics for the full filtered result', async () => {
+    const res = await request(app).get('/api/feedback?page=2&pageSize=1').set('Cookie', adminCookie)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.total).toBe(2)
+    expect(res.body.data.items).toHaveLength(1)
+    expect(res.body.data.pagination).toEqual({
+      page: 2,
+      pageSize: 1,
+      totalPages: 2,
+      hasMore: false,
+    })
+    expect(res.body.data.metrics).toEqual({
+      overall: 4,
+      cleanliness: 4,
+      clientRelations: 4,
+      attention: 1,
+    })
+    expect(res.body.data.employees).toEqual(['A', 'B'])
+  })
+
+  it('filters feedback on the server without losing global employee options', async () => {
+    const categoryRes = await request(app).get('/api/feedback?category=Good').set('Cookie', adminCookie)
+    expect(categoryRes.status).toBe(200)
+    expect(categoryRes.body.data.total).toBe(1)
+    expect(categoryRes.body.data.items).toEqual([
+      expect.objectContaining({ id: 'gf2', employeeName: 'B', category: 'Good' }),
+    ])
+    expect(categoryRes.body.data.metrics.overall).toBe(3)
+    expect(categoryRes.body.data.employees).toEqual(['A', 'B'])
+
+    const searchRes = await request(app).get('/api/feedback?query=Green').set('Cookie', adminCookie)
+    expect(searchRes.status).toBe(200)
+    expect(searchRes.body.data.total).toBe(1)
+    expect(searchRes.body.data.items[0]).toEqual(expect.objectContaining({ id: 'gf2' }))
+
+    const employeeRes = await request(app).get('/api/feedback?employee=A').set('Cookie', adminCookie)
+    expect(employeeRes.status).toBe(200)
+    expect(employeeRes.body.data.total).toBe(1)
+    expect(employeeRes.body.data.items[0]).toEqual(expect.objectContaining({ id: 'gf1' }))
+  })
+
   it('does not expose manager feedback to employees or anonymous callers', async () => {
     expect((await request(app).get('/api/feedback').set('Cookie', employeeCookie)).status).toBe(403)
     expect((await request(app).get('/api/feedback')).status).toBe(401)
