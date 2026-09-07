@@ -28,11 +28,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const endedAt = parsed.data.endedAt ?? parsed.data.capturedAt ?? new Date()
   if (endedAt < entry.startedAt) return NextResponse.json({ ok: false, error: 'End time cannot precede start time.' }, { status: 400 })
+  const stopMode = parsed.data.mode !== 'finish'
+    ? parsed.data.mode
+    : parsed.data.clientMutationId?.startsWith('time-pause-')
+      ? 'pause'
+      : parsed.data.clientMutationId?.startsWith('break-stop-')
+        ? 'resume'
+        : 'finish'
 
   // Pause/resume boundaries split worked time from break time but are not
   // clock-out events. Only the final finish should produce geofence review or
   // a clock_out location event.
-  const intermediateVisitTransition = Boolean(entry.visit && parsed.data.mode !== 'finish')
+  const intermediateVisitTransition = Boolean(entry.visit && stopMode !== 'finish')
   const assessment = intermediateVisitTransition
     ? {
         classification: 'unavailable' as const,
@@ -111,7 +118,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await logAudit(user.email, 'stop_time_entry', 'time_entry', entry.id, {
     status: updated.status,
     durationSeconds,
-    mode: parsed.data.mode,
+    mode: stopMode,
     reviewReason: updated.reviewReason,
     locationRisk: assessment.risk,
     repeatedLocationPatternCount: pattern.count,
