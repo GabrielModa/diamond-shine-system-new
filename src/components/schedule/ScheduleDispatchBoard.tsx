@@ -388,7 +388,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
           cancellationReason: status === 'cancelled' ? edit.cancellationReason.trim() : null,
         }),
       })
-      setNoticeIsError(false); setNotice(status === 'cancelled' ? 'Visit cancelled. History was retained.' : 'Visit updated and the assigned team has been notified.')
+      setNoticeIsError(false); setNotice(status === 'cancelled' ? 'Visit cancelled. Record retained.' : 'Visit updated and the assigned team has been notified.')
       dismissSelected(); await refresh(); setHealthRefreshSignal((value) => value + 1)
     } catch (error) { setEditError(error instanceof Error ? error.message : 'Could not update this visit.') }
     finally { setBusy(false) }
@@ -414,7 +414,6 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
       <button className={!healthFocus && statusFilter === 'booked' ? 'selected' : ''} onClick={() => clearHealthFocus('booked')}>Booked</button>
       <button className={!healthFocus && statusFilter === 'confirmed' ? 'selected' : ''} onClick={() => clearHealthFocus('confirmed')}>Confirmed</button>
       <button className={!healthFocus && statusFilter === 'done' ? 'selected' : ''} onClick={() => clearHealthFocus('done')}>Done</button>
-      <button className={!healthFocus && statusFilter === 'history' ? 'selected' : ''} onClick={() => clearHealthFocus('history')}>History</button>
     </section>
 
     <section className="scheduler-controls" aria-label="Schedule controls">
@@ -430,7 +429,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
 
     {notice ? <div className={`toast ${noticeIsError ? 'error' : 'success'}`} role={noticeIsError ? 'alert' : 'status'}>{notice}<button className="notice-close" onClick={() => setNotice(null)}>×</button></div> : null}
     {focusedEmployeeId ? <EmployeeScheduleSummary employeeId={focusedEmployeeId} from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} refreshSignal={healthRefreshSignal} /> : null}
-    {canManage ? <ScheduleHealthPanel from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} timezone={timezone} teamScope={teamFilter} focus={healthFocus} attentionView={statusFilter === 'attention'} attentionVisitCount={attentionVisitCount} canManage={canManage} closeSignal={healthCloseSignal} refreshSignal={healthRefreshSignal} onChanged={refresh} onFocusChange={changeHealthFocus} onOpenVisit={openHealthVisit} onOpenServicePlan={openServiceConfiguration} /> : null}
+    {canManage ? <ScheduleHealthPanel from={visibleWindow.from.toISOString()} to={visibleWindow.toISOString ? visibleWindow.to.toISOString() : String(visibleWindow.to)} timezone={timezone} teamScope={teamFilter} focus={healthFocus} attentionView={statusFilter === 'attention'} attentionVisitCount={attentionVisitCount} canManage={canManage} closeSignal={healthCloseSignal} refreshSignal={healthRefreshSignal} onChanged={refresh} onFocusChange={changeHealthFocus} onOpenVisit={openHealthVisit} onOpenServicePlan={openServiceConfiguration} /> : null}
 
     {showAdd ? <div className="modal-overlay active schedule-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAdd(false) }}><form className="schedule-create card schedule-sheet" onSubmit={addVisit} role="dialog" aria-modal="true" aria-labelledby="add-visit-title"><header><div><span className="eyebrow">One-off operational visit</span><h2 id="add-visit-title">Add visit</h2><p className="muted">Add one occurrence without changing the client’s recurring service. To change frequency, days or the contract, use the Client Account.</p></div><button type="button" className="btn-secondary" onClick={() => setShowAdd(false)}>Close</button></header>
       {plans.length ? <>
