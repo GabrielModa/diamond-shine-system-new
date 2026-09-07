@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { CLIENT_LOCATIONS } from '../../../lib/constants'
@@ -16,6 +17,16 @@ const bodySchema = z.object({
   equipment: z.number(),
   clientRelations: z.number(),
   comments: z.string().max(1000).optional(),
+})
+
+const feedbackCategories = ['Excellent', 'Very Good', 'Good', 'Fair', 'Poor'] as const
+
+const feedbackQuerySchema = z.object({
+  page: z.coerce.number().int().min(1).default(1),
+  pageSize: z.coerce.number().int().min(1).max(100).default(50),
+  query: z.string().trim().max(200).default(''),
+  employee: z.string().trim().max(200).default(''),
+  category: z.enum(feedbackCategories).optional(),
 })
 
 export async function POST(request: NextRequest) {
@@ -116,13 +127,57 @@ export async function GET(request: NextRequest) {
   const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
-  const where = {
+  const parsed = feedbackQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams))
+  if (parsed.success === false) {
+    return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
+  }
+
+  const { page, pageSize, query, employee, category } = parsed.data
+  const baseWhere: Prisma.FeedbackEntryWhereInput = {
     organizationId: auth.user.organizationId,
     ...(auth.user.role === 'supervisor' ? { submittedBy: auth.user.email } : {}),
   }
-  const [total, items] = await Promise.all([
+
+  const searchFilters: Prisma.FeedbackEntryWhereInput[] = query
+    ? [
+        { employeeName: { contains: query, mode: 'insensitive' } },
+        { clientLocation: { contains: query, mode: 'insensitive' } },
+        { comments: { contains: query, mode: 'insensitive' } },
+      ]
+    : []
+
+  if (query) {
+    const needle = query.toLowerCase()
+    const matchingCategories = feedbackCategories
+      .filter((value) => value.toLowerCase().includes(needle))
+      .map(labelToDbCategory)
+    if (matchingCategories.length > 0) searchFilters.push({ category: { in: matchingCategories } })
+  }
+
+  const where: Prisma.FeedbackEntryWhereInput = {
+    ...baseWhere,
+    ...(employee ? { employeeName: employee } : {}),
+    ...(category ? { category: labelToDbCategory(category) } : {}),
+    ...(searchFilters.length ? { OR: searchFilters } : {}),
+  }
+  const [total, items, aggregate, attention, employeeRows] = await Promise.all([
     prisma.feedbackEntry.count({ where }),
-    prisma.feedbackEntry.findMany({ where, orderBy: { createdAt: 'desc' } }),
+    prisma.feedbackEntry.findMany({
+      where,
+      orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
+      skip: (page - 1) * pageSize,
+      take: pageSize,
+    }),
+    prisma.feedbackEntry.aggregate({
+      where,
+      _avg: { overall: true, cleanliness: true, clientRelations: true },
+    }),
+    prisma.feedbackEntry.count({ where: { ...where, overall: { lt: 4 } } }),
+    prisma.feedbackEntry.groupBy({
+      by: ['employeeName'],
+      where: baseWhere,
+      orderBy: { employeeName: 'asc' },
+    }),
   ])
 
   const mapped = items.map((item) => ({
@@ -130,5 +185,24 @@ export async function GET(request: NextRequest) {
     category: dbCategoryToLabel(item.category as 'Excellent' | 'VeryGood' | 'Good' | 'Fair' | 'Poor'),
   }))
 
-  return NextResponse.json({ ok: true, data: { total, items: mapped } })
+  return NextResponse.json({
+    ok: true,
+    data: {
+      total,
+      items: mapped,
+      employees: employeeRows.map((item) => item.employeeName),
+      metrics: {
+        overall: aggregate._avg.overall ?? 0,
+        cleanliness: aggregate._avg.cleanliness ?? 0,
+        clientRelations: aggregate._avg.clientRelations ?? 0,
+        attention,
+      },
+      pagination: {
+        page,
+        pageSize,
+        totalPages: Math.ceil(total / pageSize),
+        hasMore: page * pageSize < total,
+      },
+    },
+  })
 }

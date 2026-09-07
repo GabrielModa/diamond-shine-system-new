@@ -1,24 +1,68 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import type { ApiResponse, FeedbackEntry } from '../../types'
 import StandardSelect from '../ui/StandardSelect'
 import { FeedbackDetailSheet } from '../dashboard/FeedbackDetailSheet'
 import styles from './ServiceFeedbackWorkspace.module.css'
 
-async function fetchFeedback(): Promise<FeedbackEntry[]> {
-  const response = await fetch('/api/feedback', { credentials: 'include', cache: 'no-store' })
-  const payload = await response.json() as ApiResponse<{ items: FeedbackEntry[] }>
-  if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error || 'Could not load service feedback.')
-  return payload.data.items
+type FeedbackMetrics = {
+  overall: number
+  cleanliness: number
+  clientRelations: number
+  attention: number
 }
 
-function average(values: number[]) {
-  return values.length ? values.reduce((sum, value) => sum + value, 0) / values.length : 0
+type FeedbackPage = {
+  total: number
+  items: FeedbackEntry[]
+  employees: string[]
+  metrics: FeedbackMetrics
+  pagination: {
+    page: number
+    pageSize: number
+    totalPages: number
+    hasMore: boolean
+  }
+}
+
+const PAGE_SIZE = 50
+
+async function fetchFeedback(options: {
+  page: number
+  query: string
+  employee: string
+  category: string
+}): Promise<FeedbackPage> {
+  const params = new URLSearchParams({
+    page: String(options.page),
+    pageSize: String(PAGE_SIZE),
+  })
+  if (options.query.trim()) params.set('query', options.query.trim())
+  if (options.employee) params.set('employee', options.employee)
+  if (options.category) params.set('category', options.category)
+
+  const response = await fetch('/api/feedback?' + params.toString(), {
+    credentials: 'include',
+    cache: 'no-store',
+  })
+  const payload = await response.json() as ApiResponse<FeedbackPage>
+  if (!response.ok || !payload.ok || !payload.data) throw new Error(payload.error || 'Could not load service feedback.')
+  return payload.data
 }
 
 export default function ServiceFeedbackWorkspace() {
   const [items, setItems] = useState<FeedbackEntry[]>([])
+  const [employees, setEmployees] = useState<string[]>([])
+  const [metrics, setMetrics] = useState<FeedbackMetrics>({
+    overall: 0,
+    cleanliness: 0,
+    clientRelations: 0,
+    attention: 0,
+  })
+  const [total, setTotal] = useState(0)
+  const [page, setPage] = useState(1)
+  const [totalPages, setTotalPages] = useState(0)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
@@ -29,34 +73,28 @@ export default function ServiceFeedbackWorkspace() {
   const refresh = useCallback(async () => {
     setLoading(true)
     setError('')
-    try { setItems(await fetchFeedback()) }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load service feedback.') }
-    finally { setLoading(false) }
-  }, [])
+    try {
+      const data = await fetchFeedback({ page, query, employee, category })
+      setItems(data.items)
+      setEmployees(data.employees)
+      setMetrics(data.metrics)
+      setTotal(data.total)
+      setTotalPages(data.pagination.totalPages)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load service feedback.')
+    } finally {
+      setLoading(false)
+    }
+  }, [category, employee, page, query])
 
-  useEffect(() => { void refresh() }, [refresh])
-
-  const employees = useMemo(() => [...new Set(items.map((item) => item.employeeName))].sort((a, b) => a.localeCompare(b)), [items])
-  const visible = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return items.filter((item) => (
-      (!employee || item.employeeName === employee)
-      && (!category || item.category === category)
-      && (!needle || `${item.employeeName} ${item.clientLocation} ${item.comments ?? ''} ${item.category}`.toLowerCase().includes(needle))
-    ))
-  }, [category, employee, items, query])
-
-  const metrics = useMemo(() => {
-    const overall = average(visible.map((item) => item.overall))
-    const cleanliness = average(visible.map((item) => item.cleanliness))
-    const clientRelations = average(visible.map((item) => item.clientRelations))
-    const attention = visible.filter((item) => item.overall < 4).length
-    return { overall, cleanliness, clientRelations, attention }
-  }, [visible])
+  useEffect(() => {
+    const timer = window.setTimeout(() => { void refresh() }, 250)
+    return () => window.clearTimeout(timer)
+  }, [refresh])
 
   const scopeLabel = employee || category || query.trim()
-    ? `${visible.length} of ${items.length} evaluations`
-    : `${visible.length} evaluations`
+    ? `${total} matching evaluations`
+    : `${total} evaluations`
 
   return <main className={`page-shell ${styles.workspace}`}>
     <header className={styles.hero}>
@@ -82,21 +120,27 @@ export default function ServiceFeedbackWorkspace() {
         <div><h2>Feedback history</h2><p className="muted">{scopeLabel}</p></div>
       </div>
       <div className={styles.filters}>
-        <label>Search<input type="search" value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Employee, location or comment…" /></label>
-        <div className={styles.selectField}><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={setEmployee} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
-        <div className={styles.selectField}><span>Rating</span><StandardSelect value={category} onChange={setCategory} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
-        {(query || employee || category) ? <button type="button" className="btn-secondary" onClick={() => { setQuery(''); setEmployee(''); setCategory('') }}>Clear filters</button> : null}
+        <label>Search<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Employee, location or comment…" /></label>
+        <div className={styles.selectField}><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={(value) => { setEmployee(value); setPage(1) }} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
+        <div className={styles.selectField}><span>Rating</span><StandardSelect value={category} onChange={(value) => { setCategory(value); setPage(1) }} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
+        {(query || employee || category) ? <button type="button" className="btn-secondary" onClick={() => { setQuery(''); setEmployee(''); setCategory(''); setPage(1) }}>Clear filters</button> : null}
       </div>
 
       {loading ? <div className="empty-state">Loading service feedback…</div> : <div className={styles.history}>
-        {visible.map((entry) => <button type="button" className={styles.row} key={entry.id} onClick={() => setSelected(entry)}>
+        {items.map((entry) => <button type="button" className={styles.row} key={entry.id} onClick={() => setSelected(entry)}>
           <div><strong>{entry.employeeName}</strong><small>{entry.clientLocation} · {new Date(entry.createdAt).toLocaleDateString('en-IE')}</small></div>
           <span className={`${styles.score} ${entry.overall < 4 ? styles.attention : ''}`}>{entry.overall.toFixed(1)}</span>
           <div><strong>{entry.category}</strong><small>{entry.comments || 'No comment'}</small></div>
           <span aria-hidden="true">→</span>
         </button>)}
-        {!visible.length ? <div className="empty-state">No feedback matches the current filters.</div> : null}
+        {items.length === 0 ? <div className="empty-state">No feedback matches the current filters.</div> : null}
       </div>}
+
+      {totalPages > 1 ? <div className={styles.pagination}>
+        <button type="button" className="btn-secondary" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+        <span>Page {page} of {totalPages}</span>
+        <button type="button" className="btn-secondary" disabled={loading || page >= totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
+      </div> : null}
     </section>
 
     <FeedbackDetailSheet open={Boolean(selected)} active={Boolean(selected)} entry={selected} onClose={() => setSelected(null)} />
