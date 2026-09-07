@@ -28,24 +28,43 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const endedAt = parsed.data.endedAt ?? parsed.data.capturedAt ?? new Date()
   if (endedAt < entry.startedAt) return NextResponse.json({ ok: false, error: 'End time cannot precede start time.' }, { status: 400 })
-  const assessment = entry.visit
-    ? assessLocation(entry.visit.site, parsed.data)
-    : { classification: 'unavailable' as const, distanceM: null, accuracyM: null, confidence: 'low' as const, risk: 'watch' as const, reviewRequired: false, reason: null }
-  const pattern = entry.visit
-    ? await repeatedLocationPattern({
-        organizationId: user.organizationId,
-        userId: entry.userId,
-        siteId: entry.visit.siteId,
-        kind: 'clock_out',
-        capturedAt: endedAt,
-        coordinates: parsed.data,
-        assessment,
-      })
-    : { count: 0, triggered: false, windowDays: 30, clusterRadiusM: 175 }
+
+  // Pause/resume boundaries split worked time from break time but are not
+  // clock-out events. Only the final finish should produce geofence review or
+  // a clock_out location event.
+  const intermediateVisitTransition = Boolean(entry.visit && parsed.data.mode !== 'finish')
+  const assessment = intermediateVisitTransition
+    ? {
+        classification: 'unavailable' as const,
+        distanceM: null,
+        accuracyM: parsed.data.accuracyM ?? null,
+        confidence: 'low' as const,
+        risk: 'watch' as const,
+        reviewRequired: false,
+        reason: null,
+      }
+    : entry.visit
+      ? assessLocation(entry.visit.site, parsed.data)
+      : { classification: 'unavailable' as const, distanceM: null, accuracyM: null, confidence: 'low' as const, risk: 'watch' as const, reviewRequired: false, reason: null }
+  const pattern = intermediateVisitTransition
+    ? { count: 0, triggered: false, windowDays: 30, clusterRadiusM: 175 }
+    : entry.visit
+      ? await repeatedLocationPattern({
+          organizationId: user.organizationId,
+          userId: entry.userId,
+          siteId: entry.visit.siteId,
+          kind: 'clock_out',
+          capturedAt: endedAt,
+          coordinates: parsed.data,
+          assessment,
+        })
+      : { count: 0, triggered: false, windowDays: 30, clusterRadiusM: 175 }
   const durationSeconds = Math.max(0, Math.round((endedAt.getTime() - entry.startedAt.getTime()) / 1000))
-  const locationReviewReason = pattern.triggered
-    ? 'REPEATED_LOCATION_PATTERN'
-    : assessment.reviewRequired ? assessment.reason : null
+  const locationReviewReason = intermediateVisitTransition
+    ? null
+    : pattern.triggered
+      ? 'REPEATED_LOCATION_PATTERN'
+      : assessment.reviewRequired ? assessment.reason : null
   const reviewReasons = [entry.reviewReason, locationReviewReason].filter(Boolean)
 
   const stopResult = await prisma.$transaction(async (tx) => {
@@ -55,18 +74,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         status: reviewReasons.length ? 'needs_review' : 'completed',
         endedAt,
         durationSeconds,
-        endLatitude: parsed.data.latitude,
-        endLongitude: parsed.data.longitude,
-        endAccuracyM: parsed.data.accuracyM,
-        endDistanceM: assessment.distanceM,
-        endLocationClass: assessment.classification,
+        endLatitude: intermediateVisitTransition ? null : parsed.data.latitude,
+        endLongitude: intermediateVisitTransition ? null : parsed.data.longitude,
+        endAccuracyM: intermediateVisitTransition ? null : parsed.data.accuracyM,
+        endDistanceM: intermediateVisitTransition ? null : assessment.distanceM,
+        endLocationClass: intermediateVisitTransition ? null : assessment.classification,
         reviewReason: reviewReasons.join(', ') || null,
       },
     })
     if (claimed.count !== 1) {
       return { duplicate: true as const, saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id } }) }
     }
-    if (entry.visitId && parsed.data.latitude != null && parsed.data.longitude != null) {
+    if (!intermediateVisitTransition && entry.visitId && parsed.data.latitude != null && parsed.data.longitude != null) {
       await tx.locationEvent.create({
         data: {
           organizationId: user.organizationId,
@@ -92,6 +111,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   await logAudit(user.email, 'stop_time_entry', 'time_entry', entry.id, {
     status: updated.status,
     durationSeconds,
+    mode: parsed.data.mode,
     reviewReason: updated.reviewReason,
     locationRisk: assessment.risk,
     repeatedLocationPatternCount: pattern.count,
