@@ -1,4 +1,5 @@
 import * as SQLite from 'expo-sqlite';
+import { Platform } from 'react-native';
 import { apiFetch, apiFetchSyncBatch } from './api';
 import { persistEvidenceFile, removeEvidenceFile } from './evidence-storage';
 import { secureGet, secureSet } from './secure-storage';
@@ -19,9 +20,8 @@ const WORKSPACE_OWNER_KEY = 'diamond-shine-offline-owner-v1';
 let database: Promise<SQLite.SQLiteDatabase> | null = null;
 let syncInFlight: Promise<SyncResult> | null = null;
 
-async function db() {
-  database ??= SQLite.openDatabaseAsync('diamond-shine-field.db');
-  const value = await database;
+async function initializeDatabase() {
+  const value = await SQLite.openDatabaseAsync('diamond-shine-field.db');
   await value.execAsync(`
     PRAGMA journal_mode = WAL;
     CREATE TABLE IF NOT EXISTS cached_visits (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
@@ -35,6 +35,27 @@ async function db() {
     await value.execAsync('ALTER TABLE evidence_queue ADD COLUMN version_task_id TEXT;');
   }
   return value;
+}
+
+async function db() {
+  if (!database) {
+    database = initializeDatabase().catch((error) => {
+      database = null;
+      throw error;
+    });
+  }
+  return database;
+}
+
+async function withWriteTransaction(
+  connection: SQLite.SQLiteDatabase,
+  task: (transaction: SQLite.SQLiteDatabase) => Promise<void>,
+) {
+  if (Platform.OS === 'web') {
+    await connection.withTransactionAsync(() => task(connection));
+    return;
+  }
+  await connection.withExclusiveTransactionAsync(async (transaction) => task(transaction));
 }
 
 export function mutationId(prefix: string) {
@@ -68,12 +89,12 @@ export function prepareVisitForOffline(visit: Visit): Visit {
 /** Server sync is an operational snapshot. Replace it atomically so cancelled/removed work cannot linger offline. */
 export async function cacheVisits(visits: Visit[]) {
   const connection = await db();
-  await connection.withTransactionAsync(async () => {
-    await connection.runAsync('DELETE FROM cached_visits');
+  await withWriteTransaction(connection, async (transaction) => {
+    await transaction.runAsync('DELETE FROM cached_visits');
     const updatedAt = new Date().toISOString();
     for (const raw of visits) {
       const visit = prepareVisitForOffline(raw);
-      await connection.runAsync('INSERT INTO cached_visits (id, payload, updated_at) VALUES (?, ?, ?)', visit.id, JSON.stringify(visit), updatedAt);
+      await transaction.runAsync('INSERT INTO cached_visits (id, payload, updated_at) VALUES (?, ?, ?)', visit.id, JSON.stringify(visit), updatedAt);
     }
   });
 }
@@ -154,12 +175,12 @@ export async function clearOfflineWorkspace() {
   const connection = await db();
   const evidence = await connection.getAllAsync<{ uri: string }>('SELECT uri FROM evidence_queue');
   for (const item of evidence) await removeEvidenceFile(item.uri);
-  await connection.withTransactionAsync(async () => {
-    await connection.runAsync('DELETE FROM cached_visits');
-    await connection.runAsync('DELETE FROM cached_stock');
-    await connection.runAsync('DELETE FROM mutation_queue');
-    await connection.runAsync('DELETE FROM evidence_queue');
-    await connection.runAsync('DELETE FROM local_timers');
+  await withWriteTransaction(connection, async (transaction) => {
+    await transaction.runAsync('DELETE FROM cached_visits');
+    await transaction.runAsync('DELETE FROM cached_stock');
+    await transaction.runAsync('DELETE FROM mutation_queue');
+    await transaction.runAsync('DELETE FROM evidence_queue');
+    await transaction.runAsync('DELETE FROM local_timers');
   });
 }
 
