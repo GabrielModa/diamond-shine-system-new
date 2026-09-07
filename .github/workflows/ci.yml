@@ -44,6 +44,7 @@ jobs:
       - run: npm run test:integration
       - run: npm run db:seed:demo
       - run: npm run db:check:demo
+      - run: rm -rf .next-integration
       - run: npm run build
       - run: npm run mobile:export
       - run: npm run mobile:source-check
