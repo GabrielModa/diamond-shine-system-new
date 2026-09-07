@@ -16,15 +16,30 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const requiresRework = parsed.data.decision !== 'approved'
   const review = await prisma.$transaction(async (tx) => {
-    const created = await tx.visitReview.create({
+    const reviewedAt = new Date()
+    const claimed = await tx.visit.updateMany({
+      where: {
+        id: visit.id,
+        organizationId: auth.user.organizationId,
+        status: 'completed',
+        version: visit.version,
+      },
+      data: {
+        status: requiresRework ? 'in_progress' : 'completed',
+        reopenedAt: requiresRework ? reviewedAt : undefined,
+        reopenReason: requiresRework ? parsed.data.note : undefined,
+        version: { increment: 1 },
+      },
+    })
+    if (claimed.count !== 1) return null
+    return tx.visitReview.create({
       data: { organizationId: auth.user.organizationId, visitId: visit.id, decision: parsed.data.decision, note: parsed.data.note, reviewedBy: auth.user.id },
       include: { reviewer: { select: { id: true, name: true, email: true } } },
     })
-    if (requiresRework) {
-      await tx.visit.update({ where: { id: visit.id }, data: { status: 'in_progress', reopenedAt: new Date(), reopenReason: parsed.data.note, version: { increment: 1 } } })
-    }
-    return created
   })
+  if (!review) {
+    return NextResponse.json({ ok: false, error: 'This visit was already reviewed or changed. Refresh and try again.', code: 'VISIT_REVIEW_CONFLICT' }, { status: 409 })
+  }
   await logAudit(auth.user.email, 'review_visit', 'visit', visit.id, { reviewId: review.id, decision: review.decision, rework: requiresRework, originalCompletedAt: visit.completedAt }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: review, rework: requiresRework })
 }

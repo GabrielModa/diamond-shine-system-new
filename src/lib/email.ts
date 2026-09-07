@@ -335,11 +335,11 @@ export async function sendQualityNotification(
   }
 }
 
-async function getTemplate(key: string) {
+async function getTemplate(key: string, organizationId: string) {
   try {
     const template = await prisma.emailTemplate.findUnique({
       where: {
-        organizationId_key: { organizationId: LEGACY_ORGANIZATION_ID, key },
+        organizationId_key: { organizationId, key },
       },
     })
     if (!template) return null
@@ -349,10 +349,13 @@ async function getTemplate(key: string) {
   }
 }
 
-export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boolean; error?: string }> {
+export async function sendUserInvite(
+  data: InviteEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID,
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const transport = getTransport()
-    const storedTemplate = await getTemplate('user_invite')
+    const storedTemplate = await getTemplate('user_invite', organizationId)
     // Older seeded templates were plain paragraphs. Keep them compatible, but
     // always upgrade invite delivery to the current branded layout.
     const template = storedTemplate?.body.includes('Diamond Shine') && storedTemplate.body.includes('background:#6652d8;background:linear-gradient')
@@ -377,11 +380,12 @@ export async function sendUserInvite(data: InviteEmailData): Promise<{ ok: boole
 }
 
 export async function sendPasswordReset(
-  data: PasswordResetEmailData
+  data: PasswordResetEmailData,
+  organizationId = LEGACY_ORGANIZATION_ID,
 ): Promise<{ ok: boolean; error?: string }> {
   try {
     const transport = getTransport()
-    const template = (await getTemplate('password_reset')) ?? {
+    const template = (await getTemplate('password_reset', organizationId)) ?? {
       subject: 'Reset your Diamond Shine password',
       body: '<p>Hello {{name}},</p><p><a href="{{resetUrl}}">Reset your password</a>. This secure link expires in 24 hours and can only be used once.</p><p>If you did not request this, you can ignore this email.</p>',
     }

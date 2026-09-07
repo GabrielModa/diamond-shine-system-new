@@ -48,9 +48,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     : assessment.reviewRequired ? assessment.reason : null
   const reviewReasons = [entry.reviewReason, locationReviewReason].filter(Boolean)
 
-  const updated = await prisma.$transaction(async (tx) => {
-    const saved = await tx.timeEntry.update({
-      where: { id: entry.id },
+  const stopResult = await prisma.$transaction(async (tx) => {
+    const claimed = await tx.timeEntry.updateMany({
+      where: { id: entry.id, organizationId: user.organizationId, status: 'running' },
       data: {
         status: reviewReasons.length ? 'needs_review' : 'completed',
         endedAt,
@@ -63,6 +63,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         reviewReason: reviewReasons.join(', ') || null,
       },
     })
+    if (claimed.count !== 1) {
+      return { duplicate: true as const, saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id } }) }
+    }
     if (entry.visitId && parsed.data.latitude != null && parsed.data.longitude != null) {
       await tx.locationEvent.create({
         data: {
@@ -80,8 +83,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       })
     }
-    return saved
+    return { duplicate: false as const, saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id } }) }
   })
+  if (stopResult.duplicate) {
+    return NextResponse.json({ ok: true, duplicate: true, data: stopResult.saved })
+  }
+  const updated = stopResult.saved
   await logAudit(user.email, 'stop_time_entry', 'time_entry', entry.id, {
     status: updated.status,
     durationSeconds,

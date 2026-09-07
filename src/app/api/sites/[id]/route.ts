@@ -61,8 +61,13 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   }
 
   const site = await prisma.$transaction(async (tx) => {
-    await tx.site.update({
-      where: { id },
+    const claimed = await tx.site.updateMany({
+      where: {
+        id,
+        organizationId: auth.user.organizationId,
+        version: parsed.data.version,
+        archivedAt: null,
+      },
       data: {
         name: parsed.data.name,
         addressLine1: parsed.data.addressLine1,
@@ -82,6 +87,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         version: { increment: 1 },
       },
     })
+    if (claimed.count !== 1) return null
     if (parsed.data.access) {
       const access = parsed.data.access
       await tx.siteAccess.upsert({
@@ -123,6 +129,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     }
     return tx.site.findUniqueOrThrow({ where: { id }, include: { access: true, areas: true, preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } } })
   })
+  if (!site) {
+    return NextResponse.json({ ok: false, error: 'Version conflict' }, { status: 409 })
+  }
   await logAudit(auth.user.email, 'update_site', 'site', id, { version: site.version }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: site })
 }

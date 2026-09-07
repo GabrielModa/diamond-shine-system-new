@@ -1,4 +1,4 @@
-import type { TimeEntry } from '@prisma/client'
+import { Prisma, type TimeEntry } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../../../lib/prisma'
 import { requireCapability } from '../../../../../lib/auth'
@@ -8,8 +8,10 @@ import { assessLocation } from '../../../../../modules/execution/location'
 import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { startVisitSchema } from '../../../../../modules/execution/schemas'
 import { asInputJson } from '../../../../../modules/operations/json'
+import { lockUserTimerStart } from '../../../../../modules/execution/timer-lock'
 
 class VisitStartConflict extends Error {}
+class ActiveTimerConflict extends Error {}
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'visits.execute')
@@ -81,6 +83,13 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   let timeEntry: TimeEntry
   try {
     timeEntry = await prisma.$transaction(async (tx) => {
+      await lockUserTimerStart(tx, auth.user.organizationId, auth.user.id)
+      const activeTimer = await tx.timeEntry.findFirst({
+        where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
+        select: { id: true },
+      })
+      if (activeTimer) throw new ActiveTimerConflict()
+
       const claimed = await tx.visit.updateMany({
         where: {
           id: visit.id,
@@ -140,31 +149,77 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         })
       }
       if (parsed.data.clientMutationId && parsed.data.deviceId) {
-        await tx.offlineMutation.upsert({
-          where: { organizationId_clientMutationId: { organizationId: auth.user.organizationId, clientMutationId: parsed.data.clientMutationId } },
-          update: { status: 'duplicate', result: asInputJson({ timeEntryId: created.id }) },
-          create: {
+        const updatedMutation = await tx.offlineMutation.updateMany({
+          where: {
             organizationId: auth.user.organizationId,
-            userId: auth.user.id,
             clientMutationId: parsed.data.clientMutationId,
+            userId: auth.user.id,
             deviceId: parsed.data.deviceId,
             mutationType: 'visit.start',
             entityId: visit.id,
-            payload: asInputJson(JSON.parse(JSON.stringify(parsed.data)))!,
-            result: asInputJson({ timeEntryId: created.id }),
-            clientCreatedAt: startedAt,
           },
+          data: { status: 'duplicate', result: asInputJson({ timeEntryId: created.id }) },
         })
+        if (updatedMutation.count === 0) {
+          await tx.offlineMutation.create({
+            data: {
+              organizationId: auth.user.organizationId,
+              userId: auth.user.id,
+              clientMutationId: parsed.data.clientMutationId,
+              deviceId: parsed.data.deviceId,
+              mutationType: 'visit.start',
+              entityId: visit.id,
+              payload: asInputJson(JSON.parse(JSON.stringify(parsed.data)))!,
+              result: asInputJson({ timeEntryId: created.id }),
+              clientCreatedAt: startedAt,
+            },
+          })
+        }
       }
       return created
     })
   } catch (error) {
+    if (error instanceof ActiveTimerConflict) {
+      if (parsed.data.clientMutationId) {
+        const duplicate = await prisma.timeEntry.findFirst({
+          where: {
+            organizationId: auth.user.organizationId,
+            clientMutationId: parsed.data.clientMutationId,
+            userId: auth.user.id,
+            visitId: visit.id,
+          },
+        })
+        if (duplicate) {
+          return NextResponse.json({ ok: true, duplicate: true, data: duplicate })
+        }
+      }
+      const current = await prisma.timeEntry.findFirst({
+        where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
+        include: { visit: { select: { id: true, scheduledStart: true } } },
+      })
+      return NextResponse.json({
+        ok: false,
+        error: current?.visitId === visit.id ? 'This visit timer is already running.' : 'Another timer is already running.',
+        code: 'ACTIVE_TIMER',
+        data: current,
+      }, { status: 409 })
+    }
     if (error instanceof VisitStartConflict) {
       return NextResponse.json({
         ok: false,
         error: 'This visit can no longer be started.',
         code: 'VISIT_NOT_STARTABLE',
       }, { status: 409 })
+    }
+    if (
+      parsed.data.clientMutationId
+      && error instanceof Prisma.PrismaClientKnownRequestError
+      && error.code === 'P2002'
+    ) {
+      return NextResponse.json(
+        { ok: false, error: 'Mutation identifier is already in use.', code: 'MUTATION_ID_CONFLICT' },
+        { status: 409 },
+      )
     }
     throw error
   }

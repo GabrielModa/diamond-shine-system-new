@@ -13,9 +13,16 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const current = await prisma.timeEntryDispute.findFirst({ where: { id, organizationId: auth.user.organizationId } })
   if (!current) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (current.status !== 'open') return NextResponse.json({ ok: false, error: 'This correction request has already been resolved.' }, { status: 409 })
-  const dispute = await prisma.timeEntryDispute.update({
-    where: { id: current.id },
-    data: { status: parsed.data.decision, resolution: parsed.data.resolution, resolvedBy: auth.user.id, resolvedAt: new Date() },
+  const resolvedAt = new Date()
+  const claimed = await prisma.timeEntryDispute.updateMany({
+    where: { id: current.id, organizationId: auth.user.organizationId, status: 'open' },
+    data: { status: parsed.data.decision, resolution: parsed.data.resolution, resolvedBy: auth.user.id, resolvedAt },
+  })
+  if (claimed.count !== 1) {
+    return NextResponse.json({ ok: false, error: 'This correction request has already been resolved.' }, { status: 409 })
+  }
+  const dispute = await prisma.timeEntryDispute.findFirstOrThrow({
+    where: { id: current.id, organizationId: auth.user.organizationId },
     select: { id: true, reason: true, status: true, resolution: true, resolvedAt: true, createdAt: true },
   })
   await logAudit(auth.user.email, 'resolve_time_entry_dispute', 'time_entry_dispute', dispute.id, { decision: dispute.status, timeEntryId: current.timeEntryId }, auth.user.organizationId)

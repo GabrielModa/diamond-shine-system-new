@@ -25,8 +25,8 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   if (result.version !== parsed.data.version) {
     return NextResponse.json({ ok: false, error: 'Task changed. Refresh and try again.' }, { status: 409 })
   }
-  const updated = await prisma.visitTaskResult.update({
-    where: { id: result.id },
+  const claimed = await prisma.visitTaskResult.updateMany({
+    where: { id: result.id, organizationId: auth.user.organizationId, version: parsed.data.version },
     data: {
       status: parsed.data.status,
       response: asInputJson(parsed.data.response),
@@ -35,6 +35,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       completedAt: parsed.data.status === 'pending' ? null : new Date(),
       version: { increment: 1 },
     },
+  })
+  if (claimed.count !== 1) {
+    return NextResponse.json({ ok: false, error: 'Task changed. Refresh and try again.' }, { status: 409 })
+  }
+  const updated = await prisma.visitTaskResult.findUniqueOrThrow({
+    where: { id: result.id },
     include: { versionTask: true, evidence: true },
   })
   await logAudit(auth.user.email, 'update_visit_task', 'visit_task_result', result.id, {

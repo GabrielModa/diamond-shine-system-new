@@ -1,3 +1,4 @@
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../lib/prisma'
 import { requireCapability } from '../../../lib/auth'
@@ -14,6 +15,116 @@ import { POST as completeVisit } from '../visits/[id]/complete/route'
 import { POST as createStockCount } from '../sites/[id]/stock-counts/route'
 
 type SyncOperation = ReturnType<typeof syncBatchSchema.parse>['operations'][number]
+
+const PROCESSING_MARKER = 'PROCESSING'
+const PROCESSING_LEASE_MS = 10 * 60_000
+
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(',')}]`
+  if (value && typeof value === 'object') {
+    const entries = Object.entries(value as Record<string, unknown>)
+      .sort(([left], [right]) => left.localeCompare(right))
+      .map(([key, nested]) => `${JSON.stringify(key)}:${canonicalJson(nested)}`)
+    return `{${entries.join(',')}}`
+  }
+  return JSON.stringify(value) ?? 'null'
+}
+
+function operationMatches(existing: {
+  userId: string
+  deviceId: string
+  mutationType: string
+  entityId: string | null
+  payload: Prisma.JsonValue
+  clientCreatedAt: Date
+}, userId: string, deviceId: string, operation: SyncOperation) {
+  return existing.userId === userId
+    && existing.deviceId === deviceId
+    && existing.mutationType === operation.type
+    && existing.entityId === operation.entityId
+    && existing.clientCreatedAt.getTime() === operation.clientCreatedAt.getTime()
+    && canonicalJson(existing.payload) === canonicalJson(operation.payload)
+}
+
+type MutationClaim =
+  | { kind: 'claimed' }
+  | { kind: 'duplicate'; data: Prisma.JsonValue | null; error: string | null }
+  | { kind: 'conflict'; error: string }
+
+async function claimOfflineMutation(
+  organizationId: string,
+  userId: string,
+  deviceId: string,
+  operation: SyncOperation,
+): Promise<MutationClaim> {
+  const uniqueWhere = {
+    organizationId_clientMutationId: { organizationId, clientMutationId: operation.clientMutationId },
+  }
+
+  try {
+    await prisma.offlineMutation.create({
+      data: {
+        organizationId,
+        userId,
+        clientMutationId: operation.clientMutationId,
+        deviceId,
+        mutationType: operation.type,
+        entityId: operation.entityId,
+        payload: asInputJson(JSON.parse(JSON.stringify(operation.payload)))!,
+        status: 'failed',
+        error: PROCESSING_MARKER,
+        clientCreatedAt: operation.clientCreatedAt,
+      },
+    })
+    return { kind: 'claimed' }
+  } catch (error) {
+    if (!(error instanceof Prisma.PrismaClientKnownRequestError) || error.code !== 'P2002') throw error
+  }
+
+  const existing = await prisma.offlineMutation.findUnique({ where: uniqueWhere })
+  if (!existing) return { kind: 'conflict', error: 'Mutation could not be claimed safely. Retry later.' }
+
+  // A clientMutationId is private to the user/device that created it. Never
+  // return another user's stored mutation result merely because the random ID
+  // collided or was guessed inside the same organization.
+  if (!operationMatches(existing, userId, deviceId, operation)) {
+    return { kind: 'conflict', error: 'Mutation identifier is already in use.' }
+  }
+  if (existing.status === 'processed') {
+    return { kind: 'duplicate', data: existing.result, error: existing.error }
+  }
+  if (existing.error === PROCESSING_MARKER) {
+    const staleBefore = new Date(Date.now() - PROCESSING_LEASE_MS)
+    if (existing.processedAt > staleBefore) {
+      return { kind: 'conflict', error: 'Mutation is already being processed. Retry later.' }
+    }
+    const reclaimed = await prisma.offlineMutation.updateMany({
+      where: {
+        id: existing.id,
+        userId,
+        error: PROCESSING_MARKER,
+        processedAt: { lte: staleBefore },
+      },
+      data: { status: 'failed', error: PROCESSING_MARKER, processedAt: new Date() },
+    })
+    return reclaimed.count === 1
+      ? { kind: 'claimed' }
+      : { kind: 'conflict', error: 'Mutation is already being processed. Retry later.' }
+  }
+
+  const claimed = await prisma.offlineMutation.updateMany({
+    where: {
+      id: existing.id,
+      userId,
+      status: { in: ['failed', 'conflicted'] },
+      error: { not: PROCESSING_MARKER },
+    },
+    data: { status: 'failed', error: PROCESSING_MARKER, processedAt: new Date() },
+  })
+  return claimed.count === 1
+    ? { kind: 'claimed' }
+    : { kind: 'conflict', error: 'Mutation is already being processed. Retry later.' }
+}
 
 function replayRequest(parent: NextRequest, path: string, method: string, payload: Record<string, unknown>) {
   const headers = new Headers({ 'content-type': 'application/json' })
@@ -45,6 +156,7 @@ async function resolveTaskResult(organizationId: string, visitId: string, payloa
 async function dispatchOperation(
   request: NextRequest,
   organizationId: string,
+  userId: string,
   deviceId: string,
   operation: SyncOperation
 ) {
@@ -103,7 +215,7 @@ async function dispatchOperation(
     let timeEntryId = typeof payload.timeEntryId === 'string' ? payload.timeEntryId : operation.entityId
     if (typeof payload.startMutationId === 'string') {
       const entry = await prisma.timeEntry.findFirst({
-        where: { organizationId, clientMutationId: payload.startMutationId },
+        where: { organizationId, userId, clientMutationId: payload.startMutationId },
         select: { id: true },
       })
       if (!entry) return NextResponse.json({ ok: false, error: 'The offline start has not synced yet.', code: 'START_NOT_SYNCED' }, { status: 409 })
@@ -136,44 +248,40 @@ export async function POST(request: NextRequest) {
 
   const results: Array<Record<string, unknown>> = []
   for (const operation of parsed.data.operations) {
-    const existing = await prisma.offlineMutation.findUnique({
-      where: {
-        organizationId_clientMutationId: {
-          organizationId: auth.user.organizationId,
-          clientMutationId: operation.clientMutationId,
-        },
-      },
-    })
-    if (existing?.status === 'processed') {
+    const claim = await claimOfflineMutation(
+      auth.user.organizationId,
+      auth.user.id,
+      parsed.data.deviceId,
+      operation,
+    )
+    if (claim.kind === 'duplicate') {
       results.push({
         clientMutationId: operation.clientMutationId,
         status: 'duplicate',
         httpStatus: 200,
-        data: existing.result,
-        error: existing.error,
+        data: claim.data,
+        error: claim.error,
+      })
+      continue
+    }
+    if (claim.kind === 'conflict') {
+      results.push({
+        clientMutationId: operation.clientMutationId,
+        status: 'conflicted',
+        httpStatus: 409,
+        error: claim.error,
       })
       continue
     }
 
-    await prisma.offlineMutation.upsert({
-      where: { organizationId_clientMutationId: { organizationId: auth.user.organizationId, clientMutationId: operation.clientMutationId } },
-      create: {
-        organizationId: auth.user.organizationId,
-        userId: auth.user.id,
-        clientMutationId: operation.clientMutationId,
-        deviceId: parsed.data.deviceId,
-        mutationType: operation.type,
-        entityId: operation.entityId,
-        payload: asInputJson(JSON.parse(JSON.stringify(operation.payload)))!,
-        status: 'failed',
-        error: 'PROCESSING',
-        clientCreatedAt: operation.clientCreatedAt,
-      },
-      update: { status: 'failed', error: 'PROCESSING' },
-    })
-
     try {
-      const response = await dispatchOperation(request, auth.user.organizationId, parsed.data.deviceId, operation)
+      const response = await dispatchOperation(
+        request,
+        auth.user.organizationId,
+        auth.user.id,
+        parsed.data.deviceId,
+        operation,
+      )
       const body = await response.json().catch(() => ({ ok: false, error: 'Invalid sync response' }))
       const status = response.ok ? 'processed' : response.status === 409 ? 'conflicted' : 'failed'
       const error = response.ok ? null : typeof body.error === 'string' ? body.error : 'Sync failed'

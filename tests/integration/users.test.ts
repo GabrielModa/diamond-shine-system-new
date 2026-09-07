@@ -7,6 +7,8 @@ import next from 'next'
 import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie } from './setup'
 import { LEGACY_ORGANIZATION_ID } from '../../src/lib/tenancy'
+import { issueAuthToken } from '../../src/lib/auth-tokens'
+import bcrypt from 'bcryptjs'
 
 vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
@@ -205,6 +207,16 @@ describe('POST /api/auth/login', () => {
     expect(blocked.headers['retry-after']).toBeTruthy()
   })
 
+  it('enforces the login limit under concurrent invalid attempts', async () => {
+    const responses = await Promise.all(Array.from({ length: 8 }, () => request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.12')
+      .send({ email: 'admin@ds.ie', password: 'incorrect-password' })))
+
+    expect(responses.filter((response) => response.status === 401)).toHaveLength(5)
+    expect(responses.filter((response) => response.status === 429)).toHaveLength(3)
+  })
+
   it('clears the attempt counter after a successful sign-in', async () => {
     await request(app)
       .post('/api/auth/login')
@@ -217,6 +229,43 @@ describe('POST /api/auth/login', () => {
       .send({ email: 'admin@ds.ie', password: 'password123' })
     expect(success.status).toBe(200)
     expect(await prisma.authRateLimit.count()).toBe(0)
+  })
+})
+
+describe('POST /api/auth/reset-password', () => {
+  it('revokes native bearer sessions when account credentials are reset', async () => {
+    const password = await bcrypt.hash('OldPassword123!', 12)
+    const user = await prisma.user.create({
+      data: { email: 'reset-session@test.io', name: 'Reset Session', role: 'employee', status: 'active', password },
+    })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'active',
+      },
+    })
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.13')
+      .send({ email: user.email, password: 'OldPassword123!', mobile: true, deviceName: 'reset-test-device' })
+    expect(login.status).toBe(200)
+    expect(login.body.data.accessToken).toBeTruthy()
+    expect(await prisma.mobileSession.count({ where: { userId: user.id, revokedAt: null } })).toBe(1)
+
+    const resetToken = await issueAuthToken(user.id, 'password_reset', LEGACY_ORGANIZATION_ID)
+    const reset = await request(app)
+      .post('/api/auth/reset-password')
+      .send({ token: resetToken.token, password: 'NewPassword123!' })
+    expect(reset.status).toBe(200)
+    expect(await prisma.mobileSession.count({ where: { userId: user.id, revokedAt: null } })).toBe(0)
+
+    const staleSession = await request(app)
+      .get('/api/operational-notices?scope=mine')
+      .set('Authorization', `Bearer ${login.body.data.accessToken}`)
+    expect(staleSession.status).toBe(401)
   })
 })
 

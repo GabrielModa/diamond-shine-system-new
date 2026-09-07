@@ -220,6 +220,12 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         : parsed.data.status
 
   const updated = await prisma.$transaction(async (tx) => {
+    const versionClaim = await tx.visit.updateMany({
+      where: { id, organizationId: auth.user.organizationId, version: parsed.data.version },
+      data: { version: { increment: 1 } },
+    })
+    if (versionClaim.count !== 1) return null
+
     if (parsed.data.assigneeIds || requiresNewAcknowledgement) {
       const selected = new Set(assigneeIds)
       for (const assignment of current.assignments) {
@@ -258,11 +264,18 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
         status: nextStatus,
         cancellationReason: cancelling ? parsed.data.cancellationReason!.trim() : parsed.data.cancellationReason,
         cancelledAt: cancelling ? new Date() : nextStatus ? null : undefined,
-        version: { increment: 1 },
       },
       include: { assignments: { include: { user: { select: { id: true, name: true, email: true } } } } },
     })
   })
+
+  if (!updated) {
+    return NextResponse.json({
+      ok: false,
+      error: 'This visit changed since you opened it. Close it, reopen the latest version and try again.',
+      code: 'VISIT_VERSION_CONFLICT',
+    }, { status: 409 })
+  }
 
   const updatedActiveIds = updated.assignments.filter((item) => isActiveAssignmentStatus(item.status)).map((item) => item.userId)
   const notificationRecipients = [...new Set([...currentActiveIds, ...updatedActiveIds])]
