@@ -1,4 +1,7 @@
 import { isActiveAssignmentStatus } from '../../modules/scheduling/assignment-lifecycle'
+import { COUNTED_VISIT_TIME_STATUSES, scheduleLifecycleState } from '../../modules/scheduling/schedule-lifecycle'
+
+export type { ScheduleLifecycleState } from '../../modules/scheduling/schedule-lifecycle'
 
 type AssignmentLike = { status: string; user: { id: string } }
 type TimeEntryLike = { userId: string; kind: string; status: string; durationSeconds?: number | null }
@@ -12,22 +15,7 @@ type VisitLike = {
 }
 
 export type ScheduleLifecycleFilter = 'attention' | 'booked' | 'confirmed' | 'done' | 'history'
-export type ScheduleLifecycleState = 'booked' | 'confirmed' | 'in_progress' | 'completion_blocked' | 'done' | 'cancelled' | 'missed'
-
-export const BOOKED_VISIT_STATUSES = ['scheduled', 'dispatched'] as const
-export const CONFIRMED_VISIT_STATUSES = ['acknowledged', 'in_progress', 'completion_blocked'] as const
-export const COUNTED_VISIT_TIME_STATUSES = ['completed', 'needs_review', 'approved'] as const
 const COUNTED_TIME_STATUSES = new Set<string>(COUNTED_VISIT_TIME_STATUSES)
-
-export function scheduleLifecycleState(status: string): ScheduleLifecycleState {
-  if ((BOOKED_VISIT_STATUSES as readonly string[]).includes(status)) return 'booked'
-  if (status === 'acknowledged') return 'confirmed'
-  if (status === 'in_progress') return 'in_progress'
-  if (status === 'completion_blocked') return 'completion_blocked'
-  if (status === 'completed') return 'done'
-  if (status === 'cancelled') return 'cancelled'
-  return 'missed'
-}
 
 export function matchesScheduleLifecycleFilter(status: string, filter: ScheduleLifecycleFilter) {
   const state = scheduleLifecycleState(status)
