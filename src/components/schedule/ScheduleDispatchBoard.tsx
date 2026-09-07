@@ -7,6 +7,7 @@ import { calendarDateKey, formatOperationalTime, operationalCalendarDate, operat
 import { formatDuration } from '../../lib/duration'
 import { isActiveAssignmentStatus as isActiveAssignment, isOperationalVisitStatus } from '../../modules/scheduling/assignment-lifecycle'
 import ScheduleHealthPanel from './ScheduleHealthPanel'
+import EmployeeScheduleSummary from './EmployeeScheduleSummary'
 import DateTimeField12h from '../ui/DateTimeField12h'
 import DurationField from '../ui/DurationField'
 import StandardSelect from '../ui/StandardSelect'
@@ -14,7 +15,9 @@ import TeamPicker from './TeamPicker'
 import { useScheduleCapacity } from './useScheduleCapacity'
 import { useScheduleContext } from './useScheduleContext'
 import { visitAttention } from './visit-attention'
+import { matchesScheduleLifecycleFilter, scheduleLifecycleLabel, type ScheduleLifecycleFilter } from './schedule-lifecycle'
 import './ScheduleFocus.css'
+import './ScheduleLifecycle.css'
 
 type Plan = {
   id: string
@@ -73,7 +76,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   const [availability, setAvailability] = useState<Availability[]>([])
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
-  const [statusFilter, setStatusFilter] = useState('attention')
+  const [statusFilter, setStatusFilter] = useState<ScheduleLifecycleFilter>('attention')
   const [healthFocus, setHealthFocus] = useState<HealthFocus>(null)
   const [healthRefreshSignal, setHealthRefreshSignal] = useState(0)
   const [healthCloseSignal, setHealthCloseSignal] = useState(0)
@@ -137,7 +140,6 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   useEffect(() => {
     setDraftTeamFilter(teamFilter)
     setHealthFocus(null)
-    if (teamFilter !== 'all') setStatusFilter('upcoming')
   }, [teamFilter])
   useEffect(() => {
     const visitId = new URLSearchParams(window.location.search).get('visit')
@@ -220,7 +222,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     const activeAssignments = visit.assignments.filter((assignment) => isActiveAssignment(assignment.status))
     const attention = visitAttention(visit, visitHasConflict(visit, focusedEmployeeId), focusedEmployeeId)
     const historical = !isOperationalVisitStatus(visit.status)
-    const statusMatch = healthFocus ? !historical : statusFilter === 'attention' ? attention.any : statusFilter === 'upcoming' ? !historical : statusFilter === 'history' ? historical : visit.status === statusFilter
+    const statusMatch = healthFocus ? !historical : statusFilter === 'attention' ? attention.any : matchesScheduleLifecycleFilter(visit.status, statusFilter)
     const healthMatch = healthFocus ? attention[healthFocus] : true
     const teamMatch = teamFilter === 'all' || (teamFilter === 'unassigned' ? activeAssignments.length === 0 : activeAssignments.some((assignment) => assignment.user.id === teamFilter))
     return statusMatch && healthMatch && teamMatch
@@ -284,7 +286,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
 
   function closeHealth() { setHealthCloseSignal((value) => value + 1) }
   function prepareMajorSurface() { closeHealth(); setShowFindTime(false); setShowFilters(false); window.dispatchEvent(new Event('diamond:close-nav')) }
-  function clearHealthFocus(nextStatus: string) { setHealthFocus(null); setStatusFilter(nextStatus) }
+  function clearHealthFocus(nextStatus: ScheduleLifecycleFilter) { setHealthFocus(null); setStatusFilter(nextStatus) }
   function changeHealthFocus(focus: HealthFocus) { setShowFindTime(false); setShowFilters(false); setHealthFocus(focus); setStatusFilter('attention') }
   function movePeriod(direction: number) {
     const next = new Date(anchorDate)
@@ -399,7 +401,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     const attention = visitAttention(visit, conflicted, focusedEmployeeId)
     return <button type="button" className={`visit-card visit-card-button${compact ? ' compact' : ''}${activeAssignments.length < visit.requiredWorkers ? ' coverage-gap' : ''}${conflicted ? ' schedule-conflict' : ''}`} key={visit.id} data-attention={attention.tone} data-status={visit.status} onClick={() => selectVisit(visit)}>
       <time><span>{formatOperationalTime(visit.scheduledStart, timezone)}</span><span>→ {formatOperationalTime(visit.scheduledEnd, timezone)}</span></time>
-      <div><strong>{compact ? visit.site.client.displayName : `${visit.site.client.displayName} · ${visit.job.name}`}</strong>{!compact ? <><div>{visit.site.name}</div><small>{visit.site.city} · {formatDuration(Math.round((new Date(visit.scheduledEnd).getTime() - new Date(visit.scheduledStart).getTime()) / 60000))} shift</small></> : <small className="visit-coverage">{formatDuration(Math.round((new Date(visit.scheduledEnd).getTime() - new Date(visit.scheduledStart).getTime()) / 60000))} shift · Team {coverage}</small>}<span className="visit-attention-labels">{attention.conflicts ? <small>Conflict</small> : null}{attention.scheduling ? <small>Team needed</small> : null}{attention.confirmation ? <small>Awaiting confirmation</small> : null}</span></div>
+      <div><strong>{compact ? visit.site.client.displayName : `${visit.site.client.displayName} · ${visit.job.name}`}</strong>{!compact ? <><div>{visit.site.name}</div><small>{visit.site.city} · {formatDuration(Math.round((new Date(visit.scheduledEnd).getTime() - new Date(visit.scheduledStart).getTime()) / 60000))} shift</small></> : <small className="visit-coverage">{formatDuration(Math.round((new Date(visit.scheduledEnd).getTime() - new Date(visit.scheduledStart).getTime()) / 60000))} shift · Team {coverage}</small>}<span className="visit-lifecycle">{scheduleLifecycleLabel(visit.status)}</span><span className="visit-attention-labels">{attention.conflicts ? <small>Conflict</small> : null}{attention.scheduling ? <small>Team needed</small> : null}{attention.confirmation ? <small>Awaiting confirmation</small> : null}</span></div>
       {!compact ? <div className="visit-team">{activeAssignments.length ? activeAssignments.map((assignment) => <span key={assignment.user.id}>{initials(assignment.user)}</span>) : <em>Unassigned</em>}<small className="visit-coverage">{coverage} covered</small></div> : null}
     </button>
   }
@@ -409,7 +411,9 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
 
     <section className="schedule-focus-tabs" aria-label="Schedule focus">
       <button className={statusFilter === 'attention' ? 'selected' : ''} onClick={() => clearHealthFocus('attention')}>Needs attention</button>
-      <button className={!healthFocus && statusFilter === 'upcoming' ? 'selected' : ''} onClick={() => clearHealthFocus('upcoming')}>Upcoming</button>
+      <button className={!healthFocus && statusFilter === 'booked' ? 'selected' : ''} onClick={() => clearHealthFocus('booked')}>Booked</button>
+      <button className={!healthFocus && statusFilter === 'confirmed' ? 'selected' : ''} onClick={() => clearHealthFocus('confirmed')}>Confirmed</button>
+      <button className={!healthFocus && statusFilter === 'done' ? 'selected' : ''} onClick={() => clearHealthFocus('done')}>Done</button>
       <button className={!healthFocus && statusFilter === 'history' ? 'selected' : ''} onClick={() => clearHealthFocus('history')}>History</button>
     </section>
 
@@ -425,6 +429,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     </section>
 
     {notice ? <div className={`toast ${noticeIsError ? 'error' : 'success'}`} role={noticeIsError ? 'alert' : 'status'}>{notice}<button className="notice-close" onClick={() => setNotice(null)}>×</button></div> : null}
+    {focusedEmployeeId ? <EmployeeScheduleSummary employeeId={focusedEmployeeId} from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} refreshSignal={healthRefreshSignal} /> : null}
     {canManage ? <ScheduleHealthPanel from={visibleWindow.from.toISOString()} to={visibleWindow.to.toISOString()} timezone={timezone} teamScope={teamFilter} focus={healthFocus} attentionView={statusFilter === 'attention'} attentionVisitCount={attentionVisitCount} canManage={canManage} closeSignal={healthCloseSignal} refreshSignal={healthRefreshSignal} onChanged={refresh} onFocusChange={changeHealthFocus} onOpenVisit={openHealthVisit} onOpenServicePlan={openServiceConfiguration} /> : null}
 
     {showAdd ? <div className="modal-overlay active schedule-overlay" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAdd(false) }}><form className="schedule-create card schedule-sheet" onSubmit={addVisit} role="dialog" aria-modal="true" aria-labelledby="add-visit-title"><header><div><span className="eyebrow">One-off operational visit</span><h2 id="add-visit-title">Add visit</h2><p className="muted">Add one occurrence without changing the client’s recurring service. To change frequency, days or the contract, use the Client Account.</p></div><button type="button" className="btn-secondary" onClick={() => setShowAdd(false)}>Close</button></header>
