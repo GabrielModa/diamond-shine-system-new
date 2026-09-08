@@ -1,3 +1,5 @@
+import { Platform } from 'react-native';
+
 export const colors = {
   ink: '#102A43',
   muted: '#627D98',
@@ -13,10 +15,21 @@ export const colors = {
   success: '#16845A',
 };
 
-export const shadow = {
-  shadowColor: '#102A43',
-  shadowOpacity: 0.08,
-  shadowRadius: 12,
-  shadowOffset: { width: 0, height: 5 },
-  elevation: 3,
-};
+// Large shadow stacks are noticeably expensive on mid-range Android devices.
+// Keep iOS depth, but use a light native elevation on Android so long visit
+// and time screens scroll without repainting heavy blurred shadows per card.
+export const shadow = Platform.select({
+  ios: {
+    shadowColor: '#102A43',
+    shadowOpacity: 0.08,
+    shadowRadius: 12,
+    shadowOffset: { width: 0, height: 5 },
+  },
+  android: { elevation: 1 },
+  default: {
+    shadowColor: '#102A43',
+    shadowOpacity: 0.05,
+    shadowRadius: 8,
+    shadowOffset: { width: 0, height: 3 },
+  },
+}) ?? {};

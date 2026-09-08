@@ -11,6 +11,7 @@ import {
   type SupplyEmailData,
   type ProfileChangeEmailData,
 } from './email'
+import { sendOperationalEmail, type OperationalEmailData } from './operational-email'
 import { prisma } from './prisma'
 import { sendOperationalPush } from './push-notifications'
 
@@ -21,6 +22,7 @@ export type NotificationKind =
   | 'quality_inspection_failed'
   | 'corrective_action_updated'
   | 'operational_notice_push'
+  | 'operational_email'
   | 'profile_change_alert'
 
 type EnqueueInput = {
@@ -46,6 +48,9 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
   }
   if (kind === 'operational_notice_push') {
     return sendOperationalPush(payload as unknown as Parameters<typeof sendOperationalPush>[0], organizationId)
+  }
+  if (kind === 'operational_email') {
+    return sendOperationalEmail(payload as unknown as OperationalEmailData, organizationId)
   }
   if (kind === 'profile_change_alert') return sendProfileChangeNotification(payload as unknown as ProfileChangeEmailData)
   return { ok: false, error: `Unsupported notification kind: ${kind}` }

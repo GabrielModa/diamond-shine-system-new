@@ -47,7 +47,7 @@ async function recurringPlan() {
 }
 
 describe('recurring assignment commitment', () => {
-  it('accepts a recurring job once and carries acceptance into later generated visits', async () => {
+  it('accepts a recurring job once, emails both sides, and carries acceptance into later generated visits', async () => {
     const plan = await recurringPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
     const membership = await prisma.membership.findFirstOrThrow({
@@ -72,12 +72,42 @@ describe('recurring assignment commitment', () => {
     expect(initial).toHaveLength(2)
     expect(initial.every((visit) => visit.assignments[0]?.status === 'assigned')).toBe(true)
 
+    const employeeAssignmentEmail = await prisma.notificationJob.findFirst({
+      where: {
+        organizationId: membership.organizationId,
+        kind: 'operational_email',
+        createdBy: 'admin@ds.ie',
+        entityType: 'job',
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(employeeAssignmentEmail).not.toBeNull()
+    const employeeAssignmentPayload = employeeAssignmentEmail?.payload as Record<string, unknown>
+    expect(employeeAssignmentPayload.title).toBe('New recurring cleaning schedule')
+    expect(employeeAssignmentPayload.userIds).toEqual([employee.id])
+
     const accepted = await request(app)
       .post(`/api/visits/${initial[0].id}/acknowledgement`)
       .set('Cookie', employeeCookie)
       .send({ status: 'acknowledged', scope: 'recurring' })
     expect(accepted.status).toBe(200)
     expect(accepted.body.data.affectedVisits).toBe(2)
+
+    const managerResponseEmail = await prisma.notificationJob.findFirst({
+      where: {
+        organizationId: membership.organizationId,
+        kind: 'operational_email',
+        createdBy: 'employee@ds.ie',
+        entityType: 'visit_assignment',
+      },
+      orderBy: { createdAt: 'desc' },
+    })
+    expect(managerResponseEmail).not.toBeNull()
+    const managerResponsePayload = managerResponseEmail?.payload as Record<string, unknown>
+    expect(managerResponsePayload.title).toBe('Cleaning schedule confirmed')
+    expect(managerResponsePayload.tone).toBe('success')
+    expect(Array.isArray(managerResponsePayload.userIds)).toBe(true)
+    expect((managerResponsePayload.userIds as string[]).length).toBeGreaterThan(0)
 
     const acceptedInitial = await prisma.visit.findMany({
       where: { jobId },

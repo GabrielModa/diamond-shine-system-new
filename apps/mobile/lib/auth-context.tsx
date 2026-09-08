@@ -1,4 +1,5 @@
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { InteractionManager } from 'react-native';
 import { normalizeBaseUrl, registerUnauthorizedHandler } from './api';
 import { getDeviceId } from './device';
 import { claimOfflineWorkspace } from './offline';
@@ -142,11 +143,20 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [signOut]);
 
   useEffect(() => {
-    if (session) {
+    if (!session) return;
+    let disposed = false;
+    // Notification registration is useful but not needed to paint Today or
+    // restore offline work. Keep it off the startup critical path.
+    const task = InteractionManager.runAfterInteractions(() => {
+      if (disposed) return;
       void registerForPushNotifications(session)
-        .then((token) => { pushToken.current = token; })
+        .then((token) => { if (!disposed) pushToken.current = token; })
         .catch(() => undefined);
-    }
+    });
+    return () => {
+      disposed = true;
+      task.cancel();
+    };
   }, [session]);
 
   const value = useMemo(() => ({ session, loading, signIn, signOut, defaultServerUrl }), [session, loading, signIn, signOut, defaultServerUrl]);

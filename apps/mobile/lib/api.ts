@@ -1,13 +1,30 @@
 import type { Session } from './types';
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
+const inFlightGets = new Map<string, Promise<unknown>>();
+const mutationListeners = new Set<(event: { path: string; method: string }) => void>();
 
 export function registerUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
   unauthorizedHandler = handler;
 }
 
+export function subscribeApiMutations(listener: (event: { path: string; method: string }) => void) {
+  mutationListeners.add(listener);
+  return () => mutationListeners.delete(listener);
+}
+
+function emitApiMutation(path: string, method: string) {
+  for (const listener of mutationListeners) {
+    try {
+      listener({ path, method });
+    } catch {
+      // Optional observers must never turn a successful field action into an error.
+    }
+  }
+}
+
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code?: string, public details?: unknown) {
+  constructor(message: string, public status: number, public code?: string, public details?: unknown, public data?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
@@ -22,6 +39,13 @@ export function normalizeBaseUrl(value: string) {
 }
 
 type ApiPayload<T> = { ok?: boolean; data?: T; error?: string; code?: string; details?: unknown };
+
+function mobileErrorMessage(payload: ApiPayload<unknown> | null) {
+  if (payload?.code === 'ACTIVE_TIMER' || payload?.code === 'TIMER_ALREADY_RUNNING') {
+    return 'You already have work in progress. Open Time to continue or finish it before starting another timer.';
+  }
+  return payload?.error ?? 'Unable to reach Diamond Shine.';
+}
 
 async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit) {
   const controller = new AbortController();
@@ -54,22 +78,47 @@ async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>,
   }
 }
 
-export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
+async function fetchPayload<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
   if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to reach Diamond Shine.', response.status, payload?.code, payload?.details);
+    throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
 }
 
+export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  // Several mounted screens can request the same read during navigation or
+  // reconnect. Share only the in-flight GET — never cache a stale response and
+  // never dedupe mutations.
+  if (method === 'GET' && !init?.signal) {
+    const key = `${normalizeBaseUrl(session.baseUrl)}|${session.accessToken}|${path}`;
+    const existing = inFlightGets.get(key);
+    if (existing) return existing as Promise<T>;
+    const promise = fetchPayload<T>(session, path, init).finally(() => {
+      if (inFlightGets.get(key) === promise) inFlightGets.delete(key);
+    });
+    inFlightGets.set(key, promise);
+    return promise;
+  }
+  const result = await fetchPayload<T>(session, path, init);
+  if (method !== 'GET' && method !== 'HEAD') emitApiMutation(path, method);
+  return result;
+}
+
 export async function apiFetchSyncBatch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
+  const method = (init?.method ?? 'POST').toUpperCase();
   // /api/sync intentionally returns 207 + ok:false when only part of a batch conflicts.
   // The mobile queue must inspect every result and preserve successful operations.
-  if (response.status === 207 && payload) return payload as T;
-  if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to synchronize saved changes.', response.status, payload?.code, payload?.details);
+  if (response.status === 207 && payload) {
+    emitApiMutation(path, method);
+    return payload as T;
   }
+  if (!response.ok || payload?.ok === false) {
+    throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
+  }
+  emitApiMutation(path, method);
   return (payload?.data ?? payload) as T;
 }
 

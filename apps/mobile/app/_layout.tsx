@@ -1,4 +1,4 @@
-import VisitLocationPrecheck from '@/components/VisitLocationPrecheck';
+import FieldNotificationPlanner from '@/components/FieldNotificationPlanner';
 import VisitPresenceTracker from '@/components/VisitPresenceTracker';
 import { AuthProvider } from '@/lib/auth-context';
 import { isExpoGo } from '@/lib/runtime';
@@ -10,7 +10,19 @@ import { SafeAreaProvider } from 'react-native-safe-area-context';
 import 'react-native-reanimated';
 
 function openNotification(data?: Record<string, unknown>) {
-  if (data?.type === 'operational_notice') router.push('/(tabs)/inbox');
+  if (data?.type === 'operational_notice') {
+    router.push('/(tabs)/inbox');
+    return;
+  }
+  if ((data?.type === 'work_progress' || data?.type === 'visit_reminder') && typeof data.visitId === 'string') {
+    router.push(`/visit/${data.visitId}`);
+    return;
+  }
+  if (data?.type === 'schedule_confirmation') {
+    router.push('/(tabs)/work');
+    return;
+  }
+  if (data?.type === 'day_summary') router.push('/(tabs)');
 }
 
 export default function RootLayout() {
@@ -37,8 +49,8 @@ export default function RootLayout() {
 
   return <SafeAreaProvider>
     <AuthProvider>
+      <FieldNotificationPlanner />
       <VisitPresenceTracker />
-      <VisitLocationPrecheck />
       <StatusBar style="dark" />
       <Stack screenOptions={{ headerStyle: { backgroundColor: colors.surface }, headerTintColor: colors.ink, headerTitleStyle: { fontWeight: '800' }, contentStyle: { backgroundColor: colors.canvas } }}>
         <Stack.Screen name="index" options={{ headerShown: false }} />

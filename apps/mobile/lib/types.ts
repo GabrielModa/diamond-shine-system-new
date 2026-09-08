@@ -58,6 +58,14 @@ export type TimeEntry = {
   user?: Person;
 };
 
+export type EvidenceAsset = {
+  id: string;
+  kind: string;
+  visibility?: string;
+  metadata?: unknown;
+  createdAt?: string;
+};
+
 export type Visit = {
   id: string;
   status: string;
@@ -81,6 +89,7 @@ export type Visit = {
   }>;
   taskResults?: TaskResult[];
   timeEntries?: TimeEntry[];
+  evidenceAssets?: EvidenceAsset[];
   incidents?: Array<{ id: string; title: string; severity: string; status: string }>;
   completedAt?: string | null;
   reopenedAt?: string | null;

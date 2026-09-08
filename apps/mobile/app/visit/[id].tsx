@@ -1,7 +1,8 @@
 import { Button, Card, EmptyState, Screen } from '@/components/ui';
-import { apiFetch, isNetworkApiError } from '@/lib/api';
+import { ApiError, apiFetch, isNetworkApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { getDeviceId } from '@/lib/device';
+import { fieldVisitState } from '@/lib/field-presentation';
 import { cachedVisit, clearLocalTimer, enqueue, getAnyLocalTimer, getLocalTimer, hasPendingOperation, mutationId, prepareVisitForOffline, setLocalTimer, updateCachedVisit, type LocalTimer } from '@/lib/offline';
 import { formatOperationalTime } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
@@ -10,23 +11,16 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Coordinates = { latitude: number; longitude: number; accuracyM?: number | null };
-type LocationAssessment = {
-  classification: 'verified' | 'near' | 'suspicious' | 'unavailable';
-  distanceM: number | null;
-  accuracyM: number | null;
-  risk: 'verified' | 'watch' | 'review';
-  reviewRequired: boolean;
-  reason: string | null;
-};
-type StartVisitResult = TimeEntry & { location?: LocationAssessment | null };
-type StopVisitResult = TimeEntry & { location?: LocationAssessment | null };
 type TimerTone = 'on_track' | 'warning' | 'over';
+type ActiveTimerConflictData = { id: string; visitId?: string | null; kind?: TimeEntry['kind'] };
 
 const ACTIVE_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged']);
 const PENDING_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen']);
+const INCIDENT_CATEGORIES = ['access', 'security', 'damage', 'safety', 'equipment', 'client', 'materials', 'other'] as const;
+const INCIDENT_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 function formatElapsed(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
@@ -49,10 +43,27 @@ function localTimerKind(timer: LocalTimer | null) {
   return timer?.startMutationId.startsWith('visit-break-') ? 'break' as const : 'visit' as const;
 }
 
+function timerConflictData(error: ApiError): ActiveTimerConflictData | null {
+  if (!error.data || typeof error.data !== 'object') return null;
+  const value = error.data as Record<string, unknown>;
+  if (typeof value.id !== 'string') return null;
+  return {
+    id: value.id,
+    visitId: typeof value.visitId === 'string' || value.visitId === null ? value.visitId : undefined,
+    kind: typeof value.kind === 'string' ? value.kind as TimeEntry['kind'] : undefined,
+  };
+}
+
 function recordedSeconds(entry: TimeEntry) {
   if (entry.durationSeconds != null) return Math.max(0, entry.durationSeconds);
   if (!entry.endedAt) return 0;
   return Math.max(0, Math.round((new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000));
+}
+
+function evidencePhase(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const phase = (metadata as Record<string, unknown>).phase;
+  return typeof phase === 'string' ? phase : null;
 }
 
 function FlowStep({ number, label, state }: { number: string; label: string; state: 'done' | 'current' | 'next' }) {
@@ -72,6 +83,7 @@ export default function VisitScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [timerConflict, setTimerConflict] = useState(false);
   const [localTimer, setLocalTimerState] = useState<LocalTimer | null>(null);
   const [completionPending, setCompletionPending] = useState(false);
   const [declining, setDeclining] = useState(false);
@@ -85,6 +97,7 @@ export default function VisitScreen() {
     if (!session || !id) return;
     setLoading(true);
     setError('');
+    setTimerConflict(false);
     try {
       const remote = prepareVisitForOffline(await apiFetch<Visit>(session, `/api/visits/${id}`));
       setVisit(remote);
@@ -159,6 +172,7 @@ export default function VisitScreen() {
   const pausedElapsedSeconds = pausedSince ? Math.max(0, Math.floor((clockNow - new Date(pausedSince).getTime()) / 1000)) : 0;
   const closeoutReady = Boolean(canExecute && visitExecutionOpen && ownTimerFinished && !runningVisitSince && !pausedSince);
   const canWorkChecklist = Boolean(closeoutReady && !visitSubmitted);
+  const finishPhotoCount = (visit?.evidenceAssets ?? []).filter((asset) => evidencePhase(asset.metadata) === 'finish').length;
 
   useEffect(() => {
     if (!anyRunningSince) return;
@@ -188,12 +202,13 @@ export default function VisitScreen() {
               ? 'Record your work time before submitting the visit.'
               : !requiredDone
                 ? 'Complete every required closeout item before submitting.'
-                : 'Time and required work are recorded. Submit the visit for review.';
+                : 'Everything required is recorded. Submit once to finish the visit.';
 
   async function withAction(action: () => Promise<void>) {
     setBusy(true);
     setError('');
     setMessage('');
+    setTimerConflict(false);
     try {
       await action();
     } catch (cause) {
@@ -222,39 +237,123 @@ export default function VisitScreen() {
     if (!session || !visit || !canExecute) return;
     await withAction(async () => {
       const otherTimer = await getAnyLocalTimer();
-      if (otherTimer && otherTimer.visitId !== visit.id) {
-        throw new Error('Another timer is already running on this device. Finish it before starting this visit.');
-      }
       if (otherTimer && otherTimer.visitId === visit.id) {
         throw new Error(localTimerKind(otherTimer) === 'break' ? 'This visit is paused. Resume it instead.' : 'This visit timer is already running.');
       }
-      const location = await coordinates();
-      const clientMutationId = mutationId('visit-start');
-      const startedAt = new Date().toISOString();
-      const payload = { ...location, capturedAt: startedAt, clientMutationId, deviceId: await getDeviceId() };
 
-      const saveOffline = async () => {
-        await enqueue({ clientMutationId, type: 'visit.start', entityId: visit.id, clientCreatedAt: startedAt, payload: location ?? {} });
+      const location = await coordinates();
+      const deviceId = await getDeviceId();
+      const switchAt = new Date().toISOString();
+      const startedAt = otherTimer && otherTimer.visitId !== visit.id
+        ? new Date(new Date(switchAt).getTime() + 1).toISOString()
+        : switchAt;
+      const clientMutationId = mutationId('visit-start');
+      const payload = { ...location, capturedAt: startedAt, clientMutationId, deviceId };
+
+      const saveOffline = async (previous?: {
+        entityId: string;
+        startMutationId?: string;
+        localVisitId?: string;
+        mode: 'finish' | 'resume';
+      }) => {
+        if (previous) {
+          const stopMutationId = mutationId('time-switch-stop');
+          await enqueue({
+            clientMutationId: stopMutationId,
+            type: 'time.stop',
+            entityId: previous.entityId,
+            clientCreatedAt: switchAt,
+            payload: {
+              ...location,
+              capturedAt: switchAt,
+              endedAt: switchAt,
+              mode: previous.mode,
+              ...(previous.startMutationId ? { startMutationId: previous.startMutationId } : {}),
+            },
+          });
+          if (previous.localVisitId) await clearLocalTimer(previous.localVisitId);
+        }
+
+        await enqueue({
+          clientMutationId,
+          type: 'visit.start',
+          entityId: visit.id,
+          clientCreatedAt: startedAt,
+          payload: { ...location, capturedAt: startedAt },
+        });
         const timer = { visitId: visit.id, startMutationId: clientMutationId, startedAt };
         await setLocalTimer(timer);
         setLocalTimerState(timer);
         const localVisit = { ...visit, status: 'in_progress' };
         setVisit(localVisit);
         await updateCachedVisit(localVisit);
-        setMessage('Work started offline. Your clock-in is queued for sync.');
+        setMessage(previous
+          ? 'Switched work offline. The previous timer stop and this clock-in are queued in order.'
+          : 'Work started offline. Your clock-in is queued for sync.');
       };
+
+      if (otherTimer && otherTimer.visitId !== visit.id) {
+        const previousMode = localTimerKind(otherTimer) === 'break' ? 'resume' as const : 'finish' as const;
+        return saveOffline({
+          entityId: otherTimer.startMutationId,
+          startMutationId: otherTimer.startMutationId,
+          localVisitId: otherTimer.visitId,
+          mode: previousMode,
+        });
+      }
 
       if (!(await networkConnected())) return saveOffline();
       try {
-        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, {
+        await apiFetch(session, `/api/visits/${visit.id}/start`, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-        setMessage(locationMessage('Work started', result.location));
+        setMessage('Work started.');
         await load();
       } catch (cause) {
-        if (!isNetworkApiError(cause)) throw cause;
-        await saveOffline();
+        if (!(cause instanceof ApiError) || (cause.code !== 'ACTIVE_TIMER' && cause.code !== 'TIMER_ALREADY_RUNNING')) {
+          if (!isNetworkApiError(cause)) throw cause;
+          return saveOffline();
+        }
+
+        const active = timerConflictData(cause);
+        if (active?.visitId === visit.id) {
+          setMessage('Work is already running for this visit.');
+          await load();
+          return;
+        }
+        if (!active) {
+          setTimerConflict(true);
+          throw new Error('We could not identify the active timer to switch automatically. Open Time and try again.');
+        }
+
+        const stopPayload = {
+          ...location,
+          capturedAt: switchAt,
+          endedAt: switchAt,
+          mode: active.kind === 'break' ? 'resume' as const : 'finish' as const,
+          clientMutationId: mutationId('time-switch-stop'),
+          deviceId,
+        };
+
+        try {
+          await apiFetch(session, `/api/time-entries/${active.id}/stop`, {
+            method: 'POST',
+            body: JSON.stringify(stopPayload),
+          });
+          await apiFetch(session, `/api/visits/${visit.id}/start`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          setMessage('Switched work. Your previous timer stopped automatically.');
+          await load();
+        } catch (switchCause) {
+          if (!isNetworkApiError(switchCause)) throw switchCause;
+          await saveOffline({
+            entityId: active.id,
+            mode: active.kind === 'break' ? 'resume' : 'finish',
+          });
+        }
       }
     });
   }
@@ -301,7 +400,7 @@ export default function VisitScreen() {
       const breakStartedAt = new Date(new Date(endedAt).getTime() + 1).toISOString();
       const stopMutationId = mutationId('time-pause');
       const breakMutationId = mutationId('visit-break');
-      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const stopPayload = { endedAt, mode: 'pause' as const, clientMutationId: stopMutationId, deviceId };
       const breakPayload = { kind: 'break', visitId: visit.id, startedAt: breakStartedAt, capturedAt: breakStartedAt, clientMutationId: breakMutationId, deviceId };
 
       const saveOffline = async () => {
@@ -359,7 +458,7 @@ export default function VisitScreen() {
       const stopMutationId = mutationId('break-stop');
       const resumeMutationId = mutationId('visit-resume');
       const location = await coordinates();
-      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const stopPayload = { endedAt, mode: 'resume' as const, clientMutationId: stopMutationId, deviceId };
       const resumePayload = { ...location, capturedAt: resumedAt, clientMutationId: resumeMutationId, deviceId };
 
       const saveOffline = async () => {
@@ -396,10 +495,10 @@ export default function VisitScreen() {
       if (!(await networkConnected()) || !activeBreakEntry) return saveOffline();
       try {
         await apiFetch(session, `/api/time-entries/${activeBreakEntry.id}/stop`, { method: 'POST', body: JSON.stringify(stopPayload) });
-        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(resumePayload) });
+        await apiFetch(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(resumePayload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(locationMessage('Work resumed', result.location));
+        setMessage('Work resumed.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -416,7 +515,7 @@ export default function VisitScreen() {
       const location = await coordinates();
       const clientMutationId = mutationId('time-finish');
       const endedAt = new Date().toISOString();
-      const payload = { ...location, endedAt, clientMutationId, deviceId: await getDeviceId() };
+      const payload = { ...location, endedAt, mode: 'finish' as const, clientMutationId, deviceId: await getDeviceId() };
 
       const saveOffline = async () => {
         const startMutationId = localTimer?.startMutationId;
@@ -442,10 +541,10 @@ export default function VisitScreen() {
 
       if (!(await networkConnected()) || !currentEntry) return saveOffline();
       try {
-        const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
+        await apiFetch(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(`${locationMessage('Work finished', result.location)} Complete the closeout checklist when ready.`);
+        setMessage('Work finished. Complete the closeout checklist when ready.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -541,7 +640,7 @@ export default function VisitScreen() {
       if (!(await networkConnected())) return saveOffline();
       try {
         await apiFetch(session, `/api/visits/${visit.id}/complete`, { method: 'POST', body: JSON.stringify(payload) });
-        setMessage('Visit submitted to Operations for review.');
+        setMessage('Visit finished and submitted to Operations.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -569,11 +668,12 @@ export default function VisitScreen() {
   const timerToneLabel = paused ? 'Paused' : timerTone === 'over' ? 'Over planned time' : timerTone === 'warning' ? 'Approaching planned time' : 'On track';
   const remainingLabel = remainingSeconds >= 0 ? `${formatDuration(remainingSeconds)} planned remaining` : `${formatDuration(Math.abs(remainingSeconds))} over planned time`;
   const scheduleResponseNeeded = Boolean(ownAssignment && PENDING_ASSIGNMENTS.has(ownAssignment.status) && !visitExecutionOpen && !visitSubmitted);
+  const fieldState = fieldVisitState(visit, session?.email);
 
   return <Screen>
     <View style={styles.hero}>
       <View style={styles.statusRow}>
-        <Text style={styles.status}>{visit.status.replaceAll('_', ' ')}</Text>
+        <Text style={styles.status}>{fieldState.label}</Text>
         <Text style={styles.time}>{formatOperationalTime(visit.scheduledStart, timezone)}–{formatOperationalTime(visit.scheduledEnd, timezone)}</Text>
       </View>
       <Text style={styles.client}>{visit.site.client.displayName}</Text>
@@ -595,12 +695,17 @@ export default function VisitScreen() {
 
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {timerConflict ? <Card style={styles.timerConflict}>
+      <Text style={styles.sectionTitle}>Could not switch work automatically</Text>
+      <Text style={styles.sectionSub}>Your existing timer was left untouched. Open Time to review it, then try starting this visit again.</Text>
+      <Button title="Open Time" onPress={() => router.push('/(tabs)/timesheet')} />
+    </Card> : null}
 
     {scheduleResponseNeeded ? <Card style={styles.assignment}>
       <View>
         <Text style={styles.timerLabel}>Schedule response</Text>
         <Text style={styles.assignmentTitle}>Can you attend this visit?</Text>
-        <Text style={styles.sectionSub}>For recurring assignments, use My Work to accept the ongoing schedule once.</Text>
+        <Text style={styles.sectionSub}>For recurring assignments, use Schedule responses to accept the ongoing schedule once.</Text>
       </View>
       {declining ? <>
         <TextInput value={declineReason} onChangeText={setDeclineReason} style={styles.input} placeholder="Reason or availability detail" multiline />
@@ -609,7 +714,7 @@ export default function VisitScreen() {
           <Button title="Notify operations" variant="danger" compact loading={busy} onPress={() => void respondToAssignment('declined')} />
         </View>
       </> : <View style={styles.assignmentActions}>
-        <Button title="Confirm this visit" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} />
+        <Button title="Confirm visit" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} />
         <Button title="Can't attend" variant="secondary" compact onPress={() => setDeclining(true)} />
       </View>}
     </Card> : null}
@@ -634,7 +739,7 @@ export default function VisitScreen() {
       {visitSubmitted ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>VISIT SUBMITTED</Text>
         <Text style={styles.executionValue}>Sent for review</Text>
-        <Text style={styles.executionDetail}>Your recorded time, checklist, evidence and location events are now available to Operations.</Text>
+        <Text style={styles.executionDetail}>Your recorded time, checklist and evidence are now available to Operations.</Text>
       </View> : runningVisitSince || pausedSince ? <View style={styles.executionCopy}>
         <View style={styles.timerStatusRow}>
           <Text style={[styles.executionEyebrow, timerTone === 'warning' && styles.warningText, timerTone === 'over' && styles.overText]}>{paused ? 'WORK PAUSED' : 'WORK IN PROGRESS'}</Text>
@@ -659,11 +764,12 @@ export default function VisitScreen() {
       </View> : closeoutReady ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
         <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then submit the visit.</Text>
+        <Text style={styles.executionDetail}>Clock-out is recorded. If Finish work was a mistake, resume now. Once you submit the visit, the field record is final.</Text>
+        {!completionPending ? <Button title="Resume work" variant="secondary" loading={busy} onPress={() => void startVisit()} /> : null}
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
         <Text style={styles.executionValue}>Start work</Text>
-        <Text style={styles.executionDetail}>Starting records your clock-in and current location. Planned time is {formatDuration(plannedSeconds)}.</Text>
+        <Text style={styles.executionDetail}>Starting records your clock-in. If another timer is running, it will stop at the switch time. Planned time is {formatDuration(plannedSeconds)}.</Text>
         {canExecute ? <Button title="Start work" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
       </View>}
     </Card>
@@ -676,22 +782,12 @@ export default function VisitScreen() {
     {canFieldAction ? <Card style={styles.quickActions}>
       <View>
         <Text style={styles.sectionTitle}>Need something?</Text>
-        <Text style={styles.sectionSub}>Keep field exceptions out of WhatsApp and attached to this visit.</Text>
+        <Text style={styles.sectionSub}>Report a field issue or request materials without leaving the visit context.</Text>
       </View>
       <View style={styles.quickActionRow}>
-        <View style={styles.timerAction}><Button title={incidentOpen ? 'Close issue form' : 'Report issue'} variant="secondary" compact onPress={() => setIncidentOpen((value) => !value)} /></View>
-        <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id } })} /></View>
+        <View style={styles.timerAction}><Button title="Report issue" variant="secondary" compact onPress={() => router.push(`/incident/${visit.id}`)} /></View>
+        <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id, mode: 'request' } })} /></View>
       </View>
-      {incidentOpen ? <View style={styles.incidentForm}>
-        <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
-        <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
-        <View style={styles.severity}>
-          {['low', 'medium', 'high', 'critical'].map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
-            <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
-          </Pressable>)}
-        </View>
-        <Button title="Send to operations" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} />
-      </View> : null}
     </Card> : null}
 
     {closeoutReady || visitSubmitted || completionPending ? <>
@@ -716,29 +812,60 @@ export default function VisitScreen() {
             <Pressable disabled={busy} onPress={() => void updateTask(task, 'problem')} style={[styles.pill, styles.pillProblem]}><Text style={styles.pillProblemText}>Problem</Text></Pressable>
             <Pressable disabled={busy} onPress={() => void updateTask(task, 'not_applicable')} style={styles.pill}><Text style={styles.pillText}>N/A</Text></Pressable>
           </View>
-          <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ''}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
+          <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ' · optional'}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
         </> : null}
       </Card>)}
 
-      {canWorkChecklist ? <Button title="Add finishing photo" variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} /> : null}
+      {canWorkChecklist ? <Card style={styles.optionalPhotoCard}>
+        <View><Text style={styles.sectionTitle}>Closeout photos</Text><Text style={styles.sectionSub}>Optional unless a checklist item above specifically says a photo is required.</Text></View>
+        {finishPhotoCount ? <Text style={styles.optionalPhotoCount}>{finishPhotoCount} optional closeout photo{finishPhotoCount === 1 ? '' : 's'} saved</Text> : null}
+        <Button title={finishPhotoCount ? 'Add another optional photo' : 'Add optional closeout photo'} variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} />
+      </Card> : null}
     </> : null}
 
     {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
       <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'FINAL STEP'}</Text>
-      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Submitted for review' : 'Submit visit'}</Text>
+      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Visit finished' : 'Finish visit'}</Text>
       <Text style={styles.sectionSub}>{submitHint}</Text>
-      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
+      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit & finish visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
     </Card> : null}
-  </Screen>;
-}
 
-function locationMessage(action: 'Work started' | 'Work resumed' | 'Work finished', assessment?: LocationAssessment | null) {
-  if (!assessment || assessment.classification === 'unavailable') return `${action}. GPS could not verify the site and the record will need review.`;
-  const distance = assessment.distanceM == null ? 'distance unavailable' : `${assessment.distanceM}m from site`;
-  const accuracy = assessment.accuracyM == null ? 'GPS accuracy unknown' : `GPS ±${assessment.accuracyM}m`;
-  if (assessment.risk === 'verified') return `${action} · location verified (${distance} · ${accuracy}).`;
-  if (assessment.risk === 'watch') return `${action} · location watch (${distance} · ${accuracy}).`;
-  return `${action} · location needs review (${distance} · ${accuracy}).`;
+    <Modal visible={incidentOpen} transparent animationType="slide" onRequestClose={() => setIncidentOpen(false)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHead}>
+            <View style={styles.modalHeadCopy}>
+              <Text style={styles.executionEyebrow}>FIELD ISSUE</Text>
+              <Text style={styles.sectionTitle}>Report an issue</Text>
+              <Text style={styles.sectionSub}>Access, safety, damage, equipment or client problem. Operations receives it against this visit.</Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={() => setIncidentOpen(false)} style={styles.modalClose}><Text style={styles.modalCloseText}>Close</Text></Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.incidentForm}>
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.categoryChoices}>
+              {INCIDENT_CATEGORIES.map((category) => <Pressable key={category} onPress={() => setIncident((current) => ({ ...current, category }))} style={[styles.categoryChoice, incident.category === category && styles.choiceActive]}>
+                <Text style={incident.category === category ? styles.choiceTextActive : styles.choiceText}>{category}</Text>
+              </Pressable>)}
+            </View>
+            <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
+            <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
+            <Text style={styles.fieldLabel}>Priority</Text>
+            <View style={styles.severity}>
+              {INCIDENT_SEVERITIES.map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
+                <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
+              </Pressable>)}
+            </View>
+            <View style={styles.modalActions}>
+              <View style={styles.timerAction}><Button title="Cancel" variant="ghost" onPress={() => setIncidentOpen(false)} /></View>
+              <View style={styles.timerAction}><Button title="Send to operations" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} /></View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
@@ -751,6 +878,7 @@ const styles = StyleSheet.create({
   address: { color: '#B7C7D7', lineHeight: 20 },
   success: { padding: 12, borderRadius: 12, color: colors.success, fontWeight: '800', backgroundColor: colors.primarySoft },
   error: { padding: 12, borderRadius: 12, color: colors.danger, fontWeight: '700', backgroundColor: '#FDECEA' },
+  timerConflict: { borderColor: '#E2B15D', backgroundColor: '#FFFCF5' },
   readOnly: { borderColor: '#BFD0DC', backgroundColor: '#F6FAFC' },
   assignment: { borderLeftWidth: 5, borderLeftColor: colors.primary },
   assignmentTitle: { color: colors.ink, fontSize: 17, fontWeight: '900', marginTop: 3 },
@@ -800,7 +928,6 @@ const styles = StyleSheet.create({
   copy: { color: colors.ink, fontSize: 13, lineHeight: 20 },
   quickActions: { gap: 13 },
   quickActionRow: { flexDirection: 'row', gap: 8 },
-  incidentForm: { gap: 10, paddingTop: 4 },
   task: { borderLeftWidth: 5, borderLeftColor: colors.border },
   taskDone: { borderLeftColor: colors.success, backgroundColor: '#FBFEFC' },
   taskProblem: { borderLeftColor: colors.danger, backgroundColor: '#FFF9F8' },
@@ -816,7 +943,11 @@ const styles = StyleSheet.create({
   pillText: { color: colors.muted, fontWeight: '800' },
   pillDoneText: { color: colors.success, fontWeight: '800' },
   pillProblemText: { color: colors.danger, fontWeight: '800' },
+  optionalPhotoCard: { gap: 10, borderColor: '#C9D8E2', backgroundColor: '#FBFCFD' },
+  optionalPhotoCount: { color: colors.success, fontSize: 11, fontWeight: '900' },
   severity: { flexDirection: 'row', gap: 6 },
+  categoryChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  categoryChoice: { minWidth: '22%', flexGrow: 1, paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
   choice: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
   choiceActive: { backgroundColor: colors.ink },
   choiceText: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
@@ -825,4 +956,14 @@ const styles = StyleSheet.create({
   submitCardReady: { borderColor: '#8DCDB5', backgroundColor: '#F4FCF7' },
   submitCardDone: { borderColor: '#A9DEC3', backgroundColor: '#F4FCF7' },
   timerLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(9, 29, 43, 0.42)' },
+  modalSheet: { maxHeight: '88%', borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: '#fff', paddingHorizontal: 18, paddingTop: 10, paddingBottom: 24, gap: 14 },
+  modalHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#C8D2D9', alignSelf: 'center' },
+  modalHead: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between' },
+  modalHeadCopy: { flex: 1 },
+  modalClose: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: '#EEF2F5' },
+  modalCloseText: { color: colors.ink, fontSize: 11, fontWeight: '800' },
+  incidentForm: { gap: 10, paddingBottom: 8 },
+  fieldLabel: { color: colors.ink, fontSize: 11, fontWeight: '900', marginTop: 2 },
+  modalActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
 });

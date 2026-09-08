@@ -11,7 +11,7 @@ import { asInputJson } from '../../../../../modules/operations/json'
 const ACTIVE_REQUEST_STATUSES = ['Requested', 'Triaged', 'Approved', 'Ordered', 'InTransit']
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const auth = await requireCapability(request, 'supplies.request')
+  const auth = await requireCapability(request, 'supplies.manage')
   if ('response' in auth) return auth.response
   const parsed = stockCountSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid stock count', details: parsed.error.flatten() }, { status: 400 })

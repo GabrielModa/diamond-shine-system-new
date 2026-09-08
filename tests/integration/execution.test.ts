@@ -82,8 +82,12 @@ async function executionVisit(options: { evidence?: boolean; assigned?: boolean;
 }
 
 describe('field execution', () => {
-  it('tracks non-visit work and breaks online or through the offline queue', async () => {
-    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+  it('keeps non-visit clocks supervisor-only while preserving their online/offline timer flow', async () => {
+    const cleanerBlocked = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'office' })
+    expect(cleanerBlocked.status).toBe(403)
+    expect(cleanerBlocked.body.code).toBe('SUPERVISOR_TIME_ONLY')
+
+    const started = await request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({
       kind: 'office',
       startedAt: '2026-08-24T07:00:00.000Z',
       latitude: 53.3498,
@@ -94,18 +98,18 @@ describe('field execution', () => {
     expect(started.body.data).toEqual(expect.objectContaining({ kind: 'office', status: 'running' }))
     expect(started.body.data.locationEvents).toHaveLength(1)
 
-    const duplicate = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+    const duplicate = await request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({
       kind: 'office', clientMutationId: 'general-start-online-0001',
     })
     expect(duplicate.status).toBe(200)
     expect(duplicate.body.duplicate).toBe(true)
 
-    const parallel = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'break' })
+    const parallel = await request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({ kind: 'break' })
     expect(parallel.status).toBe(409)
     expect(parallel.body.code).toBe('TIMER_ALREADY_RUNNING')
-    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T07:30:00.000Z' })).status).toBe(200)
+    expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ endedAt: '2026-08-24T07:30:00.000Z' })).status).toBe(200)
 
-    const synced = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+    const synced = await request(app).post('/api/sync').set('Cookie', supervisorCookie).send({
       deviceId: 'offline-timesheet-device',
       operations: [
         { clientMutationId: 'general-start-offline-0001', type: 'time.start', entityId: 'break', clientCreatedAt: '2026-08-24T08:00:00.000Z', payload: {} },
@@ -115,24 +119,24 @@ describe('field execution', () => {
     expect(synced.status).toBe(200)
     expect(synced.body.results.map((result: { status: string }) => result.status)).toEqual(['processed', 'processed'])
 
-    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', employeeCookie)
+    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', supervisorCookie)
     expect(mine.status).toBe(200)
     expect(mine.body.data.map((entry: { kind: string }) => entry.kind).sort()).toEqual(['break', 'office'])
     expect(mine.body.data.every((entry: { status: string }) => entry.status === 'completed')).toBe(true)
   })
 
-  it('serializes concurrent timer starts for the same worker', async () => {
+  it('serializes concurrent timer starts for the same supervisor', async () => {
     const responses = await Promise.all([
-      request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'office' }),
-      request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({ kind: 'break' }),
+      request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({ kind: 'office' }),
+      request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({ kind: 'break' }),
     ])
 
     expect(responses.map((response) => response.status).sort()).toEqual([201, 409])
-    expect(await prisma.timeEntry.count({ where: { userId: (await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })).id, status: 'running' } })).toBe(1)
+    expect(await prisma.timeEntry.count({ where: { userId: (await prisma.user.findUniqueOrThrow({ where: { email: 'super@ds.ie' } })).id, status: 'running' } })).toBe(1)
   })
 
   it('records a concurrent timer stop only once', async () => {
-    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+    const started = await request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({
       kind: 'office',
       latitude: 53.3498,
       longitude: -6.2603,
@@ -140,8 +144,8 @@ describe('field execution', () => {
     expect(started.status).toBe(201)
 
     const responses = await Promise.all([
-      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
-      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
+      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
+      request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ latitude: 53.3498, longitude: -6.2603 }),
     ])
     expect(responses.every((response) => response.status === 200)).toBe(true)
     expect(responses.filter((response) => response.body.duplicate === true)).toHaveLength(1)
@@ -214,6 +218,34 @@ describe('field execution', () => {
     expect(stopped.body.data.status).toBe('completed')
   })
 
+  it('keeps pause time out of worked time and allows work to resume after a finish before submit', async () => {
+    const { visit } = await executionVisit()
+    const first = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ capturedAt: '2026-08-24T08:00:00.000Z' })
+    expect(first.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${first.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T08:30:00.000Z', mode: 'pause' })).status).toBe(200)
+
+    const breakEntry = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+      kind: 'break', visitId: visit.id, startedAt: '2026-08-24T08:30:01.000Z',
+    })
+    expect(breakEntry.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${breakEntry.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T08:45:00.000Z', mode: 'resume' })).status).toBe(200)
+
+    const second = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ capturedAt: '2026-08-24T08:45:01.000Z' })
+    expect(second.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${second.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T09:15:01.000Z', mode: 'finish' })).status).toBe(200)
+
+    const resumedAfterFinish = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ capturedAt: '2026-08-24T09:16:00.000Z' })
+    expect(resumedAfterFinish.status).toBe(201)
+    expect((await request(app).post(`/api/time-entries/${resumedAfterFinish.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T09:26:00.000Z', mode: 'finish' })).status).toBe(200)
+
+    const entries = await prisma.timeEntry.findMany({ where: { visitId: visit.id }, orderBy: { startedAt: 'asc' } })
+    const visitSeconds = entries.filter((entry) => entry.kind === 'visit').reduce((sum, entry) => sum + (entry.durationSeconds ?? 0), 0)
+    const breakSeconds = entries.filter((entry) => entry.kind === 'break').reduce((sum, entry) => sum + (entry.durationSeconds ?? 0), 0)
+    expect(visitSeconds).toBe(4200)
+    expect(breakSeconds).toBe(899)
+    expect(entries.some((entry) => entry.status === 'running')).toBe(false)
+  })
+
   it('records distant or unavailable GPS without blocking the work', async () => {
     const { visit } = await executionVisit()
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({
@@ -242,15 +274,15 @@ describe('field execution', () => {
   })
 
   it('lets a worker review a minimized location history and request a fair correction', async () => {
-    const started = await request(app).post('/api/time-entries').set('Cookie', employeeCookie).send({
+    const started = await request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({
       kind: 'office', startedAt: '2026-08-24T07:00:00.000Z', latitude: 53.3498, longitude: -6.2603,
     })
     expect(started.status).toBe(201)
-    await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ endedAt: '2026-08-24T07:15:00.000Z' })
-    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', employeeCookie)
+    await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ endedAt: '2026-08-24T07:15:00.000Z' })
+    const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', supervisorCookie)
     expect(mine.status).toBe(200)
     expect(mine.body.data[0].locationEvents[0]).not.toHaveProperty('latitude')
-    const dispute = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', employeeCookie).send({ reason: 'The reading was taken at the site entrance, not away from work.' })
+    const dispute = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', supervisorCookie).send({ reason: 'The reading was taken at the site entrance, not away from work.' })
     expect(dispute.status).toBe(201)
     expect(dispute.body.data.status).toBe('open')
     const forbidden = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', adminCookie).send({ reason: 'Trying to submit a correction for someone else.' })
@@ -508,16 +540,22 @@ describe('field execution', () => {
     expect(await prisma.incident.count({ where: { visitId: visit.id, title: 'Recovered offline incident' } })).toBe(1)
   })
 
-  it('turns a site stock count into one actionable replenishment request', async () => {
+  it('keeps site stock counts supervisor-only and turns a valid count into one replenishment request', async () => {
     const { visit, site } = await executionVisit()
     const catalog = await request(app).get('/api/materials/catalog').set('Cookie', employeeCookie)
     expect(catalog.status).toBe(200)
     expect(catalog.body.data.length).toBeGreaterThan(2)
     const [emptyItem, healthyItem] = catalog.body.data
 
-    const counted = await request(app)
+    const cleanerCount = await request(app)
       .post(`/api/sites/${site.id}/stock-counts`)
       .set('Cookie', employeeCookie)
+      .send({ visitId: visit.id, source: 'visit', lines: [{ catalogItemId: emptyItem.id, quantity: 0 }] })
+    expect(cleanerCount.status).toBe(403)
+
+    const counted = await request(app)
+      .post(`/api/sites/${site.id}/stock-counts`)
+      .set('Cookie', supervisorCookie)
       .send({
         visitId: visit.id,
         source: 'visit',
@@ -537,7 +575,7 @@ describe('field execution', () => {
 
     const repeated = await request(app)
       .post(`/api/sites/${site.id}/stock-counts`)
-      .set('Cookie', employeeCookie)
+      .set('Cookie', supervisorCookie)
       .send({ visitId: visit.id, lines: [{ catalogItemId: emptyItem.id, quantity: 0 }] })
     expect(repeated.status).toBe(201)
     expect(repeated.body.data.replenishment).toBeNull()
@@ -546,7 +584,7 @@ describe('field execution', () => {
     const stock = await request(app).get(`/api/sites/${site.id}/stock`).set('Cookie', employeeCookie)
     expect(stock.status).toBe(200)
     expect(stock.body.data.find((item: { id: string }) => item.id === emptyItem.id).state).toBe('out')
-    const offlineCount = await request(app).post('/api/sync').set('Cookie', employeeCookie).send({
+    const offlineCount = await request(app).post('/api/sync').set('Cookie', supervisorCookie).send({
       deviceId: 'offline-stock-device',
       operations: [{
         clientMutationId: 'offline-stock-count-0001',

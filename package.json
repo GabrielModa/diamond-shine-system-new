@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:client-account && npm run test:integration:scheduling && npm run test:integration:continuity && npm run test:integration:recurring-commitment && npm run test:integration:schedule-audit && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity && npm run test:integration:mobile-hardening",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:client-account && npm run test:integration:scheduling && npm run test:integration:continuity && npm run test:integration:recurring-commitment && npm run test:integration:schedule-audit && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity && npm run test:integration:mobile-hardening && npm run test:integration:mobile-performance",
     "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
     "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
@@ -65,6 +65,7 @@
     "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke",
     "mobile:source-check": "node scripts/mobile-pilot-source-check.mjs",
     "test:integration:mobile-hardening": "vitest run --config vitest.mobile-hardening.config.ts",
+    "test:integration:mobile-performance": "vitest run tests/integration/mobile-performance-snapshot.test.ts --maxWorkers=1",
     "dev:web": "node scripts/dev-all.mjs web",
     "dev:mobile": "node scripts/dev-all.mjs mobile",
     "dev:mobile:prod-api": "node scripts/dev-all.mjs prod-api",

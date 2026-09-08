@@ -12,6 +12,18 @@ type RunningEntry = {
 };
 
 const PRESENCE_INTERVAL_MS = 2 * 60_000;
+const FOREGROUND_DELAY_MS = 15_000;
+const FRESH_LOCATION_MS = 30_000;
+
+async function presenceLocation() {
+  const last = await Location.getLastKnownPositionAsync().catch(() => null);
+  if (
+    last
+    && Date.now() - last.timestamp <= FRESH_LOCATION_MS
+    && (last.coords.accuracy == null || last.coords.accuracy <= 150)
+  ) return last;
+  return Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+}
 
 export default function VisitPresenceTracker() {
   const { session } = useAuth();
@@ -20,6 +32,7 @@ export default function VisitPresenceTracker() {
     if (!session) return;
     let disposed = false;
     let sending = false;
+    let foregroundTimer: ReturnType<typeof setTimeout> | null = null;
 
     const sendPresence = async () => {
       if (disposed || sending || AppState.currentState !== 'active') return;
@@ -31,7 +44,7 @@ export default function VisitPresenceTracker() {
 
         const permission = await Location.getForegroundPermissionsAsync();
         if (permission.status !== 'granted' || disposed) return;
-        const current = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+        const current = await presenceLocation();
         if (disposed) return;
 
         await apiFetch(session, `/api/time-entries/${activeVisit.id}/heartbeat`, {
@@ -52,13 +65,23 @@ export default function VisitPresenceTracker() {
       }
     };
 
+    const scheduleForegroundPresence = () => {
+      if (foregroundTimer) clearTimeout(foregroundTimer);
+      foregroundTimer = setTimeout(() => void sendPresence(), FOREGROUND_DELAY_MS);
+    };
+
     const timer = setInterval(() => void sendPresence(), PRESENCE_INTERVAL_MS);
     const subscription = AppState.addEventListener('change', (state) => {
-      if (state === 'active') void sendPresence();
+      if (state === 'active') scheduleForegroundPresence();
+      else if (foregroundTimer) {
+        clearTimeout(foregroundTimer);
+        foregroundTimer = null;
+      }
     });
 
     return () => {
       disposed = true;
+      if (foregroundTimer) clearTimeout(foregroundTimer);
       clearInterval(timer);
       subscription.remove();
     };
