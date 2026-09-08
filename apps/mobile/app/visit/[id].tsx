@@ -15,6 +15,7 @@ import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, Sty
 
 type Coordinates = { latitude: number; longitude: number; accuracyM?: number | null };
 type TimerTone = 'on_track' | 'warning' | 'over';
+type ActiveTimerConflictData = { id: string; visitId?: string | null; kind?: TimeEntry['kind'] };
 
 const ACTIVE_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged']);
 const PENDING_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen']);
@@ -40,6 +41,17 @@ function formatDuration(seconds: number) {
 
 function localTimerKind(timer: LocalTimer | null) {
   return timer?.startMutationId.startsWith('visit-break-') ? 'break' as const : 'visit' as const;
+}
+
+function timerConflictData(error: ApiError): ActiveTimerConflictData | null {
+  if (!error.data || typeof error.data !== 'object') return null;
+  const value = error.data as Record<string, unknown>;
+  if (typeof value.id !== 'string') return null;
+  return {
+    id: value.id,
+    visitId: typeof value.visitId === 'string' || value.visitId === null ? value.visitId : undefined,
+    kind: typeof value.kind === 'string' ? value.kind as TimeEntry['kind'] : undefined,
+  };
 }
 
 function recordedSeconds(entry: TimeEntry) {
@@ -218,28 +230,70 @@ export default function VisitScreen() {
     if (!session || !visit || !canExecute) return;
     await withAction(async () => {
       const otherTimer = await getAnyLocalTimer();
-      if (otherTimer && otherTimer.visitId !== visit.id) {
-        setTimerConflict(true);
-        throw new Error('You already have work in progress. Open Time to continue or finish it before starting this visit.');
-      }
       if (otherTimer && otherTimer.visitId === visit.id) {
         throw new Error(localTimerKind(otherTimer) === 'break' ? 'This visit is paused. Resume it instead.' : 'This visit timer is already running.');
       }
-      const location = await coordinates();
-      const clientMutationId = mutationId('visit-start');
-      const startedAt = new Date().toISOString();
-      const payload = { ...location, capturedAt: startedAt, clientMutationId, deviceId: await getDeviceId() };
 
-      const saveOffline = async () => {
-        await enqueue({ clientMutationId, type: 'visit.start', entityId: visit.id, clientCreatedAt: startedAt, payload: location ?? {} });
+      const location = await coordinates();
+      const deviceId = await getDeviceId();
+      const switchAt = new Date().toISOString();
+      const startedAt = otherTimer && otherTimer.visitId !== visit.id
+        ? new Date(new Date(switchAt).getTime() + 1).toISOString()
+        : switchAt;
+      const clientMutationId = mutationId('visit-start');
+      const payload = { ...location, capturedAt: startedAt, clientMutationId, deviceId };
+
+      const saveOffline = async (previous?: {
+        entityId: string;
+        startMutationId?: string;
+        localVisitId?: string;
+        mode: 'finish' | 'resume';
+      }) => {
+        if (previous) {
+          const stopMutationId = mutationId('time-switch-stop');
+          await enqueue({
+            clientMutationId: stopMutationId,
+            type: 'time.stop',
+            entityId: previous.entityId,
+            clientCreatedAt: switchAt,
+            payload: {
+              ...location,
+              capturedAt: switchAt,
+              endedAt: switchAt,
+              mode: previous.mode,
+              ...(previous.startMutationId ? { startMutationId: previous.startMutationId } : {}),
+            },
+          });
+          if (previous.localVisitId) await clearLocalTimer(previous.localVisitId);
+        }
+
+        await enqueue({
+          clientMutationId,
+          type: 'visit.start',
+          entityId: visit.id,
+          clientCreatedAt: startedAt,
+          payload: { ...location, capturedAt: startedAt },
+        });
         const timer = { visitId: visit.id, startMutationId: clientMutationId, startedAt };
         await setLocalTimer(timer);
         setLocalTimerState(timer);
         const localVisit = { ...visit, status: 'in_progress' };
         setVisit(localVisit);
         await updateCachedVisit(localVisit);
-        setMessage('Work started offline. Your clock-in is queued for sync.');
+        setMessage(previous
+          ? 'Switched work offline. The previous timer stop and this clock-in are queued in order.'
+          : 'Work started offline. Your clock-in is queued for sync.');
       };
+
+      if (otherTimer && otherTimer.visitId !== visit.id) {
+        const previousMode = localTimerKind(otherTimer) === 'break' ? 'resume' as const : 'finish' as const;
+        return saveOffline({
+          entityId: otherTimer.startMutationId,
+          startMutationId: otherTimer.startMutationId,
+          localVisitId: otherTimer.visitId,
+          mode: previousMode,
+        });
+      }
 
       if (!(await networkConnected())) return saveOffline();
       try {
@@ -250,12 +304,49 @@ export default function VisitScreen() {
         setMessage('Work started.');
         await load();
       } catch (cause) {
-        if (cause instanceof ApiError && (cause.code === 'ACTIVE_TIMER' || cause.code === 'TIMER_ALREADY_RUNNING')) {
-          setTimerConflict(true);
-          throw cause;
+        if (!(cause instanceof ApiError) || (cause.code !== 'ACTIVE_TIMER' && cause.code !== 'TIMER_ALREADY_RUNNING')) {
+          if (!isNetworkApiError(cause)) throw cause;
+          return saveOffline();
         }
-        if (!isNetworkApiError(cause)) throw cause;
-        await saveOffline();
+
+        const active = timerConflictData(cause);
+        if (active?.visitId === visit.id) {
+          setMessage('Work is already running for this visit.');
+          await load();
+          return;
+        }
+        if (!active) {
+          setTimerConflict(true);
+          throw new Error('We could not identify the active timer to switch automatically. Open Time and try again.');
+        }
+
+        const stopPayload = {
+          ...location,
+          capturedAt: switchAt,
+          endedAt: switchAt,
+          mode: active.kind === 'break' ? 'resume' as const : 'finish' as const,
+          clientMutationId: mutationId('time-switch-stop'),
+          deviceId,
+        };
+
+        try {
+          await apiFetch(session, `/api/time-entries/${active.id}/stop`, {
+            method: 'POST',
+            body: JSON.stringify(stopPayload),
+          });
+          await apiFetch(session, `/api/visits/${visit.id}/start`, {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          setMessage('Switched work. Your previous timer stopped automatically.');
+          await load();
+        } catch (switchCause) {
+          if (!isNetworkApiError(switchCause)) throw switchCause;
+          await saveOffline({
+            entityId: active.id,
+            mode: active.kind === 'break' ? 'resume' : 'finish',
+          });
+        }
       }
     });
   }
@@ -598,8 +689,8 @@ export default function VisitScreen() {
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {timerConflict ? <Card style={styles.timerConflict}>
-      <Text style={styles.sectionTitle}>Work already in progress</Text>
-      <Text style={styles.sectionSub}>You can only run one timer at a time. Open Time to return to the active work, then finish or pause it before starting this visit.</Text>
+      <Text style={styles.sectionTitle}>Could not switch work automatically</Text>
+      <Text style={styles.sectionSub}>Your existing timer was left untouched. Open Time to review it, then try starting this visit again.</Text>
       <Button title="Open Time" onPress={() => router.push('/(tabs)/timesheet')} />
     </Card> : null}
 
@@ -670,7 +761,7 @@ export default function VisitScreen() {
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
         <Text style={styles.executionValue}>Start work</Text>
-        <Text style={styles.executionDetail}>Starting records your clock-in. Planned time is {formatDuration(plannedSeconds)}.</Text>
+        <Text style={styles.executionDetail}>Starting records your clock-in. If another timer is running, it will stop at the switch time. Planned time is {formatDuration(plannedSeconds)}.</Text>
         {canExecute ? <Button title="Start work" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
       </View>}
     </Card>
