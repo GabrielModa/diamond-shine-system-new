@@ -7,7 +7,7 @@ export function registerUnauthorizedHandler(handler: (() => void | Promise<void>
 }
 
 export class ApiError extends Error {
-  constructor(message: string, public status: number, public code?: string, public details?: unknown) {
+  constructor(message: string, public status: number, public code?: string, public details?: unknown, public data?: unknown) {
     super(message);
     this.name = 'ApiError';
   }
@@ -57,7 +57,7 @@ async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>,
 export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
   if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to reach Diamond Shine.', response.status, payload?.code, payload?.details);
+    throw new ApiError(payload?.error ?? 'Unable to reach Diamond Shine.', response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
 }
@@ -68,7 +68,7 @@ export async function apiFetchSyncBatch<T>(session: Pick<Session, 'accessToken' 
   // The mobile queue must inspect every result and preserve successful operations.
   if (response.status === 207 && payload) return payload as T;
   if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to synchronize saved changes.', response.status, payload?.code, payload?.details);
+    throw new ApiError(payload?.error ?? 'Unable to synchronize saved changes.', response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
 }
