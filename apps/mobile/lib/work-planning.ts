@@ -13,13 +13,26 @@ export type PlannedDay<T extends PlannableVisit> = {
   minutes: number;
 };
 
+export function visitMinutes(visit: Pick<PlannableVisit, 'scheduledStart' | 'scheduledEnd'>) {
+  const start = new Date(visit.scheduledStart).getTime();
+  const end = new Date(visit.scheduledEnd).getTime();
+  if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
+  return Math.max(0, Math.round((end - start) / 60_000));
+}
+
 export function plannedMinutes(visits: readonly PlannableVisit[]) {
-  return visits.reduce((total, visit) => {
-    const start = new Date(visit.scheduledStart).getTime();
-    const end = new Date(visit.scheduledEnd).getTime();
-    if (!Number.isFinite(start) || !Number.isFinite(end)) return total;
-    return total + Math.max(0, Math.round((end - start) / 60_000));
-  }, 0);
+  return visits.reduce((total, visit) => total + visitMinutes(visit), 0);
+}
+
+export const plannedMinutesForVisits = plannedMinutes;
+
+export function formatPlannedMinutes(minutes: number) {
+  const safe = Math.max(0, Math.round(minutes));
+  const hours = Math.floor(safe / 60);
+  const rest = safe % 60;
+  if (!hours) return `${rest} min`;
+  if (!rest) return `${hours}h`;
+  return `${hours}h ${rest}m`;
 }
 
 export function groupVisitsByOperationalDay<T extends PlannableVisit>(visits: readonly T[], fallbackTimezone = 'Europe/Dublin') {
@@ -40,6 +53,13 @@ export function groupVisitsByOperationalDay<T extends PlannableVisit>(visits: re
   })) satisfies PlannedDay<T>[];
 }
 
+export function groupVisitsByDay<T extends PlannableVisit>(visits: readonly T[], fallbackTimezone = 'Europe/Dublin') {
+  return groupVisitsByOperationalDay(visits, fallbackTimezone).map((group) => ({
+    ...group,
+    plannedMinutes: group.minutes,
+  }));
+}
+
 export function visitsStartingWithinDays<T extends PlannableVisit>(visits: readonly T[], days: number, now = new Date()) {
   const start = now.getTime();
   const end = start + Math.max(0, days) * 86_400_000;
@@ -47,4 +67,8 @@ export function visitsStartingWithinDays<T extends PlannableVisit>(visits: reado
     const scheduled = new Date(visit.scheduledStart).getTime();
     return Number.isFinite(scheduled) && scheduled >= start && scheduled < end;
   });
+}
+
+export function sevenDayWindowVisits<T extends PlannableVisit>(visits: readonly T[], now = new Date(), _fallbackTimezone = 'Europe/Dublin') {
+  return visitsStartingWithinDays(visits, 7, now);
 }
