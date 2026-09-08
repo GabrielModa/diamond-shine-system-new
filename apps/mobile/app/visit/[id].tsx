@@ -10,23 +10,15 @@ import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, Linking, Platform, Pressable, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Linking, Modal, Platform, Pressable, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 
 type Coordinates = { latitude: number; longitude: number; accuracyM?: number | null };
-type LocationAssessment = {
-  classification: 'verified' | 'near' | 'suspicious' | 'unavailable';
-  distanceM: number | null;
-  accuracyM: number | null;
-  risk: 'verified' | 'watch' | 'review';
-  reviewRequired: boolean;
-  reason: string | null;
-};
-type StartVisitResult = TimeEntry & { location?: LocationAssessment | null };
-type StopVisitResult = TimeEntry & { location?: LocationAssessment | null };
 type TimerTone = 'on_track' | 'warning' | 'over';
 
 const ACTIVE_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen', 'acknowledged']);
 const PENDING_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen']);
+const INCIDENT_CATEGORIES = ['access', 'security', 'damage', 'safety', 'equipment', 'client', 'materials', 'other'] as const;
+const INCIDENT_SEVERITIES = ['low', 'medium', 'high', 'critical'] as const;
 
 function formatElapsed(seconds: number) {
   const safe = Math.max(0, Math.floor(seconds));
@@ -188,7 +180,7 @@ export default function VisitScreen() {
               ? 'Record your work time before submitting the visit.'
               : !requiredDone
                 ? 'Complete every required closeout item before submitting.'
-                : 'Time and required work are recorded. Submit the visit for review.';
+                : 'Everything required is recorded. Submit once to finish the visit.';
 
   async function withAction(action: () => Promise<void>) {
     setBusy(true);
@@ -246,11 +238,11 @@ export default function VisitScreen() {
 
       if (!(await networkConnected())) return saveOffline();
       try {
-        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, {
+        await apiFetch(session, `/api/visits/${visit.id}/start`, {
           method: 'POST',
           body: JSON.stringify(payload),
         });
-        setMessage(locationMessage('Work started', result.location));
+        setMessage('Work started.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -396,10 +388,10 @@ export default function VisitScreen() {
       if (!(await networkConnected()) || !activeBreakEntry) return saveOffline();
       try {
         await apiFetch(session, `/api/time-entries/${activeBreakEntry.id}/stop`, { method: 'POST', body: JSON.stringify(stopPayload) });
-        const result = await apiFetch<StartVisitResult>(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(resumePayload) });
+        await apiFetch(session, `/api/visits/${visit.id}/start`, { method: 'POST', body: JSON.stringify(resumePayload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(locationMessage('Work resumed', result.location));
+        setMessage('Work resumed.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -442,10 +434,10 @@ export default function VisitScreen() {
 
       if (!(await networkConnected()) || !currentEntry) return saveOffline();
       try {
-        const result = await apiFetch<StopVisitResult>(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
+        await apiFetch(session, `/api/time-entries/${currentEntry.id}/stop`, { method: 'POST', body: JSON.stringify(payload) });
         if (localTimer) await clearLocalTimer(visit.id);
         setLocalTimerState(null);
-        setMessage(`${locationMessage('Work finished', result.location)} Complete the closeout checklist when ready.`);
+        setMessage('Work finished. Complete the closeout checklist when ready.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -541,7 +533,7 @@ export default function VisitScreen() {
       if (!(await networkConnected())) return saveOffline();
       try {
         await apiFetch(session, `/api/visits/${visit.id}/complete`, { method: 'POST', body: JSON.stringify(payload) });
-        setMessage('Visit submitted to Operations for review.');
+        setMessage('Visit finished and submitted to Operations.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -634,7 +626,7 @@ export default function VisitScreen() {
       {visitSubmitted ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>VISIT SUBMITTED</Text>
         <Text style={styles.executionValue}>Sent for review</Text>
-        <Text style={styles.executionDetail}>Your recorded time, checklist, evidence and location events are now available to Operations.</Text>
+        <Text style={styles.executionDetail}>Your recorded time, checklist and evidence are now available to Operations.</Text>
       </View> : runningVisitSince || pausedSince ? <View style={styles.executionCopy}>
         <View style={styles.timerStatusRow}>
           <Text style={[styles.executionEyebrow, timerTone === 'warning' && styles.warningText, timerTone === 'over' && styles.overText]}>{paused ? 'WORK PAUSED' : 'WORK IN PROGRESS'}</Text>
@@ -659,11 +651,11 @@ export default function VisitScreen() {
       </View> : closeoutReady ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
         <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then submit the visit.</Text>
+        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then finish the visit.</Text>
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
         <Text style={styles.executionValue}>Start work</Text>
-        <Text style={styles.executionDetail}>Starting records your clock-in and current location. Planned time is {formatDuration(plannedSeconds)}.</Text>
+        <Text style={styles.executionDetail}>Starting records your clock-in. Planned time is {formatDuration(plannedSeconds)}.</Text>
         {canExecute ? <Button title="Start work" loading={busy} disabled={visit.status === 'completed' || completionPending} onPress={() => void startVisit()} /> : null}
       </View>}
     </Card>
@@ -676,22 +668,12 @@ export default function VisitScreen() {
     {canFieldAction ? <Card style={styles.quickActions}>
       <View>
         <Text style={styles.sectionTitle}>Need something?</Text>
-        <Text style={styles.sectionSub}>Keep field exceptions out of WhatsApp and attached to this visit.</Text>
+        <Text style={styles.sectionSub}>Keep field exceptions attached to this visit instead of sending them separately.</Text>
       </View>
       <View style={styles.quickActionRow}>
-        <View style={styles.timerAction}><Button title={incidentOpen ? 'Close issue form' : 'Report issue'} variant="secondary" compact onPress={() => setIncidentOpen((value) => !value)} /></View>
+        <View style={styles.timerAction}><Button title="Report issue" variant="secondary" compact onPress={() => setIncidentOpen(true)} /></View>
         <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id } })} /></View>
       </View>
-      {incidentOpen ? <View style={styles.incidentForm}>
-        <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
-        <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
-        <View style={styles.severity}>
-          {['low', 'medium', 'high', 'critical'].map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
-            <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
-          </Pressable>)}
-        </View>
-        <Button title="Send to operations" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} />
-      </View> : null}
     </Card> : null}
 
     {closeoutReady || visitSubmitted || completionPending ? <>
@@ -725,20 +707,47 @@ export default function VisitScreen() {
 
     {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
       <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'FINAL STEP'}</Text>
-      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Submitted for review' : 'Submit visit'}</Text>
+      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Visit finished' : 'Finish visit'}</Text>
       <Text style={styles.sectionSub}>{submitHint}</Text>
-      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
+      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit & finish visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
     </Card> : null}
-  </Screen>;
-}
 
-function locationMessage(action: 'Work started' | 'Work resumed' | 'Work finished', assessment?: LocationAssessment | null) {
-  if (!assessment || assessment.classification === 'unavailable') return `${action}. GPS could not verify the site and the record will need review.`;
-  const distance = assessment.distanceM == null ? 'distance unavailable' : `${assessment.distanceM}m from site`;
-  const accuracy = assessment.accuracyM == null ? 'GPS accuracy unknown' : `GPS ±${assessment.accuracyM}m`;
-  if (assessment.risk === 'verified') return `${action} · location verified (${distance} · ${accuracy}).`;
-  if (assessment.risk === 'watch') return `${action} · location watch (${distance} · ${accuracy}).`;
-  return `${action} · location needs review (${distance} · ${accuracy}).`;
+    <Modal visible={incidentOpen} transparent animationType="slide" onRequestClose={() => setIncidentOpen(false)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHead}>
+            <View style={styles.modalHeadCopy}>
+              <Text style={styles.executionEyebrow}>FIELD ISSUE</Text>
+              <Text style={styles.sectionTitle}>Report an issue</Text>
+              <Text style={styles.sectionSub}>Access, safety, damage, equipment or client problem. Operations receives it against this visit.</Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={() => setIncidentOpen(false)} style={styles.modalClose}><Text style={styles.modalCloseText}>Close</Text></Pressable>
+          </View>
+          <ScrollView keyboardShouldPersistTaps="handled" contentContainerStyle={styles.incidentForm}>
+            <Text style={styles.fieldLabel}>Type</Text>
+            <View style={styles.categoryChoices}>
+              {INCIDENT_CATEGORIES.map((category) => <Pressable key={category} onPress={() => setIncident((current) => ({ ...current, category }))} style={[styles.categoryChoice, incident.category === category && styles.choiceActive]}>
+                <Text style={incident.category === category ? styles.choiceTextActive : styles.choiceText}>{category}</Text>
+              </Pressable>)}
+            </View>
+            <TextInput value={incident.title} onChangeText={(title) => setIncident((current) => ({ ...current, title }))} style={styles.input} placeholder="Short issue title" />
+            <TextInput value={incident.description} onChangeText={(description) => setIncident((current) => ({ ...current, description }))} style={[styles.input, styles.textarea]} placeholder="What happened and what is needed?" multiline />
+            <Text style={styles.fieldLabel}>Priority</Text>
+            <View style={styles.severity}>
+              {INCIDENT_SEVERITIES.map((severity) => <Pressable key={severity} onPress={() => setIncident((current) => ({ ...current, severity }))} style={[styles.choice, incident.severity === severity && styles.choiceActive]}>
+                <Text style={incident.severity === severity ? styles.choiceTextActive : styles.choiceText}>{severity}</Text>
+              </Pressable>)}
+            </View>
+            <View style={styles.modalActions}>
+              <View style={styles.timerAction}><Button title="Cancel" variant="ghost" onPress={() => setIncidentOpen(false)} /></View>
+              <View style={styles.timerAction}><Button title="Send to operations" disabled={!incident.title.trim() || !incident.description.trim()} loading={busy} onPress={() => void reportIncident()} /></View>
+            </View>
+          </ScrollView>
+        </View>
+      </View>
+    </Modal>
+  </Screen>;
 }
 
 const styles = StyleSheet.create({
@@ -800,7 +809,6 @@ const styles = StyleSheet.create({
   copy: { color: colors.ink, fontSize: 13, lineHeight: 20 },
   quickActions: { gap: 13 },
   quickActionRow: { flexDirection: 'row', gap: 8 },
-  incidentForm: { gap: 10, paddingTop: 4 },
   task: { borderLeftWidth: 5, borderLeftColor: colors.border },
   taskDone: { borderLeftColor: colors.success, backgroundColor: '#FBFEFC' },
   taskProblem: { borderLeftColor: colors.danger, backgroundColor: '#FFF9F8' },
@@ -817,6 +825,8 @@ const styles = StyleSheet.create({
   pillDoneText: { color: colors.success, fontWeight: '800' },
   pillProblemText: { color: colors.danger, fontWeight: '800' },
   severity: { flexDirection: 'row', gap: 6 },
+  categoryChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
+  categoryChoice: { minWidth: '22%', flexGrow: 1, paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
   choice: { flex: 1, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
   choiceActive: { backgroundColor: colors.ink },
   choiceText: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
@@ -825,4 +835,14 @@ const styles = StyleSheet.create({
   submitCardReady: { borderColor: '#8DCDB5', backgroundColor: '#F4FCF7' },
   submitCardDone: { borderColor: '#A9DEC3', backgroundColor: '#F4FCF7' },
   timerLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
+  modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(9, 29, 43, 0.42)' },
+  modalSheet: { maxHeight: '88%', borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: '#fff', paddingHorizontal: 18, paddingTop: 10, paddingBottom: 24, gap: 14 },
+  modalHandle: { width: 42, height: 4, borderRadius: 2, backgroundColor: '#C8D2D9', alignSelf: 'center' },
+  modalHead: { flexDirection: 'row', gap: 12, alignItems: 'flex-start', justifyContent: 'space-between' },
+  modalHeadCopy: { flex: 1 },
+  modalClose: { paddingHorizontal: 10, paddingVertical: 7, borderRadius: 10, backgroundColor: '#EEF2F5' },
+  modalCloseText: { color: colors.ink, fontSize: 11, fontWeight: '800' },
+  incidentForm: { gap: 10, paddingBottom: 8 },
+  fieldLabel: { color: colors.ink, fontSize: 11, fontWeight: '900', marginTop: 2 },
+  modalActions: { flexDirection: 'row', gap: 8, marginTop: 4 },
 });
