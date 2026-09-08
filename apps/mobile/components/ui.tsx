@@ -14,6 +14,7 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
         automaticallyAdjustKeyboardInsets
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
+        removeClippedSubviews={Platform.OS === 'android'}
       >{children}</ScrollView>
     : <View style={[contentStyle, styles.flex]}>{children}</View>;
   return <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>{body}</SafeAreaView>;
