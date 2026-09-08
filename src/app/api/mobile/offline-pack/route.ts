@@ -10,12 +10,12 @@ const querySchema = z.object({
 })
 
 /**
- * Full personal execution pack for offline use.
+ * Personal execution pack for offline use.
  *
- * Unlike the hot-path visit summary, this deliberately includes checklist,
- * evidence, incidents and location-event history. The app downloads it after
- * interactions and persists it to SQLite, so offline readiness no longer
- * blocks Today / Schedule / Time from painting.
+ * Unlike the hot-path visit summary, this includes the checklist and evidence
+ * required to execute a visit offline. It intentionally excludes team-only and
+ * review-only payload (other assignees, site areas and historical GPS events)
+ * because those facts are not needed by the cleaner's offline workflow.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'visits.execute')
@@ -41,15 +41,19 @@ export async function GET(request: NextRequest) {
       status: { notIn: ['cancelled', 'missed'] },
     },
     include: {
-      site: { include: { client: true, areas: { orderBy: { sortOrder: 'asc' } } } },
-      assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
+      site: { include: { client: true } },
+      assignments: {
+        where: { userId: auth.user.id },
+        include: { user: { select: { id: true, name: true, email: true } } },
+      },
       servicePlanVersion: { include: { tasks: { orderBy: { sortOrder: 'asc' } } } },
       taskResults: { include: { evidence: true, versionTask: true } },
       evidenceAssets: true,
       incidents: { orderBy: { createdAt: 'desc' } },
       timeEntries: {
         where: { userId: auth.user.id },
-        include: { locationEvents: { orderBy: { capturedAt: 'asc' } } },
+        include: { user: { select: { id: true, name: true, email: true } } },
+        orderBy: { startedAt: 'desc' },
       },
     },
     orderBy: { scheduledStart: 'asc' },
