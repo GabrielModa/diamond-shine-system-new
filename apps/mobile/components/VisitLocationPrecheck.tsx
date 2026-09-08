@@ -35,6 +35,7 @@ export default function VisitLocationPrecheck() {
   const params = useGlobalSearchParams<{ id?: string }>();
   const visitId = typeof params.id === 'string' ? params.id : null;
   const onVisit = pathname.startsWith('/visit/') && Boolean(visitId);
+  const isFieldEmployee = session?.membershipRole === 'employee';
   const [checking, setChecking] = useState(false);
   const [hasRunningTimer, setHasRunningTimer] = useState(false);
   const [result, setResult] = useState<CheckResult | null>(null);
@@ -42,7 +43,7 @@ export default function VisitLocationPrecheck() {
 
   useEffect(() => { setResult(null); setError(''); setHasRunningTimer(false); }, [visitId]);
   useEffect(() => {
-    if (!session || !onVisit || !visitId) return;
+    if (!session || !onVisit || !visitId || isFieldEmployee) return;
     let disposed = false;
     const refreshTimerState = async () => {
       try {
@@ -55,9 +56,11 @@ export default function VisitLocationPrecheck() {
     void refreshTimerState();
     const timer = setInterval(() => void refreshTimerState(), 10_000);
     return () => { disposed = true; clearInterval(timer); };
-  }, [onVisit, session, visitId]);
+  }, [isFieldEmployee, onVisit, session, visitId]);
 
-  if (!session || !onVisit || !visitId || hasRunningTimer) return null;
+  // Employees should never see geofence distance/risk language. Clock-in/out still captures
+  // location through the visit flow and Operations can review it separately.
+  if (!session || !onVisit || !visitId || hasRunningTimer || isFieldEmployee) return null;
 
   async function check() {
     const activeSession = session;
