@@ -86,15 +86,35 @@ export function prepareVisitForOffline(visit: Visit): Visit {
   };
 }
 
-/** Server sync is an operational snapshot. Replace it atomically so cancelled/removed work cannot linger offline. */
+/**
+ * Server sync is an operational snapshot. Keep removed/cancelled work out of
+ * the device, but do not delete + rewrite every unchanged JSON row on every
+ * refresh. Most schedule refreshes change only one or two visits.
+ */
 export async function cacheVisits(visits: Visit[]) {
   const connection = await db();
+  const prepared = visits.map((raw) => {
+    const visit = prepareVisitForOffline(raw);
+    return { id: visit.id, payload: JSON.stringify(visit) };
+  });
   await withWriteTransaction(connection, async (transaction) => {
-    await transaction.runAsync('DELETE FROM cached_visits');
+    const existingRows = await transaction.getAllAsync<{ id: string; payload: string }>('SELECT id, payload FROM cached_visits');
+    const existing = new Map(existingRows.map((row) => [row.id, row.payload]));
+    const incomingIds = new Set(prepared.map((visit) => visit.id));
     const updatedAt = new Date().toISOString();
-    for (const raw of visits) {
-      const visit = prepareVisitForOffline(raw);
-      await transaction.runAsync('INSERT INTO cached_visits (id, payload, updated_at) VALUES (?, ?, ?)', visit.id, JSON.stringify(visit), updatedAt);
+
+    for (const visit of prepared) {
+      if (existing.get(visit.id) === visit.payload) continue;
+      await transaction.runAsync(
+        'INSERT OR REPLACE INTO cached_visits (id, payload, updated_at) VALUES (?, ?, ?)',
+        visit.id,
+        visit.payload,
+        updatedAt,
+      );
+    }
+
+    for (const row of existingRows) {
+      if (!incomingIds.has(row.id)) await transaction.runAsync('DELETE FROM cached_visits WHERE id = ?', row.id);
     }
   });
 }
