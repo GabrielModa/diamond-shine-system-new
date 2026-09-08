@@ -1,6 +1,7 @@
 import type { Session } from './types';
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
+const inFlightGets = new Map<string, Promise<unknown>>();
 
 export function registerUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
   unauthorizedHandler = handler;
@@ -61,12 +62,30 @@ async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>,
   }
 }
 
-export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
+async function fetchPayload<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
   if (!response.ok || payload?.ok === false) {
     throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
+}
+
+export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
+  const method = (init?.method ?? 'GET').toUpperCase();
+  // Several mounted screens can request the same read during navigation or
+  // reconnect. Share only the in-flight GET — never cache a stale response and
+  // never dedupe mutations.
+  if (method === 'GET' && !init?.signal) {
+    const key = `${normalizeBaseUrl(session.baseUrl)}|${session.accessToken}|${path}`;
+    const existing = inFlightGets.get(key);
+    if (existing) return existing as Promise<T>;
+    const promise = fetchPayload<T>(session, path, init).finally(() => {
+      if (inFlightGets.get(key) === promise) inFlightGets.delete(key);
+    });
+    inFlightGets.set(key, promise);
+    return promise;
+  }
+  return fetchPayload<T>(session, path, init);
 }
 
 export async function apiFetchSyncBatch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
