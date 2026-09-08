@@ -1,7 +1,7 @@
 import test from 'node:test'
 import assert from 'node:assert/strict'
 import { selectLanAddress, mobileEnvironment, productionApi } from '../../scripts/mobile-environment.mjs'
-import { qualityPassed, versionMatches, compatibleBuild } from '../../scripts/release-policy.mjs'
+import { qualityPassed, versionMatches, compatibleBuild, parseEasJson } from '../../scripts/release-policy.mjs'
 const adapter = address => [{ family: 'IPv4', internal: false, address }]
 test('LAN prefers Wi-Fi and ignores virtual, internal and link-local interfaces', () => {
   assert.equal(selectLanAddress({ Ethernet: adapter('10.0.0.8'), 'Wi-Fi': adapter('192.168.0.5'), vEthernet: adapter('172.20.0.1') }), '192.168.0.5')
@@ -38,4 +38,9 @@ test('runtime must match a completed Android production binary', () => {
   assert.ok(compatibleBuild([good], hash))
   for (const change of [{ status: 'ERRORED' }, { platform: 'IOS' }, { channel: 'preview' }, { runtimeVersion: 'b'.repeat(40) }]) assert.equal(compatibleBuild([{ ...good, ...change }], hash), false)
   assert.equal(compatibleBuild([], hash), false)
+})
+test('EAS JSON parser tolerates informational output before JSON', () => {
+  assert.deepEqual(parseEasJson('Environment variables loaded from EAS\n{"hash":"abc"}\n'), { hash: 'abc' })
+  assert.deepEqual(parseEasJson('notice\n[{"id":"build"}]'), [{ id: 'build' }])
+  assert.throws(() => parseEasJson('EAS failed before generating JSON'))
 })
