@@ -66,6 +66,15 @@ export async function POST(request: NextRequest) {
   const parsed = startTimeEntrySchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
 
+  const supervisorTime = auth.user.membershipRole === 'field_supervisor' || auth.user.membershipRole === 'organization_admin'
+  if (!parsed.data.visitId && !supervisorTime) {
+    return NextResponse.json({
+      ok: false,
+      error: 'General and non-visit time can only be started by a supervisor.',
+      code: 'SUPERVISOR_TIME_ONLY',
+    }, { status: 403 })
+  }
+
   if (parsed.data.visitId) {
     if (parsed.data.kind !== 'break') {
       return NextResponse.json({ ok: false, error: 'Only break time can be attached to a visit through this endpoint.', code: 'VISIT_TIMER_KIND_INVALID' }, { status: 400 })
