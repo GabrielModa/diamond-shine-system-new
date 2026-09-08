@@ -1,36 +1,72 @@
 import { Card, EmptyState, PageHeader, Screen } from '@/components/ui';
 import { fieldVisitState, formatMinutes, minutesBetween } from '@/lib/field-presentation';
 import { useAuth } from '@/lib/auth-context';
-import { formatOperationalDate, formatOperationalTime, operationalDateKey } from '@/lib/operational-time';
+import { addOperationalDays, formatOperationalDate, formatOperationalTime, operationalDateKey } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
+import type { Visit } from '@/lib/types';
 import { useVisits } from '@/lib/use-visits';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
+import { useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+
+type ScheduleFilter = 'all' | 'confirmed' | 'needs_confirmation';
+const PERIODS = [7, 14, 30] as const;
 
 export default function ScheduleScreen() {
   const { session } = useAuth();
   const { visits, loading, offline } = useVisits();
   const timezone = session?.timezone ?? 'Europe/Dublin';
-  const groups = visits.reduce<Record<string, typeof visits>>((result, visit) => {
-    const visitZone = visit.timezone ?? timezone;
-    const key = operationalDateKey(visit.scheduledStart, visitZone);
+  const [periodDays, setPeriodDays] = useState<(typeof PERIODS)[number]>(14);
+  const [filter, setFilter] = useState<ScheduleFilter>('all');
+  const [periodOpen, setPeriodOpen] = useState(false);
+  const todayKey = operationalDateKey(new Date(), timezone);
+  const endKey = addOperationalDays(todayKey, periodDays);
+
+  const periodVisits = useMemo(() => visits.filter((visit) => {
+    const key = operationalDateKey(visit.scheduledStart, visit.timezone ?? timezone);
+    return key >= todayKey && key < endKey;
+  }).sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart)), [endKey, timezone, todayKey, visits]);
+
+  const operationalVisits = periodVisits.filter((visit) => !['cancelled', 'missed'].includes(visit.status));
+  const totalMinutes = operationalVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0);
+  const confirmed = operationalVisits.filter((visit) => fieldVisitState(visit, session?.email).label === 'Confirmed').length;
+  const needsConfirmation = operationalVisits.filter((visit) => fieldVisitState(visit, session?.email).label === 'Needs confirmation').length;
+  const filteredVisits = periodVisits.filter((visit) => {
+    const label = fieldVisitState(visit, session?.email).label;
+    if (filter === 'confirmed') return label === 'Confirmed';
+    if (filter === 'needs_confirmation') return label === 'Needs confirmation';
+    return true;
+  });
+  const groups = filteredVisits.reduce<Record<string, Visit[]>>((result, visit) => {
+    const key = operationalDateKey(visit.scheduledStart, visit.timezone ?? timezone);
     (result[key] ??= []).push(visit);
     return result;
   }, {});
   const orderedGroups = Object.entries(groups).sort(([a], [b]) => a.localeCompare(b));
-  const operationalVisits = visits.filter((visit) => !['cancelled', 'missed'].includes(visit.status));
-  const totalMinutes = operationalVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0);
-  const confirmed = operationalVisits.filter((visit) => fieldVisitState(visit, session?.email).label === 'Confirmed').length;
-  const needsConfirmation = operationalVisits.filter((visit) => fieldVisitState(visit, session?.email).label === 'Needs confirmation').length;
+  const filterLabel = filter === 'confirmed' ? 'Confirmed' : filter === 'needs_confirmation' ? 'Needs confirmation' : 'All visits';
 
   return <Screen>
-    <PageHeader eyebrow={offline ? 'Saved schedule' : 'Next 14 days'} title="My schedule" subtitle="Your week at a glance — hours, visits and what still needs your response." />
+    <PageHeader
+      eyebrow={offline ? 'Saved schedule' : `${periodDays}-day plan`}
+      title="My schedule"
+      subtitle={`${formatMinutes(totalMinutes)} scheduled · ${operationalVisits.length} visit${operationalVisits.length === 1 ? '' : 's'} in this planning window.`}
+    />
 
     <View style={styles.summary}>
-      <SummaryMetric icon="time-outline" label="Planned" value={formatMinutes(totalMinutes)} />
-      <SummaryMetric icon="checkmark-circle-outline" label="Confirmed" value={`${confirmed}`} />
-      <SummaryMetric icon="alert-circle-outline" label="Needs action" value={`${needsConfirmation}`} attention={needsConfirmation > 0} />
+      <SummaryMetric icon="time-outline" label="Scheduled" value={formatMinutes(totalMinutes)} caption={`${periodDays} days`} selected={periodOpen} onPress={() => setPeriodOpen((value) => !value)} />
+      <SummaryMetric icon="checkmark-circle-outline" label="Confirmed" value={`${confirmed}`} selected={filter === 'confirmed'} onPress={() => { setFilter((value) => value === 'confirmed' ? 'all' : 'confirmed'); setPeriodOpen(false); }} />
+      <SummaryMetric icon="alert-circle-outline" label="Need confirmation" value={`${needsConfirmation}`} attention={needsConfirmation > 0} selected={filter === 'needs_confirmation'} onPress={() => { setFilter((value) => value === 'needs_confirmation' ? 'all' : 'needs_confirmation'); setPeriodOpen(false); }} />
+    </View>
+
+    {periodOpen ? <Card style={styles.periodCard}>
+      <View style={styles.periodHead}><View><Text style={styles.periodTitle}>Planning window</Text><Text style={styles.periodCopy}>Change how far ahead you want to see.</Text></View><Ionicons name="calendar-outline" size={20} color={colors.primary} /></View>
+      <View style={styles.periodOptions}>{PERIODS.map((days) => <Pressable key={days} accessibilityRole="button" onPress={() => { setPeriodDays(days); setPeriodOpen(false); }} style={[styles.periodOption, periodDays === days && styles.periodOptionSelected]}><Text style={[styles.periodOptionText, periodDays === days && styles.periodOptionTextSelected]}>{days} days</Text></Pressable>)}</View>
+    </Card> : null}
+
+    <View style={styles.resultBar}>
+      <View><Text style={styles.resultLabel}>{filterLabel}</Text><Text style={styles.resultCopy}>{filteredVisits.length} visit{filteredVisits.length === 1 ? '' : 's'} shown</Text></View>
+      {filter !== 'all' ? <Pressable accessibilityRole="button" onPress={() => setFilter('all')} style={styles.clearFilter}><Text style={styles.clearFilterText}>Clear filter</Text><Ionicons name="close" size={14} color={colors.primary} /></Pressable> : null}
     </View>
 
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : orderedGroups.length ? orderedGroups.map(([dayKey, dayVisits]) => {
@@ -38,42 +74,75 @@ export default function ScheduleScreen() {
       const plannedMinutes = sorted
         .filter((visit) => !['cancelled', 'missed'].includes(visit.status))
         .reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0);
-      const isToday = dayKey === operationalDateKey(new Date(), timezone);
+      const isToday = dayKey === todayKey;
+      const dayNeedsConfirmation = sorted.filter((visit) => fieldVisitState(visit, session?.email).label === 'Needs confirmation').length;
       return <View key={dayKey} style={styles.group}>
         <View style={styles.dayHead}>
-          <View style={styles.dayCopy}><View style={styles.dayTitleRow}><Text style={styles.day}>{formatOperationalDate(sorted[0].scheduledStart, sorted[0].timezone ?? timezone, { weekday: 'long', day: 'numeric', month: 'short' })}</Text>{isToday ? <Text style={styles.todayChip}>Today</Text> : null}</View><Text style={styles.daySub}>{formatMinutes(plannedMinutes)} planned · {sorted.length} visit{sorted.length === 1 ? '' : 's'}</Text></View>
+          <View style={styles.dayCopy}>
+            <View style={styles.dayTitleRow}><Text style={styles.day}>{formatOperationalDate(sorted[0].scheduledStart, sorted[0].timezone ?? timezone, { weekday: 'long', day: 'numeric', month: 'short' })}</Text>{isToday ? <Text style={styles.todayChip}>Today</Text> : null}</View>
+            <Text style={styles.daySub}>{formatMinutes(plannedMinutes)} scheduled · {sorted.length} visit{sorted.length === 1 ? '' : 's'}{dayNeedsConfirmation ? ` · ${dayNeedsConfirmation} to confirm` : ''}</Text>
+          </View>
         </View>
 
-        {sorted.map((visit) => {
-          const state = fieldVisitState(visit, session?.email);
-          const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
-          return <Pressable key={visit.id} onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
-            <Card style={styles.visit}>
-              <View style={styles.timeBlock}><Text style={styles.timeMain}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.timeEnd}>{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)}</Text><View style={styles.durationPill}><Ionicons name="hourglass-outline" size={11} color={colors.primary} /><Text style={styles.duration}>{duration}</Text></View></View>
-              <View style={styles.body}>
-                <View style={styles.visitHead}><Text style={styles.client}>{visit.site.client.displayName}</Text><View style={[styles.statusChip, state.tone === 'attention' && styles.statusAttention, state.tone === 'confirmed' && styles.statusConfirmed, state.tone === 'live' && styles.statusLive, state.tone === 'done' && styles.statusDone]}><Text style={[styles.statusText, state.tone === 'attention' && styles.statusTextAttention, state.tone === 'confirmed' && styles.statusTextConfirmed, state.tone === 'live' && styles.statusTextLive, state.tone === 'done' && styles.statusTextDone]}>{state.label}</Text></View></View>
-                <Text style={styles.name}>{visit.job?.name ?? visit.site.name}</Text>
-                <View style={styles.addressRow}><Ionicons name="location-outline" size={13} color={colors.muted} /><Text style={styles.address} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}, {visit.site.city}</Text></View>
-              </View>
-              <Ionicons name="chevron-forward" size={21} color={colors.primary} />
-            </Card>
-          </Pressable>;
-        })}
+        {sorted.map((visit) => <VisitRow key={visit.id} visit={visit} email={session?.email} timezone={timezone} />)}
       </View>;
-    }) : <EmptyState title="Schedule is clear" body="Assigned visits will be available here and cached for offline use." />}
+    }) : <EmptyState title={filter === 'all' ? 'Schedule is clear' : `No ${filterLabel.toLowerCase()} visits`} body={filter === 'all' ? 'Assigned visits will appear here and remain available offline.' : 'Try another filter or change the planning window.'} />}
   </Screen>;
 }
 
-function SummaryMetric({ icon, label, value, attention }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; attention?: boolean }) {
-  return <View style={[styles.summaryMetric, attention && styles.summaryAttention]}><Ionicons name={icon} size={18} color={attention ? colors.warning : '#AEE7D1'} /><Text style={styles.summaryValue}>{value}</Text><Text style={styles.summaryLabel}>{label}</Text></View>;
+function VisitRow({ visit, email, timezone }: { visit: Visit; email?: string | null; timezone: string }) {
+  const state = fieldVisitState(visit, email);
+  const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
+  return <Pressable accessibilityRole="button" onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
+    <Card style={styles.visit}>
+      <View style={styles.timeBlock}><Text style={styles.timeMain}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.timeEnd}>{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)}</Text><View style={styles.durationPill}><Ionicons name="hourglass-outline" size={11} color={colors.primary} /><Text style={styles.duration}>{duration}</Text></View></View>
+      <View style={styles.body}>
+        <View style={styles.visitHead}><Text style={styles.client}>{visit.site.client.displayName}</Text><StatusChip state={state} /></View>
+        <Text style={styles.name}>{visit.job?.name ?? visit.site.name}</Text>
+        <View style={styles.addressRow}><Ionicons name="location-outline" size={13} color={colors.muted} /><Text style={styles.address} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}, {visit.site.city}</Text></View>
+      </View>
+      <Ionicons name="chevron-forward" size={21} color={colors.primary} />
+    </Card>
+  </Pressable>;
+}
+
+function SummaryMetric({ icon, label, value, caption, attention, selected, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; caption?: string; attention?: boolean; selected?: boolean; onPress(): void }) {
+  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.summaryMetric, attention && styles.summaryAttention, selected && styles.summarySelected, pressed && styles.pressed]}>
+    <Ionicons name={icon} size={18} color={attention ? colors.warning : '#AEE7D1'} />
+    <Text style={styles.summaryValue}>{value}</Text>
+    <Text style={styles.summaryLabel}>{label}</Text>
+    {caption ? <Text style={styles.summaryCaption}>{caption} · tap to change</Text> : null}
+  </Pressable>;
+}
+
+function StatusChip({ state }: { state: ReturnType<typeof fieldVisitState> }) {
+  return <View style={[styles.statusChip, state.tone === 'attention' && styles.statusAttention, state.tone === 'confirmed' && styles.statusConfirmed, state.tone === 'live' && styles.statusLive, state.tone === 'done' && styles.statusDone]}>
+    <Text style={[styles.statusText, state.tone === 'attention' && styles.statusTextAttention, state.tone === 'confirmed' && styles.statusTextConfirmed, state.tone === 'live' && styles.statusTextLive, state.tone === 'done' && styles.statusTextDone]}>{state.label}</Text>
+  </View>;
 }
 
 const styles = StyleSheet.create({
   summary: { flexDirection: 'row', gap: 9 },
-  summaryMetric: { flex: 1, minWidth: 0, minHeight: 94, padding: 12, borderRadius: 17, justifyContent: 'center', backgroundColor: colors.ink },
-  summaryAttention: { borderWidth: 1, borderColor: '#C58A2A' },
+  summaryMetric: { flex: 1, minWidth: 0, minHeight: 108, padding: 12, borderRadius: 18, justifyContent: 'center', backgroundColor: colors.ink, borderWidth: 2, borderColor: 'transparent' },
+  summaryAttention: { borderColor: '#C58A2A' },
+  summarySelected: { borderColor: '#62D3A2', backgroundColor: '#12394D' },
   summaryValue: { color: '#fff', fontSize: 21, fontWeight: '900', marginTop: 6 },
-  summaryLabel: { color: '#C9D6E2', fontSize: 10, fontWeight: '700', marginTop: 2 },
+  summaryLabel: { color: '#D4E0E8', fontSize: 10, fontWeight: '800', marginTop: 2 },
+  summaryCaption: { color: '#8FA8B7', fontSize: 8, marginTop: 3 },
+  periodCard: { gap: 13, backgroundColor: '#F8FBFA', borderColor: '#BFDCCF' },
+  periodHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
+  periodTitle: { color: colors.ink, fontSize: 16, fontWeight: '900' },
+  periodCopy: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  periodOptions: { flexDirection: 'row', gap: 8 },
+  periodOption: { flex: 1, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  periodOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
+  periodOptionText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
+  periodOptionTextSelected: { color: colors.primaryDark },
+  resultBar: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  resultLabel: { color: colors.ink, fontSize: 15, fontWeight: '900' },
+  resultCopy: { color: colors.muted, fontSize: 10, marginTop: 2 },
+  clearFilter: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 99, backgroundColor: colors.primarySoft },
+  clearFilterText: { color: colors.primary, fontSize: 10, fontWeight: '900' },
   group: { gap: 10 },
   dayHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 },
   dayCopy: { flex: 1 },
