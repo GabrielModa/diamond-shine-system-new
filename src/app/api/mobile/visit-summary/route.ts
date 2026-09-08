@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireCapability } from '../../../../../lib/auth'
-import { prisma } from '../../../../../lib/prisma'
-import { ownAssignedVisitFilter } from '../../../../../modules/execution/access'
+import { requireCapability } from '../../../../lib/auth'
+import { prisma } from '../../../../lib/prisma'
+import { ownAssignedVisitFilter } from '../../../../modules/execution/access'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
