@@ -2,7 +2,9 @@ import { describe, expect, it } from 'vitest';
 import { entrySeconds, fieldVisitState, formatMinutes, minutesBetween } from '../../apps/mobile/lib/field-presentation';
 import type { Visit } from '../../apps/mobile/lib/types';
 
-function visit(status: string, assignmentStatus: Visit['assignments'][number]['status'] = 'assigned'): Visit {
+type AssignmentStatus = NonNullable<Visit['assignments']>[number]['status'];
+
+function visit(status: string, assignmentStatus: AssignmentStatus = 'assigned'): Visit {
   return {
     id: 'visit-1',
     status,
