@@ -5,6 +5,7 @@ import { formatOperationalTime, operationalDateKey, operationalGreeting } from '
 import { colors } from '@/lib/theme';
 import type { Visit } from '@/lib/types';
 import { useVisits } from '@/lib/use-visits';
+import { useWorkCommitments } from '@/lib/use-work-commitments';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -14,6 +15,7 @@ const ACTIVE_LABELS = new Set(['In progress', 'Paused', 'Finish visit']);
 export default function HomeScreen() {
   const { session } = useAuth();
   const { visits, loading, offline, queued, issues, error, refresh } = useVisits();
+  const { commitments } = useWorkCommitments();
   const timezone = session?.timezone ?? 'Europe/Dublin';
   const email = session?.email;
   const today = operationalDateKey(new Date(), timezone);
@@ -31,7 +33,10 @@ export default function HomeScreen() {
   const activeVisit = operationalVisits.find((visit) => ACTIVE_LABELS.has(fieldVisitState(visit, email).label));
   const nextVisit = activeVisit ?? operationalVisits.find((visit) => fieldVisitState(visit, email).label !== 'Done');
   const laterVisits = operationalVisits.filter((visit) => visit.id !== nextVisit?.id && fieldVisitState(visit, email).label !== 'Done');
-  const scheduleResponses = visits.filter((visit) => fieldVisitState(visit, email).label === 'Needs confirmation').length;
+  // One recurring commitment can cover many future Visit occurrences. Today
+  // must show the number of responses the employee actually has to make, not
+  // the number of pending occurrence rows in the 30-day offline package.
+  const scheduleResponses = commitments.length;
 
   return <Screen>
     <PageHeader
