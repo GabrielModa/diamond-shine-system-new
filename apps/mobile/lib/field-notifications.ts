@@ -30,6 +30,7 @@ const COLORS: Record<ReminderTone, string> = {
 let channelsConfigured = false;
 let lastFingerprint = '';
 let reconcileInFlight: Promise<void> | null = null;
+let workReconcileInFlight: Promise<void> | null = null;
 
 async function notifications() {
   const Notifications = await import('expo-notifications');
@@ -266,10 +267,10 @@ function fingerprint(visits: Visit[], commitments: WorkCommitment[], email: stri
   });
 }
 
-async function cancelFieldNotifications(Notifications: NotificationsModule) {
+async function cancelFieldNotifications(Notifications: NotificationsModule, type?: PlannedReminder['type']) {
   const scheduled = await Notifications.getAllScheduledNotificationsAsync();
   await Promise.all(scheduled
-    .filter((request) => request.content.data?.source === FIELD_SOURCE)
+    .filter((request) => request.content.data?.source === FIELD_SOURCE && (!type || request.content.data?.type === type))
     .map((request) => Notifications.cancelScheduledNotificationAsync(request.identifier)));
 }
 
@@ -295,6 +296,28 @@ async function scheduleReminder(Notifications: NotificationsModule, reminder: Pl
       channelId: reminder.channelId,
     },
   });
+}
+
+export async function reconcileWorkProgressNotifications(
+  visits: Visit[],
+  session: Pick<Session, 'email'>,
+) {
+  if (workReconcileInFlight) return workReconcileInFlight;
+  workReconcileInFlight = (async () => {
+    const Notifications = await notifications();
+    const permission = await Notifications.getPermissionsAsync();
+    if (!permission.granted) return;
+    const now = new Date();
+    const reminders = visits.flatMap((visit) => workReminders(visit, session.email, now));
+    // Offline pause/resume/finish must never destroy tomorrow or 2-hour visit
+    // reminders. Only replace timer-progress notifications from the local
+    // SQLite snapshot, whose synthetic time entries are updated immediately.
+    await cancelFieldNotifications(Notifications, 'work_progress');
+    await Promise.all(reminders.map((reminder) => scheduleReminder(Notifications, reminder)));
+  })().catch(() => undefined).finally(() => {
+    workReconcileInFlight = null;
+  });
+  return workReconcileInFlight;
 }
 
 export async function reconcileFieldNotifications(
