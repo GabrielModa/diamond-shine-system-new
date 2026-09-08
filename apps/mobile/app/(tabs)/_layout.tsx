@@ -1,6 +1,6 @@
 import { useAuth } from '@/lib/auth-context';
 import { colors } from '@/lib/theme';
-import { useVisits } from '@/lib/use-visits';
+import { useVisits, VisitsProvider } from '@/lib/use-visits';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, router, Tabs } from 'expo-router';
 import React from 'react';
@@ -14,28 +14,32 @@ export default function TabLayout() {
 
   const tabBarHeight = 62 + insets.bottom;
   return (
-    <View style={styles.shell}><Tabs
-      screenOptions={{
-        tabBarActiveTintColor: colors.primary,
-        tabBarInactiveTintColor: colors.muted,
-        tabBarHideOnKeyboard: true,
-        tabBarStyle: {
-          height: tabBarHeight,
-          paddingTop: 8,
-          paddingBottom: Math.max(8, insets.bottom),
-          borderTopColor: colors.border,
-          backgroundColor: colors.surface,
-        },
-        tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
-        headerShown: false,
-      }}>
-      <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} /> }} />
-      <Tabs.Screen name="schedule" options={{ title: 'Schedule', tabBarIcon: ({ color, size }) => <Ionicons name="calendar" color={color} size={size} /> }} />
-      <Tabs.Screen name="timesheet" options={{ title: 'Time', tabBarIcon: ({ color, size }) => <Ionicons name="time" color={color} size={size} /> }} />
-      <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <Ionicons name="ellipsis-horizontal-circle" color={color} size={size} /> }} />
-      <Tabs.Screen name="work" options={{ href: null }} />
-      <Tabs.Screen name="inbox" options={{ href: null }} />
-    </Tabs><ActiveVisitBar bottom={tabBarHeight + 10} /></View>
+    <VisitsProvider>
+      <View style={styles.shell}><Tabs
+        screenOptions={{
+          tabBarActiveTintColor: colors.primary,
+          tabBarInactiveTintColor: colors.muted,
+          tabBarHideOnKeyboard: true,
+          lazy: true,
+          freezeOnBlur: true,
+          tabBarStyle: {
+            height: tabBarHeight,
+            paddingTop: 8,
+            paddingBottom: Math.max(8, insets.bottom),
+            borderTopColor: colors.border,
+            backgroundColor: colors.surface,
+          },
+          tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
+          headerShown: false,
+        }}>
+        <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} /> }} />
+        <Tabs.Screen name="schedule" options={{ title: 'Schedule', tabBarIcon: ({ color, size }) => <Ionicons name="calendar" color={color} size={size} /> }} />
+        <Tabs.Screen name="timesheet" options={{ title: 'Time', tabBarIcon: ({ color, size }) => <Ionicons name="time" color={color} size={size} /> }} />
+        <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <Ionicons name="ellipsis-horizontal-circle" color={color} size={size} /> }} />
+        <Tabs.Screen name="work" options={{ href: null }} />
+        <Tabs.Screen name="inbox" options={{ href: null }} />
+      </Tabs><ActiveVisitBar bottom={tabBarHeight + 10} /></View>
+    </VisitsProvider>
   );
 }
 
