@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { entrySeconds, fieldVisitState, formatMinutes, minutesBetween } from '../../apps/mobile/lib/field-presentation';
+import { entrySeconds, fieldVisitState, fieldVisitStatusText, formatMinutes, minutesBetween } from '../../apps/mobile/lib/field-presentation';
 import type { Visit } from '../../apps/mobile/lib/types';
 
 type AssignmentStatus = NonNullable<Visit['assignments']>[number]['status'];
@@ -24,6 +24,7 @@ describe('field presentation helpers', () => {
     expect(fieldVisitState(visit('scheduled', 'seen'), 'gabriel@example.com').label).toBe('Needs confirmation');
     expect(fieldVisitState(visit('in_progress', 'acknowledged'), 'gabriel@example.com').label).toBe('In progress');
     expect(fieldVisitState(visit('completed', 'acknowledged'), 'gabriel@example.com').label).toBe('Done');
+    expect(fieldVisitStatusText(visit('acknowledged', 'acknowledged'), 'gabriel@example.com')).toBe('Confirmed');
   });
 
   it('formats planned time for field summaries', () => {
