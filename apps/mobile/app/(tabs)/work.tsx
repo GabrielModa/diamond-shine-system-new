@@ -4,10 +4,10 @@ import { useAuth } from '@/lib/auth-context';
 import { formatOperationalDate, formatOperationalTime } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
 import { useVisits } from '@/lib/use-visits';
-import { groupVisitsByOperationalDay, plannedMinutes, visitsStartingWithinDays } from '@/lib/work-planning';
 import { router, useFocusEffect } from 'expo-router';
 import { useCallback, useMemo, useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
+import { groupVisitsByDay, plannedMinutesForVisits, visitMinutes, formatPlannedMinutes, sevenDayWindowVisits } from '@/lib/work-planning';
 
 type Commitment = {
   key: string;
@@ -26,18 +26,6 @@ type Commitment = {
 };
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-
-function minutesBetween(start: string, end: string) {
-  return Math.max(0, Math.round((new Date(end).getTime() - new Date(start).getTime()) / 60_000));
-}
-
-function formatMinutes(minutes: number) {
-  const hours = Math.floor(minutes / 60);
-  const rest = minutes % 60;
-  if (!hours) return `${rest} min`;
-  if (!rest) return `${hours}h`;
-  return `${hours}h ${rest}m`;
-}
 
 function recurrenceLabel(value: unknown) {
   if (!value || typeof value !== 'object' || Array.isArray(value)) return 'Recurring schedule';
@@ -83,10 +71,10 @@ export default function WorkScreen() {
   const active = useMemo(() => actionable.find((visit) => visit.status === 'in_progress' || visit.timeEntries?.some((entry) => entry.kind === 'visit' && entry.status === 'running' && !entry.endedAt)), [actionable]);
   const confirmed = useMemo(() => actionable.filter((visit) => ownAssignment(visit)?.status === 'acknowledged'), [actionable, ownAssignment]);
   const next = active ?? confirmed[0] ?? actionable[0];
-  const upcoming = useMemo(() => confirmed.filter((visit) => visit.id !== next?.id).slice(0, 10), [confirmed, next?.id]);
-  const upcomingDays = useMemo(() => groupVisitsByOperationalDay(upcoming, timezone), [timezone, upcoming]);
-  const sevenDayPlan = useMemo(() => visitsStartingWithinDays(confirmed, 7), [confirmed]);
-  const sevenDayMinutes = useMemo(() => plannedMinutes(sevenDayPlan), [sevenDayPlan]);
+  const upcoming = confirmed.filter((visit) => visit.id !== next?.id);
+  const sevenDays = sevenDayWindowVisits(confirmed, new Date(), timezone);
+  const sevenDayMinutes = plannedMinutesForVisits(sevenDays);
+  const groupedUpcoming = groupVisitsByDay(upcoming, timezone);
   const issues = actionable.flatMap((visit) => (visit.incidents ?? []).filter((incident) => !['resolved', 'closed'].includes(incident.status)).map((incident) => ({ ...incident, visit })));
   const window = (start: string, end: string, visitTimezone?: string) => `${formatOperationalTime(start, visitTimezone ?? timezone)}–${formatOperationalTime(end, visitTimezone ?? timezone)}`;
 
@@ -103,7 +91,7 @@ export default function WorkScreen() {
         body: JSON.stringify({ status: 'acknowledged', scope: commitment.scope }),
       });
       setMessage(commitment.scope === 'recurring'
-        ? `Recurring schedule accepted. ${result.affectedVisits} upcoming visit${result.affectedVisits === 1 ? '' : 's'} confirmed.`
+        ? `Recurring schedule confirmed. ${result.affectedVisits} upcoming visit${result.affectedVisits === 1 ? '' : 's'} are covered.`
         : 'Schedule change confirmed.');
       await Promise.all([refresh(), loadCommitments()]);
     } catch (cause) {
@@ -113,7 +101,7 @@ export default function WorkScreen() {
     }
   }
 
-  return <Screen><PageHeader eyebrow={offline ? 'Saved work package' : 'Field control'} title={active ? 'Active work' : 'My work'} subtitle={active ? 'Stay focused on the visit in front of you.' : 'Responses first, then the next confirmed job.'} />
+  return <Screen><PageHeader eyebrow={offline ? 'Saved work package' : 'Field control'} title={active ? 'Active work' : 'My work'} subtitle={active ? 'Stay focused on the visit in front of you.' : 'Confirm schedule changes once, then focus on the work ahead.'} />
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : <>
@@ -121,36 +109,22 @@ export default function WorkScreen() {
         <Text style={styles.kicker}>In progress now</Text>
         <Text style={styles.client}>{active.site.client.displayName}</Text>
         <Text style={styles.visit}>{active.job?.name ?? active.site.name}</Text>
-        <Text style={styles.meta}>{window(active.scheduledStart, active.scheduledEnd, active.timezone)} · {formatMinutes(minutesBetween(active.scheduledStart, active.scheduledEnd))} planned</Text>
+        <Text style={styles.meta}>{window(active.scheduledStart, active.scheduledEnd, active.timezone)} · {formatPlannedMinutes(visitMinutes(active))} planned</Text>
         <Text style={styles.meta}>{active.site.addressLine1}, {active.site.city}</Text>
         <Button title="Continue visit" onPress={() => router.push(`/visit/${active.id}`)} />
       </Card> : null}
 
-      {confirmed.length ? <Card style={styles.planCard}>
-        <View style={styles.planMetric}>
-          <Text style={styles.planEyebrow}>NEXT 7 DAYS</Text>
-          <Text style={styles.planValue}>{formatMinutes(sevenDayMinutes)}</Text>
-          <Text style={styles.planLabel}>planned work</Text>
-        </View>
-        <View style={styles.planDivider} />
-        <View style={styles.planMetric}>
-          <Text style={styles.planEyebrow}>CONFIRMED</Text>
-          <Text style={styles.planValue}>{sevenDayPlan.length}</Text>
-          <Text style={styles.planLabel}>visit{sevenDayPlan.length === 1 ? '' : 's'}</Text>
-        </View>
-        <View style={styles.planDivider} />
-        <View style={styles.planMetric}>
-          <Text style={styles.planEyebrow}>RESPONSES</Text>
-          <Text style={[styles.planValue, commitments.length > 0 && styles.planValueAttention]}>{commitments.length}</Text>
-          <Text style={styles.planLabel}>{commitments.length ? 'need action' : 'all clear'}</Text>
-        </View>
-      </Card> : null}
+      <View style={styles.weekSummary}>
+        <View style={styles.weekMetric}><Text style={styles.weekValue}>{formatPlannedMinutes(sevenDayMinutes)}</Text><Text style={styles.weekLabel}>Next 7 days</Text></View>
+        <View style={styles.weekMetric}><Text style={styles.weekValue}>{sevenDays.length}</Text><Text style={styles.weekLabel}>Confirmed visits</Text></View>
+        <View style={styles.weekMetric}><Text style={[styles.weekValue, commitments.length > 0 && styles.weekAttention]}>{commitments.length}</Text><Text style={styles.weekLabel}>Need response</Text></View>
+      </View>
 
       {commitments.length ? <Card style={styles.attention}>
         <View style={styles.attentionHead}>
           <View style={styles.attentionCopyWrap}>
             <Text style={styles.attentionTitle}>{commitments.length} schedule response{commitments.length === 1 ? '' : 's'} needed</Text>
-            <Text style={styles.attentionCopy}>Recurring work is accepted once. We only ask again when the schedule itself changes.</Text>
+            <Text style={styles.attentionCopy}>Recurring work is confirmed once. We only ask again when the schedule itself changes.</Text>
           </View>
           {commitmentLoading ? <ActivityIndicator color={colors.warning} /> : null}
         </View>
@@ -159,11 +133,11 @@ export default function WorkScreen() {
             <Text style={styles.commitmentKind}>{commitment.scope === 'recurring' ? 'Recurring assignment' : 'Schedule changed'}</Text>
             <Text style={styles.commitmentTitle}>{commitment.clientName}</Text>
             <Text style={styles.commitmentMeta}>{commitment.scope === 'recurring' ? recurrenceLabel(commitment.recurrence) : formatOperationalDate(commitment.scheduledStart, commitment.timezone, { weekday: 'short', day: 'numeric', month: 'short' })}</Text>
-            <Text style={styles.commitmentMeta}>{window(commitment.scheduledStart, commitment.scheduledEnd, commitment.timezone)} · {formatMinutes(minutesBetween(commitment.scheduledStart, commitment.scheduledEnd))} planned</Text>
+            <Text style={styles.commitmentMeta}>{window(commitment.scheduledStart, commitment.scheduledEnd, commitment.timezone)} · {formatPlannedMinutes(visitMinutes(commitment))} planned</Text>
             {commitment.scope === 'recurring' && commitment.occurrences > 1 ? <Text style={styles.commitmentHint}>{commitment.occurrences} upcoming occurrences covered by this response</Text> : null}
           </View>
           <View style={styles.commitmentActions}>
-            <Button title={commitment.scope === 'recurring' ? 'Accept schedule' : 'Confirm change'} compact loading={busyKey === commitment.key} onPress={() => void accept(commitment)} />
+            <Button title={commitment.scope === 'recurring' ? 'Confirm schedule' : 'Confirm change'} compact loading={busyKey === commitment.key} onPress={() => void accept(commitment)} />
             <Button title="Review" variant="secondary" compact onPress={() => router.push(`/visit/${commitment.visitId}`)} />
           </View>
         </View>)}
@@ -174,32 +148,22 @@ export default function WorkScreen() {
         <Text style={styles.client}>{next.site.client.displayName}</Text>
         <Text style={styles.visit}>{next.job?.name ?? next.site.name}</Text>
         <Text style={styles.meta}>{formatOperationalDate(next.scheduledStart, next.timezone ?? timezone, { weekday: 'long', day: 'numeric', month: 'short' })}</Text>
-        <Text style={styles.meta}>{window(next.scheduledStart, next.scheduledEnd, next.timezone)} · {formatMinutes(minutesBetween(next.scheduledStart, next.scheduledEnd))} planned</Text>
+        <Text style={styles.meta}>{window(next.scheduledStart, next.scheduledEnd, next.timezone)} · {formatPlannedMinutes(visitMinutes(next))} planned</Text>
         <Button title="Open work package" onPress={() => router.push(`/visit/${next.id}`)} />
       </Card> : !active && !next ? <EmptyState title="No active work" body="Your confirmed visits and schedule responses will stay here, including when you are offline." /> : null}
 
       {issues.length ? <View style={styles.section}><Text style={styles.sectionTitle}>Open problems</Text>{issues.map(({ id, title, severity, visit }) => <Pressable key={id} onPress={() => router.push(`/visit/${visit.id}`)}><Card style={styles.issue}><View><Text style={styles.issueTitle}>{title}</Text><Text style={styles.issueMeta}>{visit.site.client.displayName} · {visit.site.name}</Text></View><Text style={styles.severity}>{severity}</Text></Card></Pressable>)}</View> : null}
 
-      {upcomingDays.length ? <View style={styles.section}>
-        <View><Text style={styles.sectionTitle}>Up next</Text><Text style={styles.sectionSub}>Confirmed work grouped by day · planned hours exclude breaks</Text></View>
-        {upcomingDays.map((day) => {
-          const firstVisit = day.visits[0];
-          const dayTimezone = firstVisit?.timezone ?? timezone;
-          return <View key={day.key} style={styles.dayGroup}>
-            <View style={styles.dayHeader}>
-              <View>
-                <Text style={styles.dayTitle}>{formatOperationalDate(firstVisit.scheduledStart, dayTimezone, { weekday: 'long', day: 'numeric', month: 'short' })}</Text>
-                <Text style={styles.dayMeta}>{day.visits.length} visit{day.visits.length === 1 ? '' : 's'}</Text>
-              </View>
-              <View style={styles.dayHoursBadge}><Text style={styles.dayHours}>{formatMinutes(day.minutes)} planned</Text></View>
-            </View>
-            {day.visits.map((visit) => <Pressable key={visit.id} onPress={() => router.push(`/visit/${visit.id}`)}><Card style={styles.row}>
-              <View style={styles.timeBox}><Text style={styles.timeBoxStart}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.timeBoxEnd}>{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)}</Text></View>
-              <View style={styles.rowBody}><Text style={styles.rowTitle}>{visit.site.client.displayName}</Text><Text style={styles.rowMeta}>{formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd))} planned · {visit.job?.name ?? visit.site.name}</Text><Text style={styles.rowMeta}>{visit.site.name} · {visit.site.city}</Text></View>
-              <Text style={styles.arrow}>›</Text>
-            </Card></Pressable>)}
-          </View>;
-        })}
+      {groupedUpcoming.length ? <View style={styles.section}>
+        <View><Text style={styles.sectionTitle}>Up next</Text><Text style={styles.sectionSub}>Confirmed work · grouped by day</Text></View>
+        {groupedUpcoming.map((group) => <View key={group.key} style={styles.dayGroup}>
+          <View style={styles.dayHead}><View><Text style={styles.dayTitle}>{formatOperationalDate(group.visits[0].scheduledStart, group.visits[0].timezone ?? timezone, { weekday: 'long', day: 'numeric', month: 'short' })}</Text><Text style={styles.dayMeta}>{group.visits.length} visit{group.visits.length === 1 ? '' : 's'}</Text></View><View style={styles.dayHours}><Text style={styles.dayHoursValue}>{formatPlannedMinutes(group.plannedMinutes)}</Text><Text style={styles.dayHoursLabel}>planned</Text></View></View>
+          {group.visits.map((visit) => <Pressable key={visit.id} onPress={() => router.push(`/visit/${visit.id}`)}><Card style={styles.row}>
+            <View style={styles.dateBox}><Text style={styles.dayName}>{formatOperationalDate(visit.scheduledStart, visit.timezone ?? timezone, { weekday: 'short' })}</Text><Text style={styles.dayNumber}>{formatOperationalDate(visit.scheduledStart, visit.timezone ?? timezone, { day: 'numeric' })}</Text></View>
+            <View style={styles.rowBody}><Text style={styles.rowTitle}>{visit.site.client.displayName}</Text><Text style={styles.rowMeta}>{window(visit.scheduledStart, visit.scheduledEnd, visit.timezone)} · {formatPlannedMinutes(visitMinutes(visit))}</Text><Text style={styles.rowMeta}>{visit.site.name} · {visit.site.city}</Text></View>
+            <Text style={styles.arrow}>›</Text>
+          </Card></Pressable>)}
+        </View>)}
       </View> : null}
     </>}
   </Screen>;
@@ -214,13 +178,11 @@ const styles = StyleSheet.create({
   client: { color: '#fff', fontSize: 23, fontWeight: '900' },
   visit: { color: '#D9E5EB', fontSize: 15, fontWeight: '700' },
   meta: { color: '#C8D7DF', fontSize: 12, lineHeight: 18 },
-  planCard: { flexDirection: 'row', alignItems: 'stretch', gap: 10, backgroundColor: '#F7FAFC', borderColor: '#DCE6EC' },
-  planMetric: { flex: 1, justifyContent: 'center', minWidth: 0 },
-  planEyebrow: { color: colors.muted, fontSize: 8, fontWeight: '900', letterSpacing: 0.7 },
-  planValue: { color: colors.ink, fontSize: 20, fontWeight: '900', marginTop: 3 },
-  planValueAttention: { color: colors.warning },
-  planLabel: { color: colors.muted, fontSize: 9, marginTop: 1 },
-  planDivider: { width: 1, backgroundColor: '#DCE6EC' },
+  weekSummary: { flexDirection: 'row', gap: 8 },
+  weekMetric: { flex: 1, minHeight: 75, padding: 11, justifyContent: 'center', borderWidth: 1, borderColor: colors.border, borderRadius: 15, backgroundColor: colors.surface },
+  weekValue: { color: colors.ink, fontSize: 19, fontWeight: '900' },
+  weekAttention: { color: colors.warning },
+  weekLabel: { color: colors.muted, fontSize: 9, lineHeight: 13, marginTop: 3 },
   attention: { backgroundColor: '#FFF8EC', borderColor: '#EBC67A', gap: 14 },
   attentionHead: { flexDirection: 'row', justifyContent: 'space-between', gap: 12 },
   attentionCopyWrap: { flex: 1 },
@@ -236,20 +198,21 @@ const styles = StyleSheet.create({
   section: { gap: 10 },
   sectionTitle: { color: colors.ink, fontSize: 19, fontWeight: '900' },
   sectionSub: { color: colors.muted, fontSize: 11, marginTop: 2 },
+  dayGroup: { gap: 9 },
+  dayHead: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-end', gap: 10, paddingHorizontal: 2, marginTop: 3 },
+  dayTitle: { color: colors.ink, fontSize: 15, fontWeight: '900' },
+  dayMeta: { color: colors.muted, fontSize: 10, marginTop: 2 },
+  dayHours: { alignItems: 'flex-end' },
+  dayHoursValue: { color: colors.primary, fontSize: 15, fontWeight: '900' },
+  dayHoursLabel: { color: colors.muted, fontSize: 9, marginTop: 1 },
   issue: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center', borderLeftWidth: 4, borderLeftColor: colors.danger },
   issueTitle: { color: colors.ink, fontWeight: '900', fontSize: 15 },
   issueMeta: { color: colors.muted, fontSize: 12, marginTop: 3 },
   severity: { color: colors.danger, textTransform: 'uppercase', fontSize: 10, fontWeight: '900' },
-  dayGroup: { gap: 8, marginTop: 2 },
-  dayHeader: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 3, paddingTop: 4 },
-  dayTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
-  dayMeta: { color: colors.muted, fontSize: 10, marginTop: 2 },
-  dayHoursBadge: { backgroundColor: colors.primarySoft, paddingHorizontal: 10, paddingVertical: 6, borderRadius: 12 },
-  dayHours: { color: colors.primaryDark, fontSize: 10, fontWeight: '900' },
   row: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  timeBox: { width: 64, alignItems: 'flex-start', justifyContent: 'center', paddingVertical: 5 },
-  timeBoxStart: { color: colors.primaryDark, fontSize: 12, fontWeight: '900' },
-  timeBoxEnd: { color: colors.muted, fontSize: 10, fontWeight: '700', marginTop: 2 },
+  dateBox: { width: 48, alignItems: 'center', paddingVertical: 6, borderRadius: 11, backgroundColor: colors.primarySoft },
+  dayName: { color: colors.primaryDark, fontSize: 9, fontWeight: '900', textTransform: 'uppercase' },
+  dayNumber: { color: colors.ink, fontSize: 18, fontWeight: '900' },
   rowBody: { flex: 1 },
   rowTitle: { color: colors.ink, fontSize: 15, fontWeight: '900' },
   rowMeta: { color: colors.muted, fontSize: 11, marginTop: 3 },
