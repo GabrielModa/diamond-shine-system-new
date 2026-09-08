@@ -71,6 +71,7 @@ describe('schedule capacity preview', () => {
     const capacity = await request(app).post('/api/schedule-capacity').set('Cookie', adminCookie).send({ userIds: [employee.id], windows: [{ start, end }] })
     expect(capacity.status).toBe(200)
     expect(capacity.body.data.windows[0].available).toBe(0)
+    expect(capacity.body.data.windows[0].availableUserIds).toEqual([])
     const updated = await request(app).patch(`/api/visits/${visit.id}`).set('Cookie', adminCookie).send({ version: visit.version, assigneeIds: [employee.id] })
     expect(updated.status).toBe(409)
     expect(updated.body.code).toBe('ASSIGNEE_WORKFORCE_CONSTRAINT')
@@ -103,7 +104,7 @@ describe('schedule capacity preview', () => {
 
     expect(response.status).toBe(200)
     expect(response.body.data.windows).toHaveLength(2)
-    expect(response.body.data.windows[0]).toMatchObject({ total: 1, available: 0, blockedCount: 1 })
+    expect(response.body.data.windows[0]).toMatchObject({ total: 1, available: 0, blockedCount: 1, availableUserIds: [] })
     expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({
         userId: employee.id,
@@ -111,7 +112,7 @@ describe('schedule capacity preview', () => {
         reason: 'Other job every Monday',
       }),
     ]))
-    expect(response.body.data.windows[1]).toMatchObject({ total: 1, available: 1, blockedCount: 0 })
+    expect(response.body.data.windows[1]).toMatchObject({ total: 1, available: 1, blockedCount: 0, availableUserIds: [employee.id] })
   })
 
   it('treats school and personal leave as unavailable capacity', async () => {
@@ -150,9 +151,11 @@ describe('schedule capacity preview', () => {
       })
 
     expect(response.status).toBe(200)
+    expect(response.body.data.windows[0].availableUserIds).toEqual([])
     expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: employee.id, kind: 'school' }),
     ]))
+    expect(response.body.data.windows[1].availableUserIds).toEqual([])
     expect(response.body.data.windows[1].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: employee.id, kind: 'personal_leave', reason: 'Appointment' }),
     ]))
@@ -193,9 +196,11 @@ describe('schedule capacity preview', () => {
       })
 
     expect(response.status).toBe(200)
+    expect(response.body.data.windows[0].availableUserIds).toEqual([])
     expect(response.body.data.windows[0].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: employee.id, kind: 'booked' }),
     ]))
+    expect(response.body.data.windows[1].availableUserIds).toEqual([])
     expect(response.body.data.windows[1].blocked).toEqual(expect.arrayContaining([
       expect.objectContaining({ userId: employee.id, kind: 'temporary_unavailability', reason: 'Medical appointment' }),
     ]))
