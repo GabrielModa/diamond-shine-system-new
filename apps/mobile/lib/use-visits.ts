@@ -18,12 +18,32 @@ type VisitSnapshot = {
 let refreshInFlight: Promise<VisitSnapshot> | null = null;
 let refreshKey = '';
 
+function databaseBusy(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : String(cause ?? '');
+  return /database is locked|NativeStatement\.finalizeAsync/i.test(message);
+}
+
 function friendlyDeviceError(cause: unknown) {
   const message = cause instanceof Error ? cause.message : '';
-  if (/database is locked|NativeStatement\.finalizeAsync/i.test(message)) {
-    return 'Saved changes are temporarily busy on this device. Try Sync now again in a moment.';
+  if (databaseBusy(cause)) {
+    return 'Saved changes are temporarily busy on this device. We will retry automatically.';
   }
   return message || 'Saved changes could not sync yet.';
+}
+
+async function withDatabaseRetry<T>(action: () => Promise<T>) {
+  const delays = [0, 120, 300, 650];
+  let lastError: unknown;
+  for (const delayMs of delays) {
+    if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
+    try {
+      return await action();
+    } catch (cause) {
+      lastError = cause;
+      if (!databaseBusy(cause)) throw cause;
+    }
+  }
+  throw lastError;
 }
 
 async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
@@ -35,7 +55,7 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
   try {
     if (network.isConnected) {
       try {
-        const result = await syncPending(session, await getDeviceId());
+        const result = await withDatabaseRetry(() => syncPending(session, getDeviceId()));
         if (result.issues.length) {
           error = `${result.issues.length} saved change${result.issues.length === 1 ? '' : 's'} need attention after reconnecting. Successful changes were kept.`;
         }
@@ -46,25 +66,34 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
       const from = new Date(Date.now() - 86_400_000).toISOString();
       const to = new Date(Date.now() + 30 * 86_400_000).toISOString();
       const data = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-      await cacheVisits(data);
-      visits = await cachedVisits();
+      await withDatabaseRetry(() => cacheVisits(data));
+      visits = await withDatabaseRetry(() => cachedVisits());
     } else {
-      visits = await cachedVisits();
+      visits = await withDatabaseRetry(() => cachedVisits());
       offline = true;
     }
   } catch (cause) {
-    visits = await cachedVisits();
+    try {
+      visits = await withDatabaseRetry(() => cachedVisits());
+    } catch {
+      visits = [];
+    }
     offline = true;
     error = friendlyDeviceError(cause) || 'Using saved visits.';
   }
 
-  return {
-    visits,
-    offline,
-    queued: await pendingCount(),
-    issues: await pendingIssueCount(),
-    error,
-  };
+  let queued = 0;
+  let issues = 0;
+  try {
+    [queued, issues] = await Promise.all([
+      withDatabaseRetry(() => pendingCount()),
+      withDatabaseRetry(() => pendingIssueCount()),
+    ]);
+  } catch (cause) {
+    if (!error) error = friendlyDeviceError(cause);
+  }
+
+  return { visits, offline, queued, issues, error };
 }
 
 function sharedRefresh(session: Session) {
