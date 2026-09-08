@@ -87,7 +87,7 @@ function refreshOfflinePackLater(session: Session, from: string, to: string) {
 
   InteractionManager.runAfterInteractions(() => {
     if (offlinePackInFlight.has(key)) return;
-    const request = apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
+    const request = apiFetch<Visit[]>(session, `/api/mobile/offline-pack?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
       .then((visits) => withDatabaseRetry(() => cacheVisits(visits)))
       .then(() => { offlinePackSavedAt.set(key, Date.now()); })
       .catch(() => undefined)
@@ -143,7 +143,7 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
 
     // Hot path: only fetch what Today / Schedule / Time actually render.
     // Checklist, evidence, incidents, areas and location events stay out of the
-    // first paint and are downloaded into the offline pack after interactions.
+    // first paint and are downloaded into the personal offline pack afterwards.
     const visits = await apiFetch<Visit[]>(session, `/api/mobile/visit-summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
     refreshOfflinePackLater(session, from, to);
 
