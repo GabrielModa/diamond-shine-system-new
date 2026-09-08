@@ -60,6 +60,12 @@ function recordedSeconds(entry: TimeEntry) {
   return Math.max(0, Math.round((new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime()) / 1000));
 }
 
+function evidencePhase(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null;
+  const phase = (metadata as Record<string, unknown>).phase;
+  return typeof phase === 'string' ? phase : null;
+}
+
 function FlowStep({ number, label, state }: { number: string; label: string; state: 'done' | 'current' | 'next' }) {
   return <View style={styles.flowStep}>
     <View style={[styles.flowDot, state === 'done' && styles.flowDotDone, state === 'current' && styles.flowDotCurrent]}>
@@ -166,6 +172,7 @@ export default function VisitScreen() {
   const pausedElapsedSeconds = pausedSince ? Math.max(0, Math.floor((clockNow - new Date(pausedSince).getTime()) / 1000)) : 0;
   const closeoutReady = Boolean(canExecute && visitExecutionOpen && ownTimerFinished && !runningVisitSince && !pausedSince);
   const canWorkChecklist = Boolean(closeoutReady && !visitSubmitted);
+  const finishPhotoCount = (visit?.evidenceAssets ?? []).filter((asset) => evidencePhase(asset.metadata) === 'finish').length;
 
   useEffect(() => {
     if (!anyRunningSince) return;
@@ -393,7 +400,7 @@ export default function VisitScreen() {
       const breakStartedAt = new Date(new Date(endedAt).getTime() + 1).toISOString();
       const stopMutationId = mutationId('time-pause');
       const breakMutationId = mutationId('visit-break');
-      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const stopPayload = { endedAt, mode: 'pause' as const, clientMutationId: stopMutationId, deviceId };
       const breakPayload = { kind: 'break', visitId: visit.id, startedAt: breakStartedAt, capturedAt: breakStartedAt, clientMutationId: breakMutationId, deviceId };
 
       const saveOffline = async () => {
@@ -451,7 +458,7 @@ export default function VisitScreen() {
       const stopMutationId = mutationId('break-stop');
       const resumeMutationId = mutationId('visit-resume');
       const location = await coordinates();
-      const stopPayload = { endedAt, clientMutationId: stopMutationId, deviceId };
+      const stopPayload = { endedAt, mode: 'resume' as const, clientMutationId: stopMutationId, deviceId };
       const resumePayload = { ...location, capturedAt: resumedAt, clientMutationId: resumeMutationId, deviceId };
 
       const saveOffline = async () => {
@@ -508,7 +515,7 @@ export default function VisitScreen() {
       const location = await coordinates();
       const clientMutationId = mutationId('time-finish');
       const endedAt = new Date().toISOString();
-      const payload = { ...location, endedAt, clientMutationId, deviceId: await getDeviceId() };
+      const payload = { ...location, endedAt, mode: 'finish' as const, clientMutationId, deviceId: await getDeviceId() };
 
       const saveOffline = async () => {
         const startMutationId = localTimer?.startMutationId;
@@ -698,7 +705,7 @@ export default function VisitScreen() {
       <View>
         <Text style={styles.timerLabel}>Schedule response</Text>
         <Text style={styles.assignmentTitle}>Can you attend this visit?</Text>
-        <Text style={styles.sectionSub}>For recurring assignments, use My Work to accept the ongoing schedule once.</Text>
+        <Text style={styles.sectionSub}>For recurring assignments, use Schedule responses to accept the ongoing schedule once.</Text>
       </View>
       {declining ? <>
         <TextInput value={declineReason} onChangeText={setDeclineReason} style={styles.input} placeholder="Reason or availability detail" multiline />
@@ -757,7 +764,8 @@ export default function VisitScreen() {
       </View> : closeoutReady ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
         <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. Complete the closeout checklist and evidence, then finish the visit.</Text>
+        <Text style={styles.executionDetail}>Clock-out is recorded. If Finish work was a mistake, resume now. Once you submit the visit, the field record is final.</Text>
+        {!completionPending ? <Button title="Resume work" variant="secondary" loading={busy} onPress={() => void startVisit()} /> : null}
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
         <Text style={styles.executionValue}>Start work</Text>
@@ -774,11 +782,11 @@ export default function VisitScreen() {
     {canFieldAction ? <Card style={styles.quickActions}>
       <View>
         <Text style={styles.sectionTitle}>Need something?</Text>
-        <Text style={styles.sectionSub}>Keep field exceptions attached to this visit instead of sending them separately.</Text>
+        <Text style={styles.sectionSub}>Report a field issue or request materials without leaving the visit context.</Text>
       </View>
       <View style={styles.quickActionRow}>
-        <View style={styles.timerAction}><Button title="Report issue" variant="secondary" compact onPress={() => setIncidentOpen(true)} /></View>
-        <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id } })} /></View>
+        <View style={styles.timerAction}><Button title="Report issue" variant="secondary" compact onPress={() => router.push(`/incident/${visit.id}`)} /></View>
+        <View style={styles.timerAction}><Button title="Request supplies" variant="secondary" compact onPress={() => router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id, mode: 'request' } })} /></View>
       </View>
     </Card> : null}
 
@@ -804,11 +812,15 @@ export default function VisitScreen() {
             <Pressable disabled={busy} onPress={() => void updateTask(task, 'problem')} style={[styles.pill, styles.pillProblem]}><Text style={styles.pillProblemText}>Problem</Text></Pressable>
             <Pressable disabled={busy} onPress={() => void updateTask(task, 'not_applicable')} style={styles.pill}><Text style={styles.pillText}>N/A</Text></Pressable>
           </View>
-          <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ''}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
+          <Button title={`${task.evidence?.length ? `${task.evidence.length} photo${task.evidence.length === 1 ? '' : 's'} · ` : ''}Add proof photo${task.versionTask.evidenceRequired ? ' · required' : ' · optional'}`} variant="ghost" compact onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, taskResultId: task.id, versionTaskId: task.versionTask.id, phase: 'task' } })} />
         </> : null}
       </Card>)}
 
-      {canWorkChecklist ? <Button title="Add finishing photo" variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} /> : null}
+      {canWorkChecklist ? <Card style={styles.optionalPhotoCard}>
+        <View><Text style={styles.sectionTitle}>Closeout photos</Text><Text style={styles.sectionSub}>Optional unless a checklist item above specifically says a photo is required.</Text></View>
+        {finishPhotoCount ? <Text style={styles.optionalPhotoCount}>{finishPhotoCount} optional closeout photo{finishPhotoCount === 1 ? '' : 's'} saved</Text> : null}
+        <Button title={finishPhotoCount ? 'Add another optional photo' : 'Add optional closeout photo'} variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} />
+      </Card> : null}
     </> : null}
 
     {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
@@ -931,6 +943,8 @@ const styles = StyleSheet.create({
   pillText: { color: colors.muted, fontWeight: '800' },
   pillDoneText: { color: colors.success, fontWeight: '800' },
   pillProblemText: { color: colors.danger, fontWeight: '800' },
+  optionalPhotoCard: { gap: 10, borderColor: '#C9D8E2', backgroundColor: '#FBFCFD' },
+  optionalPhotoCount: { color: colors.success, fontSize: 11, fontWeight: '900' },
   severity: { flexDirection: 'row', gap: 6 },
   categoryChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   categoryChoice: { minWidth: '22%', flexGrow: 1, paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
