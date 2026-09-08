@@ -1,6 +1,15 @@
 import NetInfo from '@react-native-community/netinfo';
 import { useFocusEffect } from 'expo-router';
-import { useCallback, useEffect, useState } from 'react';
+import { AppState, InteractionManager } from 'react-native';
+import {
+  createContext,
+  PropsWithChildren,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useState,
+} from 'react';
 import { apiFetch } from './api';
 import { useAuth } from './auth-context';
 import { getDeviceId } from './device';
@@ -15,12 +24,24 @@ type VisitSnapshot = {
   error: string;
 };
 
+type VisitsContextValue = VisitSnapshot & {
+  loading: boolean;
+  refresh(force?: boolean): Promise<void>;
+};
+
 type CachedSnapshot = { snapshot: VisitSnapshot; savedAt: number };
 
-const SNAPSHOT_TTL_MS = 20_000;
+const SNAPSHOT_TTL_MS = 60_000;
+const EMPTY_SNAPSHOT: VisitSnapshot = { visits: [], offline: false, queued: 0, issues: 0, error: '' };
+const VisitsContext = createContext<VisitsContextValue | null>(null);
+
 let refreshInFlight: Promise<VisitSnapshot> | null = null;
 let refreshKey = '';
 const snapshotCache = new Map<string, CachedSnapshot>();
+
+let persistenceScheduled = false;
+let persistenceBusy = false;
+let pendingPersistence: Visit[] | null = null;
 
 function sessionKey(session: Session) {
   return `${session.organizationId}:${session.email.toLowerCase()}:${session.baseUrl}`;
@@ -45,7 +66,7 @@ function friendlyDeviceError(cause: unknown) {
 }
 
 async function withDatabaseRetry<T>(action: () => Promise<T>) {
-  const delays = [0, 120, 300, 650];
+  const delays = [0, 80, 180, 400];
   let lastError: unknown;
   for (const delayMs of delays) {
     if (delayMs) await new Promise((resolve) => setTimeout(resolve, delayMs));
@@ -59,14 +80,62 @@ async function withDatabaseRetry<T>(action: () => Promise<T>) {
   throw lastError;
 }
 
+function pumpVisitPersistence() {
+  if (persistenceBusy || persistenceScheduled || !pendingPersistence) return;
+  persistenceScheduled = true;
+  InteractionManager.runAfterInteractions(() => {
+    persistenceScheduled = false;
+    const visits = pendingPersistence;
+    pendingPersistence = null;
+    if (!visits) return;
+    persistenceBusy = true;
+    void withDatabaseRetry(() => cacheVisits(visits))
+      .catch(() => undefined)
+      .finally(() => {
+        persistenceBusy = false;
+        pumpVisitPersistence();
+      });
+  });
+}
+
+function persistVisitsLater(visits: Visit[]) {
+  // Network data can paint immediately. SQLite is the offline safety copy, so
+  // coalesce rapid refreshes and write it after the navigation interaction.
+  pendingPersistence = visits;
+  pumpVisitPersistence();
+}
+
+async function readLocalSnapshot(): Promise<VisitSnapshot> {
+  let visits: Visit[] = [];
+  let queued = 0;
+  let issues = 0;
+  let error = '';
+  try {
+    [visits, queued, issues] = await Promise.all([
+      withDatabaseRetry(() => cachedVisits()),
+      withDatabaseRetry(() => pendingCount()),
+      withDatabaseRetry(() => pendingIssueCount()),
+    ]);
+  } catch (cause) {
+    error = friendlyDeviceError(cause);
+  }
+  return { visits, offline: false, queued, issues, error };
+}
+
 async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
   const network = await NetInfo.fetch();
   let error = '';
-  let offline = false;
-  let visits: Visit[] = [];
+
+  if (!network.isConnected) {
+    const local = await readLocalSnapshot();
+    return { ...local, offline: true };
+  }
 
   try {
-    if (network.isConnected) {
+    // Most refreshes have nothing queued. Avoid device-id lookup + queue scan
+    // pipeline unless there is actually work to upload.
+    const pendingBeforeSync = await withDatabaseRetry(() => pendingCount()).catch(() => 0);
+    if (pendingBeforeSync > 0) {
       try {
         const deviceId = await getDeviceId();
         const result = await withDatabaseRetry(() => syncPending(session, deviceId));
@@ -76,41 +145,36 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
       } catch (cause) {
         error = friendlyDeviceError(cause);
       }
-
-      const from = new Date(Date.now() - 86_400_000).toISOString();
-      const to = new Date(Date.now() + 30 * 86_400_000).toISOString();
-      const data = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-      // The network response is already the canonical snapshot. Persist it for
-      // offline use, but do not immediately read the same large payload back
-      // out of SQLite before painting the screen.
-      visits = data;
-      await withDatabaseRetry(() => cacheVisits(data));
-    } else {
-      visits = await withDatabaseRetry(() => cachedVisits());
-      offline = true;
     }
-  } catch (cause) {
+
+    const from = new Date(Date.now() - 86_400_000).toISOString();
+    const to = new Date(Date.now() + 30 * 86_400_000).toISOString();
+    const visits = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+
+    // Do not make the user wait for a full SQLite rewrite before showing a
+    // response that is already authoritative from the server.
+    persistVisitsLater(visits);
+
+    let queued = 0;
+    let issues = 0;
     try {
-      visits = await withDatabaseRetry(() => cachedVisits());
-    } catch {
-      visits = [];
+      [queued, issues] = await Promise.all([
+        withDatabaseRetry(() => pendingCount()),
+        withDatabaseRetry(() => pendingIssueCount()),
+      ]);
+    } catch (cause) {
+      if (!error) error = friendlyDeviceError(cause);
     }
-    offline = true;
-    error = friendlyDeviceError(cause) || 'Using saved visits.';
-  }
 
-  let queued = 0;
-  let issues = 0;
-  try {
-    [queued, issues] = await Promise.all([
-      withDatabaseRetry(() => pendingCount()),
-      withDatabaseRetry(() => pendingIssueCount()),
-    ]);
+    return { visits, offline: false, queued, issues, error };
   } catch (cause) {
-    if (!error) error = friendlyDeviceError(cause);
+    const memory = snapshotCache.get(sessionKey(session))?.snapshot;
+    if (memory?.visits.length) {
+      return { ...memory, offline: true, error: friendlyDeviceError(cause) };
+    }
+    const local = await readLocalSnapshot();
+    return { ...local, offline: true, error: friendlyDeviceError(cause) || local.error };
   }
-
-  return { visits, offline, queued, issues, error };
 }
 
 function sharedRefresh(session: Session, force = false) {
@@ -134,33 +198,68 @@ function sharedRefresh(session: Session, force = false) {
   return promise;
 }
 
-export function useVisits() {
+export function VisitsProvider({ children }: PropsWithChildren) {
   const { session } = useAuth();
   const initial = session ? freshSnapshot(session) : null;
-  const [visits, setVisits] = useState<Visit[]>(initial?.visits ?? []);
+  const [snapshot, setSnapshot] = useState<VisitSnapshot>(initial ?? EMPTY_SNAPSHOT);
   const [loading, setLoading] = useState(!initial);
-  const [offline, setOffline] = useState(initial?.offline ?? false);
-  const [queued, setQueued] = useState(initial?.queued ?? 0);
-  const [issues, setIssues] = useState(initial?.issues ?? 0);
-  const [error, setError] = useState(initial?.error ?? '');
+
+  const applySnapshot = useCallback((next: VisitSnapshot) => {
+    setSnapshot(next);
+    setLoading(false);
+  }, []);
 
   const refresh = useCallback(async (force = true) => {
     if (!session) return;
     const cached = !force ? freshSnapshot(session) : null;
-    if (!cached && !visits.length) setLoading(true);
-    const snapshot = cached ?? await sharedRefresh(session, force);
-    setVisits(snapshot.visits);
-    setOffline(snapshot.offline);
-    setQueued(snapshot.queued);
-    setIssues(snapshot.issues);
-    setError(snapshot.error);
-    setLoading(false);
-  }, [session, visits.length]);
+    if (cached) {
+      applySnapshot(cached);
+      return;
+    }
+    if (!snapshot.visits.length) setLoading(true);
+    applySnapshot(await sharedRefresh(session, force));
+  }, [applySnapshot, session, snapshot.visits.length]);
 
-  // Tab changes are not a reason to download and rewrite the whole offline
-  // package again. A fresh snapshot is shared for a short period; explicit
-  // refresh buttons still force a real sync.
-  useFocusEffect(useCallback(() => { void refresh(false); }, [refresh]));
+  useEffect(() => {
+    let cancelled = false;
+    if (!session) {
+      setSnapshot(EMPTY_SNAPSHOT);
+      setLoading(false);
+      return;
+    }
+
+    const memory = freshSnapshot(session);
+    if (memory) {
+      applySnapshot(memory);
+      return;
+    }
+
+    setLoading(true);
+    void readLocalSnapshot().then((local) => {
+      if (cancelled) return;
+      // Paint the last safe offline snapshot immediately. On a first install
+      // with no cache, keep the loading state until the network result arrives.
+      if (local.visits.length || local.queued || local.issues || local.error) applySnapshot(local);
+    });
+
+    const task = InteractionManager.runAfterInteractions(() => {
+      void sharedRefresh(session, true).then((next) => {
+        if (!cancelled) applySnapshot(next);
+      });
+    });
+
+    return () => {
+      cancelled = true;
+      task.cancel();
+    };
+  }, [applySnapshot, session]);
+
+  // The tab navigator remains mounted while switching Today/Schedule/Time, so
+  // this runs once for the tab workspace instead of once per screen.
+  useFocusEffect(useCallback(() => {
+    if (session) void refresh(false);
+  }, [refresh, session]));
+
   useEffect(() => {
     if (!session) return;
     let initialized = false;
@@ -171,5 +270,20 @@ export function useVisits() {
     return unsubscribe;
   }, [refresh, session]);
 
-  return { visits, loading, offline, queued, issues, error, refresh };
+  useEffect(() => {
+    if (!session) return;
+    const subscription = AppState.addEventListener('change', (state) => {
+      if (state === 'active') void refresh(false);
+    });
+    return () => subscription.remove();
+  }, [refresh, session]);
+
+  const value = useMemo<VisitsContextValue>(() => ({ ...snapshot, loading, refresh }), [loading, refresh, snapshot]);
+  return <VisitsContext.Provider value={value}>{children}</VisitsContext.Provider>;
+}
+
+export function useVisits() {
+  const value = useContext(VisitsContext);
+  if (!value) throw new Error('useVisits must be used inside VisitsProvider');
+  return value;
 }
