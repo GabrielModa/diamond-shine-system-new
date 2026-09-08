@@ -54,27 +54,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'This visit cannot be started.', code: 'VISIT_NOT_STARTABLE' }, { status: 409 })
   }
 
-  const active = await prisma.timeEntry.findFirst({
-    where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-    include: { visit: { select: { id: true, scheduledStart: true } } },
-  })
-  if (active) {
-    return NextResponse.json({
-      ok: false,
-      error: active.visitId === visit.id ? 'This visit already has an active timer for you.' : 'Another timer is already running.',
-      code: 'ACTIVE_TIMER',
-      data: active,
-    }, { status: 409 })
-  }
-
-  const startedAt = parsed.data.capturedAt ?? new Date()
+  const requestedStartAt = parsed.data.capturedAt ?? new Date()
   const assessment = assessLocation(visit.site, parsed.data)
   const pattern = await repeatedLocationPattern({
     organizationId: auth.user.organizationId,
     userId: auth.user.id,
     siteId: visit.siteId,
     kind: 'clock_in',
-    capturedAt: startedAt,
+    capturedAt: requestedStartAt,
     coordinates: parsed.data,
     assessment,
   })
@@ -83,14 +70,48 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     : assessment.reviewRequired ? assessment.reason : null
 
   let timeEntry: TimeEntry
+  let switchedFrom: { id: string; kind: string; visitId: string | null; startedAt: Date; endedAt: Date } | null = null
   try {
-    timeEntry = await prisma.$transaction(async (tx) => {
+    const result = await prisma.$transaction(async (tx) => {
       await lockUserTimerStart(tx, auth.user.organizationId, auth.user.id)
       const activeTimer = await tx.timeEntry.findFirst({
         where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-        select: { id: true },
+        select: { id: true, kind: true, visitId: true, startedAt: true, reviewReason: true },
       })
-      if (activeTimer) throw new ActiveTimerConflict()
+
+      if (activeTimer?.visitId === visit.id && activeTimer.kind === 'visit') {
+        throw new ActiveTimerConflict()
+      }
+
+      const startedAt = activeTimer && requestedStartAt < activeTimer.startedAt
+        ? activeTimer.startedAt
+        : requestedStartAt
+
+      let switched: typeof switchedFrom = null
+      if (activeTimer) {
+        const durationSeconds = Math.max(0, Math.round((startedAt.getTime() - activeTimer.startedAt.getTime()) / 1000))
+        const claimedTimer = await tx.timeEntry.updateMany({
+          where: {
+            id: activeTimer.id,
+            organizationId: auth.user.organizationId,
+            userId: auth.user.id,
+            status: 'running',
+          },
+          data: {
+            status: activeTimer.reviewReason ? 'needs_review' : 'completed',
+            endedAt: startedAt,
+            durationSeconds,
+          },
+        })
+        if (claimedTimer.count !== 1) throw new ActiveTimerConflict()
+        switched = {
+          id: activeTimer.id,
+          kind: activeTimer.kind,
+          visitId: activeTimer.visitId,
+          startedAt: activeTimer.startedAt,
+          endedAt: startedAt,
+        }
+      }
 
       // Starting again is valid after a pause, and teammates may start their own
       // timer after the Visit itself is already in progress. The guarded update
@@ -181,8 +202,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           })
         }
       }
-      return created
+      return { created, switched }
     })
+    timeEntry = result.created
+    switchedFrom = result.switched
   } catch (error) {
     if (error instanceof ActiveTimerConflict) {
       if (parsed.data.clientMutationId) {
@@ -204,7 +227,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       })
       return NextResponse.json({
         ok: false,
-        error: current?.visitId === visit.id ? 'This visit already has an active timer for you.' : 'Another timer is already running.',
+        error: current?.visitId === visit.id ? 'This visit already has an active timer for you.' : 'Your current timer changed while starting this visit. Try again.',
         code: 'ACTIVE_TIMER',
         data: current,
       }, { status: 409 })
@@ -229,8 +252,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     throw error
   }
 
+  if (switchedFrom) {
+    await logAudit(auth.user.email, 'switch_time_entry', 'time_entry', switchedFrom.id, {
+      fromKind: switchedFrom.kind,
+      fromVisitId: switchedFrom.visitId,
+      toKind: 'visit',
+      toVisitId: visit.id,
+      endedAt: switchedFrom.endedAt.toISOString(),
+    }, auth.user.organizationId)
+  }
   await logAudit(auth.user.email, 'start_visit', 'visit', visit.id, {
     timeEntryId: timeEntry.id,
+    switchedFromTimeEntryId: switchedFrom?.id ?? null,
     distanceM: assessment.distanceM,
     locationClass: assessment.classification,
     locationRisk: assessment.risk,
@@ -239,6 +272,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   return NextResponse.json({
     ok: true,
     data: { ...timeEntry, location: assessment, pattern },
+    switchedFrom,
     location: assessment,
     pattern,
     warning: reviewReason,
