@@ -60,13 +60,13 @@ export default function ScheduleScreen() {
     </View>
 
     {periodOpen ? <Card style={styles.periodCard}>
-      <View style={styles.periodHead}><View><Text style={styles.periodTitle}>Planning window</Text><Text style={styles.periodCopy}>Change how far ahead you want to see.</Text></View><Ionicons name="calendar-outline" size={20} color={colors.primary} /></View>
-      <View style={styles.periodOptions}>{PERIODS.map((days) => <Pressable key={days} accessibilityRole="button" onPress={() => { setPeriodDays(days); setPeriodOpen(false); }} style={[styles.periodOption, periodDays === days && styles.periodOptionSelected]}><Text style={[styles.periodOptionText, periodDays === days && styles.periodOptionTextSelected]}>{days} days</Text></Pressable>)}</View>
+      <View style={styles.periodHead}><View style={styles.periodHeadCopy}><Text style={styles.periodTitle}>Planning window</Text><Text style={styles.periodCopy}>Change how far ahead you want to see.</Text></View><Ionicons name="calendar-outline" size={20} color={colors.primary} /></View>
+      <View style={styles.periodOptions}>{PERIODS.map((days) => <Pressable key={days} accessibilityRole="button" accessibilityState={{ selected: periodDays === days }} onPress={() => { setPeriodDays(days); setPeriodOpen(false); }} style={[styles.periodOption, periodDays === days && styles.periodOptionSelected]}><Text style={[styles.periodOptionText, periodDays === days && styles.periodOptionTextSelected]}>{days} days</Text></Pressable>)}</View>
     </Card> : null}
 
     <View style={styles.resultBar}>
-      <View><Text style={styles.resultLabel}>{filterLabel}</Text><Text style={styles.resultCopy}>{filteredVisits.length} visit{filteredVisits.length === 1 ? '' : 's'} shown</Text></View>
-      {filter !== 'all' ? <Pressable accessibilityRole="button" onPress={() => setFilter('all')} style={styles.clearFilter}><Text style={styles.clearFilterText}>Clear filter</Text><Ionicons name="close" size={14} color={colors.primary} /></Pressable> : null}
+      <View style={styles.resultCopyWrap}><Text style={styles.resultLabel}>{filterLabel}</Text><Text style={styles.resultCopy}>{filteredVisits.length} visit{filteredVisits.length === 1 ? '' : 's'} shown</Text></View>
+      {filter !== 'all' ? <Pressable accessibilityRole="button" accessibilityLabel="Clear schedule filter" onPress={() => setFilter('all')} style={styles.clearFilter}><Text style={styles.clearFilterText}>Clear filter</Text><Ionicons name="close" size={14} color={colors.primary} /></Pressable> : null}
     </View>
 
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : orderedGroups.length ? orderedGroups.map(([dayKey, dayVisits]) => {
@@ -93,21 +93,22 @@ export default function ScheduleScreen() {
 function VisitRow({ visit, email, timezone }: { visit: Visit; email?: string | null; timezone: string }) {
   const state = fieldVisitState(visit, email);
   const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
-  return <Pressable accessibilityRole="button" onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
+  const label = `${formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}, ${visit.site.client.displayName}, ${visit.job?.name ?? visit.site.name}, ${state.label}`;
+  return <Pressable accessibilityRole="button" accessibilityLabel={label} onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
     <Card style={styles.visit}>
       <View style={styles.timeBlock}><Text style={styles.timeMain}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.timeEnd}>{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)}</Text><View style={styles.durationPill}><Ionicons name="hourglass-outline" size={11} color={colors.primary} /><Text style={styles.duration}>{duration}</Text></View></View>
       <View style={styles.body}>
         <View style={styles.visitHead}><Text style={styles.client}>{visit.site.client.displayName}</Text><StatusChip state={state} /></View>
         <Text style={styles.name}>{visit.job?.name ?? visit.site.name}</Text>
-        <View style={styles.addressRow}><Ionicons name="location-outline" size={13} color={colors.muted} /><Text style={styles.address} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}, {visit.site.city}</Text></View>
+        <View style={styles.addressRow}><Ionicons name="location-outline" size={13} color={colors.muted} /><Text style={styles.address}>{visit.site.name} · {visit.site.addressLine1}, {visit.site.city}</Text></View>
       </View>
-      <Ionicons name="chevron-forward" size={21} color={colors.primary} />
+      <Ionicons style={styles.chevron} name="chevron-forward" size={21} color={colors.primary} />
     </Card>
   </Pressable>;
 }
 
 function SummaryMetric({ icon, label, value, caption, attention, selected, onPress }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; caption?: string; attention?: boolean; selected?: boolean; onPress(): void }) {
-  return <Pressable accessibilityRole="button" onPress={onPress} style={({ pressed }) => [styles.summaryMetric, attention && styles.summaryAttention, selected && styles.summarySelected, pressed && styles.pressed]}>
+  return <Pressable accessibilityRole="button" accessibilityState={{ selected: Boolean(selected) }} accessibilityLabel={`${label}: ${value}`} onPress={onPress} style={({ pressed }) => [styles.summaryMetric, attention && styles.summaryAttention, selected && styles.summarySelected, pressed && styles.pressed]}>
     <Ionicons name={icon} size={18} color={attention ? colors.warning : '#AEE7D1'} />
     <Text style={styles.summaryValue}>{value}</Text>
     <Text style={styles.summaryLabel}>{label}</Text>
@@ -122,48 +123,51 @@ function StatusChip({ state }: { state: ReturnType<typeof fieldVisitState> }) {
 }
 
 const styles = StyleSheet.create({
-  summary: { flexDirection: 'row', gap: 9 },
-  summaryMetric: { flex: 1, minWidth: 0, minHeight: 108, padding: 12, borderRadius: 18, justifyContent: 'center', backgroundColor: colors.ink, borderWidth: 2, borderColor: 'transparent' },
+  summary: { flexDirection: 'row', flexWrap: 'wrap', gap: 9 },
+  summaryMetric: { flexGrow: 1, flexBasis: 110, minWidth: 105, minHeight: 100, padding: 12, borderRadius: 18, justifyContent: 'center', backgroundColor: colors.ink, borderWidth: 2, borderColor: 'transparent' },
   summaryAttention: { borderColor: '#C58A2A' },
   summarySelected: { borderColor: '#62D3A2', backgroundColor: '#12394D' },
-  summaryValue: { color: '#fff', fontSize: 21, fontWeight: '900', marginTop: 6 },
-  summaryLabel: { color: '#D4E0E8', fontSize: 10, fontWeight: '800', marginTop: 2 },
-  summaryCaption: { color: '#8FA8B7', fontSize: 8, marginTop: 3 },
+  summaryValue: { color: '#fff', fontSize: 21, lineHeight: 26, fontWeight: '900', marginTop: 6 },
+  summaryLabel: { color: '#D4E0E8', fontSize: 10, lineHeight: 14, fontWeight: '800', marginTop: 2 },
+  summaryCaption: { color: '#8FA8B7', fontSize: 9, lineHeight: 13, marginTop: 3 },
   periodCard: { gap: 13, backgroundColor: '#F8FBFA', borderColor: '#BFDCCF' },
   periodHead: { flexDirection: 'row', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12 },
-  periodTitle: { color: colors.ink, fontSize: 16, fontWeight: '900' },
-  periodCopy: { color: colors.muted, fontSize: 11, marginTop: 2 },
-  periodOptions: { flexDirection: 'row', gap: 8 },
-  periodOption: { flex: 1, minHeight: 42, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
+  periodHeadCopy: { flex: 1, minWidth: 0 },
+  periodTitle: { color: colors.ink, fontSize: 16, lineHeight: 21, fontWeight: '900' },
+  periodCopy: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 2 },
+  periodOptions: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  periodOption: { flexGrow: 1, flexBasis: 80, minHeight: 44, borderRadius: 12, alignItems: 'center', justifyContent: 'center', borderWidth: 1, borderColor: colors.border, backgroundColor: colors.surface },
   periodOptionSelected: { borderColor: colors.primary, backgroundColor: colors.primarySoft },
   periodOptionText: { color: colors.muted, fontSize: 12, fontWeight: '800' },
   periodOptionTextSelected: { color: colors.primaryDark },
-  resultBar: { minHeight: 44, flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
-  resultLabel: { color: colors.ink, fontSize: 15, fontWeight: '900' },
-  resultCopy: { color: colors.muted, fontSize: 10, marginTop: 2 },
-  clearFilter: { flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 10, paddingVertical: 7, borderRadius: 99, backgroundColor: colors.primarySoft },
+  resultBar: { minHeight: 44, flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  resultCopyWrap: { flexGrow: 1, minWidth: 150 },
+  resultLabel: { color: colors.ink, fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  resultCopy: { color: colors.muted, fontSize: 10, lineHeight: 14, marginTop: 2 },
+  clearFilter: { minHeight: 44, flexDirection: 'row', alignItems: 'center', gap: 4, paddingHorizontal: 12, paddingVertical: 7, borderRadius: 99, backgroundColor: colors.primarySoft },
   clearFilterText: { color: colors.primary, fontSize: 10, fontWeight: '900' },
   group: { gap: 10 },
   dayHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12, marginTop: 2 },
   dayCopy: { flex: 1 },
   dayTitleRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
-  day: { color: colors.ink, fontSize: 18, fontWeight: '900', textTransform: 'capitalize' },
-  todayChip: { color: colors.primaryDark, backgroundColor: colors.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 99, fontSize: 9, fontWeight: '900' },
-  daySub: { color: colors.muted, fontSize: 11, marginTop: 3 },
-  visit: { flexDirection: 'row', alignItems: 'center', gap: 11 },
-  timeBlock: { width: 66, gap: 2 },
-  timeMain: { color: colors.primary, fontSize: 15, fontWeight: '900' },
-  timeEnd: { color: colors.muted, fontSize: 11 },
+  day: { color: colors.ink, fontSize: 18, lineHeight: 24, fontWeight: '900', textTransform: 'capitalize' },
+  todayChip: { color: colors.primaryDark, backgroundColor: colors.primarySoft, paddingHorizontal: 8, paddingVertical: 4, borderRadius: 99, fontSize: 9, lineHeight: 12, fontWeight: '900' },
+  daySub: { color: colors.muted, fontSize: 11, lineHeight: 16, marginTop: 3 },
+  visit: { flexDirection: 'row', alignItems: 'flex-start', gap: 11 },
+  timeBlock: { width: 70, flexShrink: 0, gap: 2 },
+  timeMain: { color: colors.primary, fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  timeEnd: { color: colors.muted, fontSize: 11, lineHeight: 15 },
   durationPill: { alignSelf: 'flex-start', flexDirection: 'row', alignItems: 'center', gap: 3, marginTop: 5, paddingHorizontal: 6, paddingVertical: 3, borderRadius: 99, backgroundColor: colors.primarySoft },
-  duration: { color: colors.primaryDark, fontSize: 9, fontWeight: '900' },
+  duration: { color: colors.primaryDark, fontSize: 9, lineHeight: 12, fontWeight: '900' },
   body: { flex: 1, minWidth: 0, gap: 4 },
-  visitHead: { flexDirection: 'row', gap: 7, alignItems: 'flex-start' },
-  client: { flex: 1, color: colors.ink, fontSize: 15, lineHeight: 19, fontWeight: '900' },
-  name: { color: colors.ink, fontSize: 12, fontWeight: '700' },
+  visitHead: { flexDirection: 'row', flexWrap: 'wrap', gap: 7, alignItems: 'flex-start' },
+  client: { flexGrow: 1, flexShrink: 1, minWidth: 120, color: colors.ink, fontSize: 15, lineHeight: 20, fontWeight: '900' },
+  name: { color: colors.ink, fontSize: 12, lineHeight: 17, fontWeight: '700' },
   addressRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 4 },
-  address: { flex: 1, color: colors.muted, fontSize: 10, lineHeight: 14 },
-  statusChip: { maxWidth: '47%', paddingHorizontal: 7, paddingVertical: 4, borderRadius: 99, backgroundColor: '#EEF2F5' },
-  statusText: { color: colors.muted, fontSize: 8, fontWeight: '900' },
+  address: { flex: 1, color: colors.muted, fontSize: 10, lineHeight: 15 },
+  chevron: { alignSelf: 'center', flexShrink: 0 },
+  statusChip: { alignSelf: 'flex-start', flexShrink: 1, paddingHorizontal: 7, paddingVertical: 4, borderRadius: 99, backgroundColor: '#EEF2F5' },
+  statusText: { color: colors.muted, fontSize: 8, lineHeight: 11, fontWeight: '900' },
   statusAttention: { backgroundColor: '#FFF1D6' },
   statusTextAttention: { color: '#B86B00' },
   statusConfirmed: { backgroundColor: '#E8F2FF' },
