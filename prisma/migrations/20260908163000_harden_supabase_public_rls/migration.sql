@@ -1,6 +1,7 @@
 -- Diamond Shine does not expose application tables directly through the Supabase Data API.
 -- Web and mobile clients use the application API; Prisma connects server-side to Postgres.
--- Keep public-schema tables closed to anon/authenticated roles and enable RLS as defense in depth.
+-- Keep public-schema tables closed to Supabase API roles when those roles exist,
+-- and enable RLS as defense in depth on every public table.
 
 CREATE SCHEMA IF NOT EXISTS private;
 
@@ -50,15 +51,59 @@ BEGIN
 END;
 $$;
 
--- The app does not use anon/authenticated direct database access.
-REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM anon, authenticated;
-REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM anon, authenticated;
-REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM anon, authenticated;
+-- Supabase supplies anon/authenticated roles in hosted projects, while plain
+-- PostgreSQL used by CI/local development does not. Revoke only roles that
+-- actually exist so this migration remains portable across both environments.
+DO $$
+DECLARE
+  api_role record;
+BEGIN
+  FOR api_role IN
+    SELECT rolname
+    FROM pg_roles
+    WHERE rolname IN ('anon', 'authenticated')
+  LOOP
+    EXECUTE format('REVOKE ALL PRIVILEGES ON ALL TABLES IN SCHEMA public FROM %I', api_role.rolname);
+    EXECUTE format('REVOKE ALL PRIVILEGES ON ALL SEQUENCES IN SCHEMA public FROM %I', api_role.rolname);
+    EXECUTE format('REVOKE EXECUTE ON ALL FUNCTIONS IN SCHEMA public FROM %I', api_role.rolname);
+  END LOOP;
+END;
+$$;
 
--- Keep future Prisma-created objects closed by default.
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES FROM anon, authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE USAGE, SELECT, UPDATE ON SEQUENCES FROM anon, authenticated;
-ALTER DEFAULT PRIVILEGES FOR ROLE postgres IN SCHEMA public
-  REVOKE EXECUTE ON FUNCTIONS FROM anon, authenticated;
+-- Keep future objects closed by default for whichever migration owner creates
+-- them. Hosted Supabase normally uses postgres; CI uses its configured
+-- PostgreSQL superuser. Apply to both when present, without assuming either.
+DO $$
+DECLARE
+  owner_role record;
+  api_role record;
+BEGIN
+  FOR owner_role IN
+    SELECT DISTINCT rolname
+    FROM pg_roles
+    WHERE rolname = current_user OR rolname = 'postgres'
+  LOOP
+    FOR api_role IN
+      SELECT rolname
+      FROM pg_roles
+      WHERE rolname IN ('anon', 'authenticated')
+    LOOP
+      EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE SELECT, INSERT, UPDATE, DELETE, TRUNCATE, REFERENCES, TRIGGER ON TABLES FROM %I',
+        owner_role.rolname,
+        api_role.rolname
+      );
+      EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE USAGE, SELECT, UPDATE ON SEQUENCES FROM %I',
+        owner_role.rolname,
+        api_role.rolname
+      );
+      EXECUTE format(
+        'ALTER DEFAULT PRIVILEGES FOR ROLE %I IN SCHEMA public REVOKE EXECUTE ON FUNCTIONS FROM %I',
+        owner_role.rolname,
+        api_role.rolname
+      );
+    END LOOP;
+  END LOOP;
+END;
+$$;
