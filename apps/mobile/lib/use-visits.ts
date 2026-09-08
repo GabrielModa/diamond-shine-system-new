@@ -3,6 +3,7 @@ import { useFocusEffect } from 'expo-router';
 import { AppState, InteractionManager } from 'react-native';
 import {
   createContext,
+  createElement,
   PropsWithChildren,
   useCallback,
   useContext,
@@ -279,7 +280,7 @@ export function VisitsProvider({ children }: PropsWithChildren) {
   }, [refresh, session]);
 
   const value = useMemo<VisitsContextValue>(() => ({ ...snapshot, loading, refresh }), [loading, refresh, snapshot]);
-  return <VisitsContext.Provider value={value}>{children}</VisitsContext.Provider>;
+  return createElement(VisitsContext.Provider, { value }, children);
 }
 
 export function useVisits() {
