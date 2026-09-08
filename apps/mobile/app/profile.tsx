@@ -32,6 +32,9 @@ type SavedAvailability = Availability & {
   affectedAssignments: number;
   managementNotified: boolean;
 };
+type ProfileSection = 'contact' | 'home' | 'school' | 'normal_week';
+type SectionState = { saving: boolean; error: string; saved: boolean };
+const emptySectionState: SectionState = { saving: false, error: '', saved: false };
 
 const dayOptions = [[1, 'Mon'], [2, 'Tue'], [3, 'Wed'], [4, 'Thu'], [5, 'Fri'], [6, 'Sat'], [7, 'Sun']] as const;
 const groupId = () => `${Date.now()}-${Math.random().toString(36).slice(2)}`;
@@ -108,9 +111,12 @@ export default function ProfileScreen() {
   const [endsAt, setEndsAt] = useState(`${tomorrow}T17:00`);
   const [reason, setReason] = useState('');
   const [loading, setLoading] = useState(true);
-  const [busy, setBusy] = useState(false);
   const [availabilityBusy, setAvailabilityBusy] = useState(false);
   const [message, setMessage] = useState('');
+  const [sectionState, setSectionState] = useState<Record<ProfileSection, SectionState>>({
+    contact: emptySectionState, home: emptySectionState, school: emptySectionState, normal_week: emptySectionState,
+  });
+  const [dirty, setDirty] = useState<Record<ProfileSection, boolean>>({ contact: false, home: false, school: false, normal_week: false });
 
   const applyProfile = useCallback((next: Data) => {
     setData(next);
@@ -146,7 +152,30 @@ export default function ProfileScreen() {
   const activeEntries = useMemo(() => entries.filter((entry) => new Date(entry.endsAt).getTime() > Date.now()), [entries]);
   const personalSetupRequired = Boolean(data && (!data.profile || !data.profile.phone || data.profile.home.latitude == null || data.profile.home.longitude == null || (data.profile.school && (data.profile.school.latitude == null || data.profile.school.longitude == null))));
 
+  function markDirty(section: ProfileSection) {
+    setDirty((current) => ({ ...current, [section]: true }));
+    setSectionState((current) => ({ ...current, [section]: { ...current[section], saved: false, error: '' } }));
+  }
+
+  function updateSectionState(section: ProfileSection, patch: Partial<SectionState>) {
+    setSectionState((current) => ({ ...current, [section]: { ...current[section], ...patch } }));
+  }
+
+  function applySection(section: ProfileSection, next: Data) {
+    setData(next);
+    if (section === 'contact') {
+      setPhone(next.profile?.phone ?? ''); setEmergencyName(next.profile?.emergencyContact?.name ?? ''); setEmergencyPhone(next.profile?.emergencyContact?.phone ?? '');
+    } else if (section === 'home') {
+      setAddress(next.profile?.home.address ?? ''); setTravelMode(next.profile?.travelMode ?? 'transit');
+    } else if (section === 'school') {
+      setSchoolName(next.profile?.school?.name ?? ''); setSchoolAddress(next.profile?.school?.address ?? ''); setStudyGroups(groupFlat(next.profile?.studySchedule ?? [], false));
+    } else {
+      setRecurringGroups(groupFlat(next.profile?.recurringUnavailability ?? [], true));
+    }
+  }
+
   function toggleDay(kind: 'study' | 'recurring', index: number, day: number) {
+    markDirty(kind === 'study' ? 'school' : 'normal_week');
     const setter = kind === 'study' ? setStudyGroups : setRecurringGroups;
     setter((current) => current.map((group, groupIndex) => groupIndex !== index ? group : {
       ...group,
@@ -155,6 +184,7 @@ export default function ProfileScreen() {
   }
 
   function updateGroup(kind: 'study' | 'recurring', index: number, patch: Partial<WindowGroup>) {
+    markDirty(kind === 'study' ? 'school' : 'normal_week');
     const setter = kind === 'study' ? setStudyGroups : setRecurringGroups;
     setter((current) => current.map((group, groupIndex) => groupIndex === index ? { ...group, ...patch } : group));
   }
@@ -165,41 +195,43 @@ export default function ProfileScreen() {
 
   function updateTime(kind: 'study' | 'recurring', index: number, key: 'startsMinute' | 'endsMinute', value: string) {
     const minutes = timeToMinutes(value);
-    if (minutes == null) { setMessage('Use a time like 9:00 am or 1:30 pm.'); return; }
+    if (minutes == null) { updateSectionState(kind === 'study' ? 'school' : 'normal_week', { error: 'Use a time like 9:00 am or 1:30 pm.' }); return; }
     updateGroup(kind, index, { [key]: minutes });
   }
 
-  async function saveProfile() {
+  async function saveSection(section: ProfileSection) {
     if (!session) return;
-    if (!phone.trim() || !validPhone(phone)) { setMessage('Enter a valid phone number, for example +353871234567.'); return; }
-    if (address.trim().length < 5) { setMessage('Enter your full home / operational starting address.'); return; }
-    if (Boolean(emergencyName.trim()) !== Boolean(emergencyPhone.trim())) { setMessage('Enter both emergency contact fields or leave both blank.'); return; }
-    if (emergencyPhone.trim() && !validPhone(emergencyPhone)) { setMessage('Enter a valid emergency contact phone number.'); return; }
-    if (Boolean(schoolName.trim()) !== Boolean(schoolAddress.trim())) { setMessage('Enter both school name and school address, or leave both blank.'); return; }
-    if (!schoolName.trim() && studyGroups.length) { setMessage('Add the school location before study hours.'); return; }
-    const studyError = groupError(studyGroups, 'Study hours'); if (studyError) { setMessage(studyError); return; }
-    const recurringError = groupError(recurringGroups, 'Weekly unavailability'); if (recurringError) { setMessage(recurringError); return; }
+    let body: unknown;
+    if (section === 'contact') {
+      if (!phone.trim() || !validPhone(phone)) { updateSectionState(section, { error: 'Enter a valid phone number, for example +353871234567.' }); return; }
+      if (Boolean(emergencyName.trim()) !== Boolean(emergencyPhone.trim())) { updateSectionState(section, { error: 'Enter both emergency contact fields or leave both blank.' }); return; }
+      if (emergencyPhone.trim() && !validPhone(emergencyPhone)) { updateSectionState(section, { error: 'Enter a valid emergency contact phone number.' }); return; }
+      body = { section, phone: phone.trim(), emergencyContact: emergencyName.trim() && emergencyPhone.trim() ? { name: emergencyName.trim(), phone: emergencyPhone.trim() } : null };
+    } else if (section === 'home') {
+      if (address.trim().length < 5) { updateSectionState(section, { error: 'Enter your full home / operational starting address.' }); return; }
+      body = { section, home: { address: address.trim() }, travelMode };
+    } else if (section === 'school') {
+      if (Boolean(schoolName.trim()) !== Boolean(schoolAddress.trim())) { updateSectionState(section, { error: 'Enter both school name and school address, or leave both blank.' }); return; }
+      if (!schoolName.trim() && studyGroups.length) { updateSectionState(section, { error: 'Add the school location before study hours.' }); return; }
+      const error = groupError(studyGroups, 'Study hours'); if (error) { updateSectionState(section, { error }); return; }
+      body = { section, school: schoolName.trim() ? { name: schoolName.trim(), address: schoolAddress.trim() } : null, studySchedule: schoolName.trim() ? expandGroups(studyGroups, false) : [] };
+    } else {
+      const error = groupError(recurringGroups, 'Weekly unavailability'); if (error) { updateSectionState(section, { error }); return; }
+      body = { section, recurringUnavailability: expandGroups(recurringGroups, true) };
+    }
 
-    setBusy(true); setMessage('');
+    updateSectionState(section, { saving: true, error: '', saved: false });
     try {
       const next = await apiFetch<Data>(session, '/api/workforce/profile', {
-        method: 'PUT',
-        body: JSON.stringify({
-          phone: phone.trim(),
-          home: { address: address.trim() },
-          travelMode,
-          emergencyContact: emergencyName.trim() && emergencyPhone.trim() ? { name: emergencyName.trim(), phone: emergencyPhone.trim() } : null,
-          school: schoolName.trim() && schoolAddress.trim() ? { name: schoolName.trim(), address: schoolAddress.trim() } : null,
-          studySchedule: schoolName.trim() ? expandGroups(studyGroups, false) : [],
-          recurringUnavailability: expandGroups(recurringGroups, true),
-        }),
+        method: 'PATCH', body: JSON.stringify(body),
       });
-      applyProfile(next);
-      setMessage('Profile saved. Addresses were validated for mapping and your normal weekly restrictions are active for scheduling.');
+      applySection(section, next);
+      setDirty((current) => ({ ...current, [section]: false }));
+      updateSectionState(section, { saved: true });
     } catch (error) {
-      setMessage(error instanceof Error ? error.message : 'Could not save profile.');
+      updateSectionState(section, { error: error instanceof Error ? error.message : 'Could not save this section.' });
     } finally {
-      setBusy(false);
+      updateSectionState(section, { saving: false });
     }
   }
 
@@ -255,34 +287,43 @@ export default function ProfileScreen() {
       <Text style={styles.help}>Name and work email are locked after invitation. Only an administrator can change them.</Text>
       <Text style={styles.label}>Name</Text><Text style={styles.readonly}>{data.user.name ?? '—'}</Text>
       <Text style={styles.label}>Work email</Text><Text style={styles.readonly}>{data.user.email}</Text>
-      <Text style={styles.label}>Phone</Text><TextInput style={styles.input} value={phone} onChangeText={setPhone} keyboardType="phone-pad" placeholder="+353 87 123 4567" />
-      <Text style={styles.label}>Emergency contact name (optional)</Text><TextInput style={styles.input} value={emergencyName} onChangeText={setEmergencyName} />
-      <Text style={styles.label}>Emergency contact phone (optional)</Text><TextInput style={styles.input} value={emergencyPhone} onChangeText={setEmergencyPhone} keyboardType="phone-pad" />
+      <Text style={styles.label}>Phone</Text><TextInput style={styles.input} value={phone} onChangeText={(value) => { markDirty('contact'); setPhone(value); }} keyboardType="phone-pad" placeholder="+353 87 123 4567" />
+      <Text style={styles.label}>Emergency contact name (optional)</Text><TextInput style={styles.input} value={emergencyName} onChangeText={(value) => { markDirty('contact'); setEmergencyName(value); }} />
+      <Text style={styles.label}>Emergency contact phone (optional)</Text><TextInput style={styles.input} value={emergencyPhone} onChangeText={(value) => { markDirty('contact'); setEmergencyPhone(value); }} keyboardType="phone-pad" />
+      {sectionState.contact.error ? <Text style={styles.error}>{sectionState.contact.error}</Text> : null}
+      <Text style={styles.saveState}>{sectionState.contact.saved ? '💎 Saved' : dirty.contact ? 'Unsaved changes' : ''}</Text>
+      <Button title="Save contact" onPress={() => void saveSection('contact')} loading={sectionState.contact.saving} />
     </Card>
 
     <Card>
       <Text style={styles.title}>Home & travel</Text>
       <Text style={styles.help}>Your home / starting address is validated against Google Maps when saved so routing uses real coordinates.</Text>
-      <Text style={styles.label}>Home / operational starting address</Text><TextInput style={styles.input} value={address} onChangeText={setAddress} placeholder="Street, city, postcode" />
+      <Text style={styles.label}>Home / operational starting address</Text><TextInput style={styles.input} value={address} onChangeText={(value) => { markDirty('home'); setAddress(value); }} placeholder="Street, city, postcode" />
       <Text style={styles.validation}>{data.profile?.home.latitude != null ? '✓ Validated for mapping' : 'Will be validated when you save'}</Text>
       <Text style={styles.label}>Travel mode</Text>
-      <View style={styles.modes}>{(['driving', 'transit', 'cycling'] as const).map((mode) => <Pressable key={mode} onPress={() => setTravelMode(mode)} style={[styles.mode, travelMode === mode && styles.modeActive]}><Text style={[styles.modeText, travelMode === mode && styles.modeTextActive]}>{mode === 'driving' ? 'Drive' : mode === 'transit' ? 'Transit' : 'Cycle'}</Text></Pressable>)}</View>
+      <View style={styles.modes}>{(['driving', 'transit', 'cycling'] as const).map((mode) => <Pressable key={mode} onPress={() => { markDirty('home'); setTravelMode(mode); }} style={[styles.mode, travelMode === mode && styles.modeActive]}><Text style={[styles.modeText, travelMode === mode && styles.modeTextActive]}>{mode === 'driving' ? 'Drive' : mode === 'transit' ? 'Transit' : 'Cycle'}</Text></Pressable>)}</View>
+      {sectionState.home.error ? <Text style={styles.error}>{sectionState.home.error}</Text> : null}
+      <Text style={styles.saveState}>{sectionState.home.saved ? '💎 Saved' : dirty.home ? 'Unsaved changes' : ''}</Text>
+      <Button title="Save home & travel" onPress={() => void saveSection('home')} loading={sectionState.home.saving} />
     </Card>
 
     <Card>
       <Text style={styles.title}>School & study</Text>
       <Text style={styles.help}>Optional. Study hours are recurring unavailability and block automatic scheduling. One block can cover several days.</Text>
-      <Text style={styles.label}>School / study location</Text><TextInput style={styles.input} value={schoolName} onChangeText={setSchoolName} placeholder="College / school name" />
-      <Text style={styles.label}>School address</Text><TextInput style={styles.input} value={schoolAddress} onChangeText={setSchoolAddress} placeholder="Street, city, postcode" />
+      <Text style={styles.label}>School / study location</Text><TextInput style={styles.input} value={schoolName} onChangeText={(value) => { markDirty('school'); setSchoolName(value); }} placeholder="College / school name" />
+      <Text style={styles.label}>School address</Text><TextInput style={styles.input} value={schoolAddress} onChangeText={(value) => { markDirty('school'); setSchoolAddress(value); }} placeholder="Street, city, postcode" />
       {schoolAddress.trim() ? <Text style={styles.validation}>{data.profile?.school?.latitude != null ? '✓ Validated for mapping' : 'Will be validated when you save'}</Text> : null}
       {studyGroups.map((group, index) => <View style={styles.windowCard} key={group.id}>
         <Text style={styles.windowTitle}>Study block {index + 1}</Text>
         <View style={styles.presets}><Pressable style={styles.preset} onPress={() => setGroupDays('study', index, [1,2,3,4,5])}><Text style={styles.presetText}>Weekdays</Text></Pressable><Pressable style={styles.preset} onPress={() => setGroupDays('study', index, [6,7])}><Text style={styles.presetText}>Weekend</Text></Pressable><Pressable style={styles.preset} onPress={() => setGroupDays('study', index, [1,2,3,4,5,6,7])}><Text style={styles.presetText}>Every day</Text></Pressable></View>
         <View style={styles.days}>{dayOptions.map(([day, label]) => <Pressable key={day} onPress={() => toggleDay('study', index, day)} style={[styles.day, group.days.includes(day) && styles.dayActive]}><Text style={[styles.dayText, group.days.includes(day) && styles.dayTextActive]}>{label}</Text></Pressable>)}</View>
         <View style={styles.timeRow}><View style={styles.timeField}><Text style={styles.label}>From</Text><TextInput style={styles.input} defaultValue={minutesToTime(group.startsMinute)} onEndEditing={(event) => updateTime('study', index, 'startsMinute', event.nativeEvent.text)} /></View><View style={styles.timeField}><Text style={styles.label}>Until</Text><TextInput style={styles.input} defaultValue={minutesToTime(group.endsMinute)} onEndEditing={(event) => updateTime('study', index, 'endsMinute', event.nativeEvent.text)} /></View></View>
-        <Pressable onPress={() => setStudyGroups((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Text style={styles.remove}>Remove block</Text></Pressable>
+        <Pressable onPress={() => { markDirty('school'); setStudyGroups((current) => current.filter((_, itemIndex) => itemIndex !== index)); }}><Text style={styles.remove}>Remove block</Text></Pressable>
       </View>)}
-      <Pressable disabled={!schoolName.trim() || !schoolAddress.trim()} onPress={() => setStudyGroups((current) => [...current, { id: groupId(), days: [1,2,3,4,5], startsMinute: 540, endsMinute: 750, reason: '' }])} style={[styles.add, (!schoolName.trim() || !schoolAddress.trim()) && styles.addDisabled]}><Text style={styles.addText}>+ Add study block</Text></Pressable>
+      <Pressable disabled={!schoolName.trim() || !schoolAddress.trim()} onPress={() => { markDirty('school'); setStudyGroups((current) => [...current, { id: groupId(), days: [1,2,3,4,5], startsMinute: 540, endsMinute: 750, reason: '' }]); }} style={[styles.add, (!schoolName.trim() || !schoolAddress.trim()) && styles.addDisabled]}><Text style={styles.addText}>+ Add study block</Text></Pressable>
+      {sectionState.school.error ? <Text style={styles.error}>{sectionState.school.error}</Text> : null}
+      <Text style={styles.saveState}>{sectionState.school.saved ? '💎 Saved' : dirty.school ? 'Unsaved changes' : ''}</Text>
+      <Button title="Save school & study" onPress={() => void saveSection('school')} loading={sectionState.school.saving} />
     </Card>
 
     <Card>
@@ -294,13 +335,14 @@ export default function ProfileScreen() {
         <View style={styles.days}>{dayOptions.map(([day, label]) => <Pressable key={day} onPress={() => toggleDay('recurring', index, day)} style={[styles.day, group.days.includes(day) && styles.dayActive]}><Text style={[styles.dayText, group.days.includes(day) && styles.dayTextActive]}>{label}</Text></Pressable>)}</View>
         <View style={styles.timeRow}><View style={styles.timeField}><Text style={styles.label}>From</Text><TextInput style={styles.input} defaultValue={minutesToTime(group.startsMinute)} onEndEditing={(event) => updateTime('recurring', index, 'startsMinute', event.nativeEvent.text)} /></View><View style={styles.timeField}><Text style={styles.label}>Until</Text><TextInput style={styles.input} defaultValue={minutesToTime(group.endsMinute)} onEndEditing={(event) => updateTime('recurring', index, 'endsMinute', event.nativeEvent.text)} /></View></View>
         <Text style={styles.label}>Reason (optional)</Text><TextInput style={styles.input} value={group.reason} onChangeText={(value) => updateGroup('recurring', index, { reason: value })} placeholder="Other job, regular commitment…" />
-        <Pressable onPress={() => setRecurringGroups((current) => current.filter((_, itemIndex) => itemIndex !== index))}><Text style={styles.remove}>Remove block</Text></Pressable>
+        <Pressable onPress={() => { markDirty('normal_week'); setRecurringGroups((current) => current.filter((_, itemIndex) => itemIndex !== index)); }}><Text style={styles.remove}>Remove block</Text></Pressable>
       </View>)}
-      <Pressable onPress={() => setRecurringGroups((current) => [...current, { id: groupId(), days: [1,2,3,4,5], startsMinute: 540, endsMinute: 1020, reason: '' }])} style={styles.add}><Text style={styles.addText}>+ Add weekly unavailable block</Text></Pressable>
+      <Pressable onPress={() => { markDirty('normal_week'); setRecurringGroups((current) => [...current, { id: groupId(), days: [1,2,3,4,5], startsMinute: 540, endsMinute: 1020, reason: '' }]); }} style={styles.add}><Text style={styles.addText}>+ Add weekly unavailable block</Text></Pressable>
       <Text style={styles.help}>Later changes are audited and can notify operations. Published visits are never silently cancelled.</Text>
+      {sectionState.normal_week.error ? <Text style={styles.error}>{sectionState.normal_week.error}</Text> : null}
+      <Text style={styles.saveState}>{sectionState.normal_week.saved ? '💎 Saved' : dirty.normal_week ? 'Unsaved changes' : ''}</Text>
+      <Button title="Save normal week" onPress={() => void saveSection('normal_week')} loading={sectionState.normal_week.saving} />
     </Card>
-
-    <Button title="Save my profile & normal week" onPress={() => void saveProfile()} loading={busy} />
 
     <Card>
       <Text style={styles.title}>Temporary changes</Text>
@@ -322,6 +364,7 @@ const styles = StyleSheet.create({
   input: { minHeight: 46, borderWidth: 1, borderColor: colors.border, borderRadius: 11, paddingHorizontal: 12, color: colors.ink, backgroundColor: '#FBFCFD' },
   readonly: { color: colors.muted, minHeight: 34, paddingVertical: 7 }, validation: { color: colors.primaryDark, fontSize: 11, fontWeight: '700' },
   message: { color: colors.primaryDark, backgroundColor: colors.primarySoft, padding: 12, borderRadius: 12, fontWeight: '700' },
+  error: { color: colors.danger, fontSize: 12, fontWeight: '700' }, saveState: { color: colors.primaryDark, minHeight: 18, fontSize: 12, fontWeight: '800' },
   modes: { flexDirection: 'row', gap: 8, flexWrap: 'wrap' }, mode: { paddingHorizontal: 12, paddingVertical: 9, borderRadius: 10, borderWidth: 1, borderColor: colors.border }, modeActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary }, modeText: { color: colors.ink, fontWeight: '800' }, modeTextActive: { color: colors.primaryDark },
   windowCard: { gap: 8, borderWidth: 1, borderColor: colors.border, borderRadius: 12, padding: 12 }, days: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 }, day: { borderWidth: 1, borderColor: colors.border, borderRadius: 9, paddingHorizontal: 8, paddingVertical: 7 }, dayActive: { backgroundColor: colors.primarySoft, borderColor: colors.primary }, dayText: { color: colors.ink, fontWeight: '800', fontSize: 11 }, dayTextActive: { color: colors.primaryDark },
   timeRow: { flexDirection: 'row', gap: 8 }, timeField: { flex: 1 }, remove: { color: colors.danger, fontWeight: '800', paddingVertical: 6 }, add: { borderWidth: 1, borderColor: colors.primary, borderRadius: 11, padding: 12, alignItems: 'center' }, addDisabled: { opacity: 0.45 }, addText: { color: colors.primaryDark, fontWeight: '900' },
