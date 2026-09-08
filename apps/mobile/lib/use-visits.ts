@@ -5,7 +5,83 @@ import { apiFetch } from './api';
 import { useAuth } from './auth-context';
 import { getDeviceId } from './device';
 import { cacheVisits, cachedVisits, pendingCount, pendingIssueCount, syncPending } from './offline';
-import type { Visit } from './types';
+import type { Session, Visit } from './types';
+
+type VisitSnapshot = {
+  visits: Visit[];
+  offline: boolean;
+  queued: number;
+  issues: number;
+  error: string;
+};
+
+let refreshInFlight: Promise<VisitSnapshot> | null = null;
+let refreshKey = '';
+
+function friendlyDeviceError(cause: unknown) {
+  const message = cause instanceof Error ? cause.message : '';
+  if (/database is locked|NativeStatement\.finalizeAsync/i.test(message)) {
+    return 'Saved changes are temporarily busy on this device. Try Sync now again in a moment.';
+  }
+  return message || 'Saved changes could not sync yet.';
+}
+
+async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
+  const network = await NetInfo.fetch();
+  let error = '';
+  let offline = false;
+  let visits: Visit[] = [];
+
+  try {
+    if (network.isConnected) {
+      try {
+        const result = await syncPending(session, await getDeviceId());
+        if (result.issues.length) {
+          error = `${result.issues.length} saved change${result.issues.length === 1 ? '' : 's'} need attention after reconnecting. Successful changes were kept.`;
+        }
+      } catch (cause) {
+        error = friendlyDeviceError(cause);
+      }
+
+      const from = new Date(Date.now() - 86_400_000).toISOString();
+      const to = new Date(Date.now() + 30 * 86_400_000).toISOString();
+      const data = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      await cacheVisits(data);
+      visits = await cachedVisits();
+    } else {
+      visits = await cachedVisits();
+      offline = true;
+    }
+  } catch (cause) {
+    visits = await cachedVisits();
+    offline = true;
+    error = friendlyDeviceError(cause) || 'Using saved visits.';
+  }
+
+  return {
+    visits,
+    offline,
+    queued: await pendingCount(),
+    issues: await pendingIssueCount(),
+    error,
+  };
+}
+
+function sharedRefresh(session: Session) {
+  const key = `${session.organizationId}:${session.email.toLowerCase()}:${session.baseUrl}`;
+  if (refreshInFlight && refreshKey === key) return refreshInFlight;
+
+  refreshKey = key;
+  const promise = buildSnapshot(session);
+  refreshInFlight = promise;
+  void promise.finally(() => {
+    if (refreshInFlight === promise) {
+      refreshInFlight = null;
+      refreshKey = '';
+    }
+  });
+  return promise;
+}
 
 export function useVisits() {
   const { session } = useAuth();
@@ -18,40 +94,14 @@ export function useVisits() {
 
   const refresh = useCallback(async () => {
     if (!session) return;
-    setLoading(true); setError('');
-    const network = await NetInfo.fetch();
-    try {
-      if (network.isConnected) {
-        let syncMessage = '';
-        try {
-          const result = await syncPending(session, await getDeviceId());
-          if (result.issues.length) {
-            syncMessage = `${result.issues.length} saved change${result.issues.length === 1 ? '' : 's'} need attention after reconnecting. Successful changes were kept.`;
-          }
-        } catch (cause) {
-          syncMessage = cause instanceof Error ? `Saved changes could not sync yet: ${cause.message}` : 'Saved changes could not sync yet.';
-        }
-
-        const from = new Date(Date.now() - 86_400_000).toISOString();
-        const to = new Date(Date.now() + 14 * 86_400_000).toISOString();
-        const data = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-        await cacheVisits(data);
-        setVisits(await cachedVisits());
-        setOffline(false);
-        setError(syncMessage);
-      } else {
-        setVisits(await cachedVisits());
-        setOffline(true);
-      }
-    } catch (cause) {
-      setVisits(await cachedVisits());
-      setOffline(true);
-      setError(cause instanceof Error ? cause.message : 'Using saved visits.');
-    } finally {
-      setQueued(await pendingCount());
-      setIssues(await pendingIssueCount());
-      setLoading(false);
-    }
+    setLoading(true);
+    const snapshot = await sharedRefresh(session);
+    setVisits(snapshot.visits);
+    setOffline(snapshot.offline);
+    setQueued(snapshot.queued);
+    setIssues(snapshot.issues);
+    setError(snapshot.error);
+    setLoading(false);
   }, [session]);
 
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
@@ -64,5 +114,6 @@ export function useVisits() {
     });
     return unsubscribe;
   }, [refresh, session]);
+
   return { visits, loading, offline, queued, issues, error, refresh };
 }
