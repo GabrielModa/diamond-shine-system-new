@@ -50,3 +50,7 @@ export function fieldVisitState(visit: Visit, email?: string | null): FieldVisit
   if (assignment && PENDING_ASSIGNMENTS.has(assignment)) return { label: 'Needs confirmation', tone: 'attention' };
   return { label: 'Upcoming', tone: 'muted' };
 }
+
+export function fieldVisitStatusText(visit: Visit, email?: string | null) {
+  return fieldVisitState(visit, email).label;
+}
