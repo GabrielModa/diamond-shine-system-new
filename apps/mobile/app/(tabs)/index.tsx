@@ -9,27 +9,29 @@ import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
 
+const ACTIVE_LABELS = new Set(['In progress', 'Paused', 'Finish visit']);
+
 export default function HomeScreen() {
   const { session } = useAuth();
   const { visits, loading, offline, queued, issues, error, refresh } = useVisits();
   const timezone = session?.timezone ?? 'Europe/Dublin';
+  const email = session?.email;
   const today = operationalDateKey(new Date(), timezone);
   const todaysVisits = visits
     .filter((visit) => operationalDateKey(visit.scheduledStart, visit.timezone ?? timezone) === today)
     .sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart));
   const operationalVisits = todaysVisits.filter((visit) => !['cancelled', 'missed'].includes(visit.status));
   const plannedMinutes = operationalVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0);
-  const workedSeconds = ownVisitEntries(todaysVisits, session?.email).reduce((sum, entry) => sum + entrySeconds(entry), 0);
-  const workedMinutes = Math.round(workedSeconds / 60);
-  const remainingMinutes = Math.max(0, plannedMinutes - workedMinutes);
+  const recordedVisitMinutes = Math.round(ownVisitEntries(todaysVisits, email).reduce((sum, entry) => sum + entrySeconds(entry), 0) / 60);
   const completed = operationalVisits.filter((visit) => visit.status === 'completed').length;
-  const progress = plannedMinutes > 0 ? Math.min(1, workedMinutes / plannedMinutes) : completed === operationalVisits.length && operationalVisits.length ? 1 : 0;
+  const progress = operationalVisits.length ? completed / operationalVisits.length : 0;
   const progressWidth = `${Math.round(progress * 100)}%` as `${number}%`;
   const syncAttention = Boolean(error || issues);
   const firstName = session?.name?.split(' ')[0] ?? 'team';
-  const activeVisit = operationalVisits.find((visit) => visit.status === 'in_progress' || visit.status === 'completion_blocked');
-  const nextVisit = activeVisit ?? operationalVisits.find((visit) => visit.status !== 'completed');
-  const laterVisits = operationalVisits.filter((visit) => visit.id !== nextVisit?.id && visit.status !== 'completed');
+  const activeVisit = operationalVisits.find((visit) => ACTIVE_LABELS.has(fieldVisitState(visit, email).label));
+  const nextVisit = activeVisit ?? operationalVisits.find((visit) => fieldVisitState(visit, email).label !== 'Done');
+  const laterVisits = operationalVisits.filter((visit) => visit.id !== nextVisit?.id && fieldVisitState(visit, email).label !== 'Done');
+  const scheduleResponses = visits.filter((visit) => fieldVisitState(visit, email).label === 'Needs confirmation').length;
 
   return <Screen>
     <PageHeader
@@ -44,42 +46,62 @@ export default function HomeScreen() {
       <Button title="Sync now" compact variant="secondary" onPress={() => void refresh()} />
     </View> : null}
 
+    {scheduleResponses ? <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/work')} style={({ pressed }) => [styles.responseCard, pressed && styles.pressed]}>
+      <View style={styles.responseIcon}><Ionicons name="checkmark-done-outline" size={20} color={colors.warning} /></View>
+      <View style={styles.responseCopy}><Text style={styles.responseTitle}>{scheduleResponses} schedule response{scheduleResponses === 1 ? '' : 's'} needed</Text><Text style={styles.responseSub}>Confirm recurring work once or review a schedule change.</Text></View>
+      <Ionicons name="chevron-forward" size={20} color={colors.primary} />
+    </Pressable> : null}
+
     <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/schedule')} style={({ pressed }) => pressed && styles.pressed}>
-      <View style={styles.workdayCard}>
-        <View style={styles.workdayTop}>
-          <View><Text style={styles.workdayEyebrow}>WORKDAY</Text><Text style={styles.workdayValue}>{formatMinutes(plannedMinutes)} scheduled</Text></View>
+      <View style={styles.serviceCard}>
+        <View style={styles.serviceTop}>
+          <View><Text style={styles.serviceEyebrow}>TODAY&apos;S SERVICE</Text><Text style={styles.serviceValue}>{formatMinutes(plannedMinutes)} scheduled</Text></View>
           <View style={styles.donePill}><Ionicons name="checkmark-circle-outline" size={15} color="#AEE7D1" /><Text style={styles.donePillText}>{completed}/{operationalVisits.length} done</Text></View>
         </View>
         <View style={styles.progressTrack}><View style={[styles.progressFill, { width: progressWidth }]} /></View>
-        <View style={styles.workdayStats}>
-          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{formatMinutes(workedMinutes)}</Text><Text style={styles.workdayStatLabel}>Worked</Text></View>
-          <View style={styles.workdayDivider} />
-          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{formatMinutes(remainingMinutes)}</Text><Text style={styles.workdayStatLabel}>Remaining</Text></View>
-          <View style={styles.workdayDivider} />
-          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{operationalVisits.length}</Text><Text style={styles.workdayStatLabel}>Visits</Text></View>
+        <View style={styles.serviceStats}>
+          <View style={styles.serviceStat}><Text style={styles.serviceStatValue}>{formatMinutes(recordedVisitMinutes)}</Text><Text style={styles.serviceStatLabel}>Visit work recorded</Text></View>
+          <View style={styles.serviceDivider} />
+          <View style={styles.serviceStat}><Text style={styles.serviceStatValue}>{operationalVisits.length}</Text><Text style={styles.serviceStatLabel}>Scheduled visits</Text></View>
         </View>
         <View style={styles.scheduleLink}><Text style={styles.scheduleLinkText}>View schedule</Text><Ionicons name="chevron-forward" size={15} color="#AEE7D1" /></View>
       </View>
     </Pressable>
 
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : nextVisit ? <>
-      <View style={styles.sectionHead}><View><Text style={styles.sectionEyebrow}>{activeVisit ? 'NOW' : 'NEXT UP'}</Text><Text style={styles.sectionTitle}>{activeVisit ? 'Continue your visit' : 'Your next visit'}</Text></View><Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.refreshButton}><Ionicons name="refresh" size={18} color={colors.primary} /></Pressable></View>
-      <NextVisitCard visit={nextVisit} email={session?.email} timezone={timezone} active={Boolean(activeVisit)} />
+      <View style={styles.sectionHead}><View><Text style={styles.sectionEyebrow}>{activeVisit ? 'NOW' : 'NEXT UP'}</Text><Text style={styles.sectionTitle}>{activeVisit ? activeHeading(activeVisit, email) : 'Your next visit'}</Text></View><Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.refreshButton}><Ionicons name="refresh" size={18} color={colors.primary} /></Pressable></View>
+      <NextVisitCard visit={nextVisit} email={email} timezone={timezone} active={Boolean(activeVisit)} />
       {laterVisits.length ? <View style={styles.laterSection}>
         <View><Text style={styles.sectionEyebrow}>LATER TODAY</Text><Text style={styles.sectionSub}>{laterVisits.length} more visit{laterVisits.length === 1 ? '' : 's'} · {formatMinutes(laterVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0))}</Text></View>
-        {laterVisits.map((visit) => <CompactVisitRow key={visit.id} visit={visit} email={session?.email} timezone={timezone} />)}
+        {laterVisits.map((visit) => <CompactVisitRow key={visit.id} visit={visit} email={email} timezone={timezone} />)}
       </View> : null}
     </> : operationalVisits.length && completed === operationalVisits.length ? <Card style={styles.allDone}>
       <View style={styles.allDoneIcon}><Ionicons name="checkmark" size={24} color="#fff" /></View>
       <Text style={styles.allDoneTitle}>All done for today</Text>
-      <Text style={styles.allDoneCopy}>{formatMinutes(workedMinutes)} recorded across {completed} completed visit{completed === 1 ? '' : 's'}.</Text>
+      <Text style={styles.allDoneCopy}>{formatMinutes(recordedVisitMinutes)} of visit work recorded across {completed} completed visit{completed === 1 ? '' : 's'}.</Text>
     </Card> : <EmptyState title="No visits today" body="Your assigned work will appear here as soon as it is scheduled." />}
   </Screen>;
+}
+
+function activeHeading(visit: Visit, email?: string | null) {
+  const label = fieldVisitState(visit, email).label;
+  if (label === 'Paused') return 'Your visit is paused';
+  if (label === 'Finish visit') return 'Finish your visit';
+  return 'Continue your visit';
 }
 
 function NextVisitCard({ visit, email, timezone, active }: { visit: Visit; email?: string | null; timezone: string; active: boolean }) {
   const state = fieldVisitState(visit, email);
   const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
+  const action = state.label === 'Needs confirmation'
+    ? 'Review & confirm'
+    : state.label === 'Finish visit'
+      ? 'Finish visit'
+      : state.label === 'Paused'
+        ? 'Resume visit'
+        : active
+          ? 'Continue work'
+          : 'Open visit';
   return <Pressable accessibilityRole="button" onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
     <Card style={[styles.nextCard, active && styles.nextCardActive]}>
       <View style={styles.nextTop}>
@@ -89,7 +111,7 @@ function NextVisitCard({ visit, email, timezone, active }: { visit: Visit; email
       <Text style={styles.nextClient}>{visit.site.client.displayName}</Text>
       <Text style={styles.nextSite}>{visit.job?.name ?? visit.site.name}</Text>
       <View style={styles.metaRow}><Ionicons name="location-outline" size={15} color={colors.muted} /><Text style={styles.nextAddress} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}</Text></View>
-      <View style={styles.nextAction}><Text style={styles.nextActionText}>{state.label === 'Needs confirmation' ? 'Review & confirm' : active ? 'Continue work' : 'Open visit'}</Text><Ionicons name="arrow-forward" size={17} color="#fff" /></View>
+      <View style={styles.nextAction}><Text style={styles.nextActionText}>{action}</Text><Ionicons name="arrow-forward" size={17} color="#fff" /></View>
     </Card>
   </Pressable>;
 }
@@ -118,19 +140,24 @@ const styles = StyleSheet.create({
   syncTitle: { color: colors.warning, fontSize: 16, fontWeight: '900' },
   syncProblemTitle: { color: colors.danger },
   syncText: { color: colors.ink, fontSize: 13, lineHeight: 19 },
-  workdayCard: { padding: 18, borderRadius: 22, backgroundColor: colors.ink, gap: 15 },
-  workdayTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
-  workdayEyebrow: { color: '#AEE7D1', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
-  workdayValue: { color: '#fff', fontSize: 28, fontWeight: '900', marginTop: 4 },
+  responseCard: { minHeight: 82, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1, borderColor: '#EDCC86', borderRadius: 17, backgroundColor: '#FFF9EE' },
+  responseIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0D3' },
+  responseCopy: { flex: 1, minWidth: 0 },
+  responseTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
+  responseSub: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 3 },
+  serviceCard: { padding: 18, borderRadius: 22, backgroundColor: colors.ink, gap: 15 },
+  serviceTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  serviceEyebrow: { color: '#AEE7D1', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  serviceValue: { color: '#fff', fontSize: 28, fontWeight: '900', marginTop: 4 },
   donePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99, backgroundColor: '#173E53' },
   donePillText: { color: '#D9E8E1', fontSize: 10, fontWeight: '800' },
   progressTrack: { height: 7, borderRadius: 99, backgroundColor: '#24495B', overflow: 'hidden' },
   progressFill: { height: '100%', borderRadius: 99, backgroundColor: '#62D3A2' },
-  workdayStats: { flexDirection: 'row', alignItems: 'center' },
-  workdayStat: { flex: 1 },
-  workdayStatValue: { color: '#fff', fontSize: 17, fontWeight: '900' },
-  workdayStatLabel: { color: '#AFC0CC', fontSize: 10, fontWeight: '700', marginTop: 2 },
-  workdayDivider: { width: 1, height: 28, backgroundColor: '#345566', marginHorizontal: 10 },
+  serviceStats: { flexDirection: 'row', alignItems: 'center' },
+  serviceStat: { flex: 1 },
+  serviceStatValue: { color: '#fff', fontSize: 17, fontWeight: '900' },
+  serviceStatLabel: { color: '#AFC0CC', fontSize: 10, fontWeight: '700', marginTop: 2 },
+  serviceDivider: { width: 1, height: 28, backgroundColor: '#345566', marginHorizontal: 10 },
   scheduleLink: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
   scheduleLinkText: { color: '#AEE7D1', fontSize: 11, fontWeight: '800' },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
