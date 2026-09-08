@@ -39,6 +39,7 @@ const VisitsContext = createContext<VisitsContextValue | null>(null);
 
 let refreshInFlight: Promise<VisitSnapshot> | null = null;
 let refreshKey = '';
+let activeWorkspaceKey = '';
 const snapshotCache = new Map<string, CachedSnapshot>();
 const offlinePackSavedAt = new Map<string, number>();
 const offlinePackInFlight = new Map<string, Promise<void>>();
@@ -86,10 +87,17 @@ function refreshOfflinePackLater(session: Session, from: string, to: string) {
   if (Date.now() - lastSaved < OFFLINE_PACK_TTL_MS || offlinePackInFlight.has(key)) return;
 
   InteractionManager.runAfterInteractions(() => {
-    if (offlinePackInFlight.has(key)) return;
+    if (offlinePackInFlight.has(key) || activeWorkspaceKey !== key) return;
     const request = apiFetch<Visit[]>(session, `/api/mobile/offline-pack?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)
-      .then((visits) => withDatabaseRetry(() => cacheVisits(visits)))
-      .then(() => { offlinePackSavedAt.set(key, Date.now()); })
+      .then((visits) => {
+        // A previous account's delayed request must never repopulate SQLite
+        // after the offline workspace has switched to another signed-in user.
+        if (activeWorkspaceKey !== key) return;
+        return withDatabaseRetry(() => cacheVisits(visits));
+      })
+      .then(() => {
+        if (activeWorkspaceKey === key) offlinePackSavedAt.set(key, Date.now());
+      })
       .catch(() => undefined)
       .finally(() => { offlinePackInFlight.delete(key); });
     offlinePackInFlight.set(key, request);
@@ -215,34 +223,37 @@ export function VisitsProvider({ children }: PropsWithChildren) {
   useEffect(() => {
     let cancelled = false;
     if (!session) {
+      activeWorkspaceKey = '';
       setSnapshot(EMPTY_SNAPSHOT);
       setLoading(false);
       return;
     }
 
+    const key = sessionKey(session);
+    activeWorkspaceKey = key;
     const memory = freshSnapshot(session);
     if (memory) {
       applySnapshot(memory);
-      return;
+    } else {
+      setLoading(true);
+      void readLocalSnapshot().then((local) => {
+        if (cancelled || activeWorkspaceKey !== key) return;
+        // Paint the last safe offline snapshot immediately. On a first install
+        // with no cache, keep loading until the fast network summary arrives.
+        if (local.visits.length || local.queued || local.issues || local.error) applySnapshot(local);
+      });
     }
-
-    setLoading(true);
-    void readLocalSnapshot().then((local) => {
-      if (cancelled) return;
-      // Paint the last safe offline snapshot immediately. On a first install
-      // with no cache, keep the loading state until the fast network summary arrives.
-      if (local.visits.length || local.queued || local.issues || local.error) applySnapshot(local);
-    });
 
     const task = InteractionManager.runAfterInteractions(() => {
       void sharedRefresh(session, true).then((next) => {
-        if (!cancelled) applySnapshot(next);
+        if (!cancelled && activeWorkspaceKey === key) applySnapshot(next);
       });
     });
 
     return () => {
       cancelled = true;
       task.cancel();
+      if (activeWorkspaceKey === key) activeWorkspaceKey = '';
     };
   }, [applySnapshot, session]);
 
