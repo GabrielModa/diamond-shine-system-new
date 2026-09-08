@@ -16,12 +16,14 @@ export default function TeamPicker({
   onChange,
   label = 'Select team',
   helper,
+  disabled = false,
 }: {
   members: ScheduleTeamMember[]
   selectedIds: string[]
   onChange: (ids: string[]) => void
   label?: string
   helper?: string
+  disabled?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const [query, setQuery] = useState('')
@@ -33,6 +35,13 @@ export default function TeamPicker({
     setQuery('')
     setOpen(false)
   }
+
+  useEffect(() => {
+    if (!disabled) return
+    setDraftIds(selectedIds)
+    setQuery('')
+    setOpen(false)
+  }, [disabled, selectedIds])
 
   useEffect(() => {
     if (!open) return
@@ -67,6 +76,7 @@ export default function TeamPicker({
   }
 
   function togglePicker() {
+    if (disabled) return
     if (open) { dismissPicker(); return }
     setDraftIds(selectedIds); setQuery(''); setOpen(true)
   }
@@ -83,13 +93,13 @@ export default function TeamPicker({
         <strong>{label}</strong>
         {helper ? <small>{helper}</small> : null}
       </div>
-      <button type="button" className="btn-secondary" onClick={togglePicker}>
-        {open ? 'Cancel' : selected.length ? `Change team · ${selected.length}` : '+ Select team'}
+      <button type="button" className="btn-secondary" onClick={togglePicker} disabled={disabled}>
+        {disabled ? 'Checking availability…' : open ? 'Cancel' : selected.length ? `Change team · ${selected.length}` : '+ Select team'}
       </button>
     </div>
 
     {selected.length ? <div className="schedule-team-chips">
-      {selected.map((member) => <button key={member.id} type="button" onClick={() => toggle(member.id)}>
+      {selected.map((member) => <button key={member.id} type="button" onClick={() => toggle(member.id)} disabled={disabled}>
         {member.name ?? member.email}<span aria-hidden="true">×</span>
       </button>)}
     </div> : <p className="muted schedule-team-empty">No cleaners selected.</p>}
