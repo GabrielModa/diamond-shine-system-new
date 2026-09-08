@@ -4,27 +4,12 @@ import { useAuth } from '@/lib/auth-context';
 import { formatOperationalDate, formatOperationalTime } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
 import { useVisits } from '@/lib/use-visits';
+import { useWorkCommitments, type WorkCommitment } from '@/lib/use-work-commitments';
 import { formatPlannedMinutes, visitMinutes } from '@/lib/work-planning';
 import Ionicons from '@expo/vector-icons/Ionicons';
-import { router, useFocusEffect } from 'expo-router';
-import { useCallback, useState } from 'react';
+import { router } from 'expo-router';
+import { useState } from 'react';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
-
-type Commitment = {
-  key: string;
-  scope: 'visit' | 'recurring';
-  visitId: string;
-  jobId: string;
-  clientName: string;
-  siteName: string;
-  jobName: string;
-  scheduledStart: string;
-  scheduledEnd: string;
-  timezone: string;
-  recurrence: unknown;
-  occurrences: number;
-  reason: 'recurring_schedule' | 'visit_change';
-};
 
 const WEEKDAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -49,32 +34,12 @@ function recurrenceLabel(value: unknown) {
 export default function WorkScreen() {
   const { session } = useAuth();
   const { offline, refresh } = useVisits();
-  const [commitments, setCommitments] = useState<Commitment[]>([]);
-  const [loading, setLoading] = useState(false);
+  const { commitments, loading, error: commitmentError, refresh: refreshCommitments } = useWorkCommitments();
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
 
-  const loadCommitments = useCallback(async () => {
-    if (!session) return;
-    if (offline) {
-      setLoading(false);
-      return;
-    }
-    setLoading(true);
-    setError('');
-    try {
-      setCommitments(await apiFetch<Commitment[]>(session, '/api/mobile/work-commitments'));
-    } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load schedule responses.');
-    } finally {
-      setLoading(false);
-    }
-  }, [offline, session]);
-
-  useFocusEffect(useCallback(() => { void loadCommitments(); }, [loadCommitments]));
-
-  async function accept(commitment: Commitment) {
+  async function accept(commitment: WorkCommitment) {
     if (!session) return;
     if (offline) {
       setError('Reconnect briefly to confirm this schedule. Your saved schedule is still available offline.');
@@ -91,7 +56,7 @@ export default function WorkScreen() {
       setMessage(commitment.scope === 'recurring'
         ? `Schedule confirmed once. ${result.affectedVisits} upcoming visit${result.affectedVisits === 1 ? '' : 's'} are covered.`
         : 'Schedule change confirmed.');
-      await Promise.all([refresh(), loadCommitments()]);
+      await Promise.all([refresh(), refreshCommitments(true)]);
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not confirm this schedule.');
     } finally {
@@ -99,6 +64,7 @@ export default function WorkScreen() {
     }
   }
 
+  const visibleError = error || commitmentError;
   return <Screen>
     <PageHeader
       eyebrow={offline ? 'Saved responses' : 'Schedule responses'}
@@ -107,7 +73,7 @@ export default function WorkScreen() {
     />
 
     {message ? <Text style={styles.success}>{message}</Text> : null}
-    {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {visibleError ? <Text accessibilityRole="alert" style={styles.error}>{visibleError}</Text> : null}
     {offline ? <Card style={styles.offlineCard}>
       <View style={styles.offlineHead}><Ionicons name="cloud-offline-outline" size={20} color={colors.warning} /><Text style={styles.offlineTitle}>Reconnect to respond</Text></View>
       <Text style={styles.offlineCopy}>You can keep using Today, Schedule and Time offline. A schedule confirmation needs a brief connection.</Text>
@@ -116,7 +82,7 @@ export default function WorkScreen() {
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : commitments.length ? <>
       <View style={styles.summaryRow}>
         <View style={styles.summaryIcon}><Ionicons name="checkmark-done-outline" size={20} color={colors.warning} /></View>
-        <View style={styles.summaryCopy}><Text style={styles.summaryTitle}>{commitments.length} response{commitments.length === 1 ? '' : 's'} needed</Text><Text style={styles.summarySub}>Review only the assignments that changed or have not been confirmed yet.</Text></View>
+        <View style={styles.summaryCopy}><Text style={styles.summaryTitle}>{commitments.length} response{commitments.length === 1 ? '' : 's'} needed</Text><Text style={styles.summarySub}>These are your responses only. Recurring visits are grouped into one confirmation.</Text></View>
       </View>
 
       {commitments.map((commitment) => <Card key={commitment.key} style={styles.commitment}>
