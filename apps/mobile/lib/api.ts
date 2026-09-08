@@ -2,9 +2,25 @@ import type { Session } from './types';
 
 let unauthorizedHandler: (() => void | Promise<void>) | null = null;
 const inFlightGets = new Map<string, Promise<unknown>>();
+const mutationListeners = new Set<(event: { path: string; method: string }) => void>();
 
 export function registerUnauthorizedHandler(handler: (() => void | Promise<void>) | null) {
   unauthorizedHandler = handler;
+}
+
+export function subscribeApiMutations(listener: (event: { path: string; method: string }) => void) {
+  mutationListeners.add(listener);
+  return () => mutationListeners.delete(listener);
+}
+
+function emitApiMutation(path: string, method: string) {
+  for (const listener of mutationListeners) {
+    try {
+      listener({ path, method });
+    } catch {
+      // Optional observers must never turn a successful field action into an error.
+    }
+  }
 }
 
 export class ApiError extends Error {
@@ -85,17 +101,24 @@ export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUr
     inFlightGets.set(key, promise);
     return promise;
   }
-  return fetchPayload<T>(session, path, init);
+  const result = await fetchPayload<T>(session, path, init);
+  if (method !== 'GET' && method !== 'HEAD') emitApiMutation(path, method);
+  return result;
 }
 
 export async function apiFetchSyncBatch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
+  const method = (init?.method ?? 'POST').toUpperCase();
   // /api/sync intentionally returns 207 + ok:false when only part of a batch conflicts.
   // The mobile queue must inspect every result and preserve successful operations.
-  if (response.status === 207 && payload) return payload as T;
+  if (response.status === 207 && payload) {
+    emitApiMutation(path, method);
+    return payload as T;
+  }
   if (!response.ok || payload?.ok === false) {
     throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
   }
+  emitApiMutation(path, method);
   return (payload?.data ?? payload) as T;
 }
 
