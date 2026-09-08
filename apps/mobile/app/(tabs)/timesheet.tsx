@@ -6,7 +6,7 @@ import { getDeviceId } from '@/lib/device';
 import { clearLocalTimer, enqueue, getAnyLocalTimer, mutationId, setLocalTimer, type LocalTimer } from '@/lib/offline';
 import { formatOperationalDate, formatOperationalTime, operationalDateKey } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
-import type { TimeEntry } from '@/lib/types';
+import type { TimeEntry, Visit } from '@/lib/types';
 import { useVisits } from '@/lib/use-visits';
 import NetInfo from '@react-native-community/netinfo';
 import * as Location from 'expo-location';
@@ -23,11 +23,12 @@ const categories = [
   { kind: 'general', label: 'General', hint: 'Other approved work', icon: 'timer-outline' },
 ] as const;
 type GenericKind = typeof categories[number]['kind'];
+type TimeLogEntry = TimeEntry & { visit?: Visit | null };
 
 export default function TimesheetScreen() {
   const { session } = useAuth();
   const { visits } = useVisits();
-  const [generalEntries, setGeneralEntries] = useState<TimeEntry[]>([]);
+  const [generalEntries, setGeneralEntries] = useState<TimeLogEntry[]>([]);
   const [localTimer, setLocalTimerState] = useState<LocalTimer | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -42,7 +43,7 @@ export default function TimesheetScreen() {
     const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
     const to = new Date(Date.now() + 86_400_000).toISOString();
     try {
-      setGeneralEntries((await apiFetch<TimeEntry[]>(session, `/api/time-entries?mine=true&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)).filter((entry) => entry.kind !== 'visit'));
+      setGeneralEntries((await apiFetch<TimeLogEntry[]>(session, `/api/time-entries?mine=true&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`)).filter((entry) => entry.kind !== 'visit'));
       setMessage('');
     } catch {
       setMessage('Showing downloaded visit time. Other work will refresh when connected.');
@@ -69,11 +70,11 @@ export default function TimesheetScreen() {
     return () => clearInterval(timer);
   }, [runningSince]);
 
-  const syntheticLocalGeneric: TimeEntry | null = localGeneric && !activeGeneric
+  const syntheticLocalGeneric: TimeLogEntry | null = localGeneric && !activeGeneric
     ? { id: `local:${localGeneric.startMutationId}`, kind: runningKind ?? 'general', status: 'running', startedAt: localGeneric.startedAt }
     : null;
-  const allEntries = useMemo(() => {
-    const values = [...generalEntries, ...visitEntries, ...(syntheticLocalGeneric ? [syntheticLocalGeneric] : [])];
+  const allEntries = useMemo<TimeLogEntry[]>(() => {
+    const values: TimeLogEntry[] = [...generalEntries, ...visitEntries, ...(syntheticLocalGeneric ? [syntheticLocalGeneric] : [])];
     const seen = new Set<string>();
     return values.filter((entry) => !seen.has(entry.id) && Boolean(seen.add(entry.id)));
   }, [generalEntries, syntheticLocalGeneric, visitEntries]);
@@ -152,6 +153,8 @@ export default function TimesheetScreen() {
 
   if (loading) return <Screen><ActivityIndicator size="large" color={colors.primary} /></Screen>;
 
+  const activeVisitRecord = localVisit ?? activeVisit?.visit ?? null;
+
   return <Screen>
     <PageHeader eyebrow="My time" title="Time" subtitle="Your own tracked hours only — visits and approved non-visit work." />
     {message ? <Text style={styles.success}>{message}</Text> : null}
@@ -163,12 +166,12 @@ export default function TimesheetScreen() {
       <TimeMetric label="Visit work" value={formatMinutes(Math.round(visitSeconds / 60))} icon="briefcase-outline" />
     </View>
 
-    {localVisit || activeVisit ? <Card style={styles.running}>
+    {activeVisitRecord ? <Card style={styles.running}>
       <View style={styles.runningHead}><View style={styles.liveDot} /><Text style={styles.runningEyebrow}>Visit timer running{localTimer ? ' · offline' : ''}</Text></View>
       <Text style={styles.runningClock}>{formatElapsed(runningElapsed)}</Text>
-      <Text style={styles.runningTitle}>{(localVisit ?? activeVisit?.visit)?.site.client.displayName ?? 'Active visit'}</Text>
-      <Text style={styles.runningMeta}>{(localVisit ?? activeVisit?.visit)?.site.name ?? 'Open the visit to manage this timer.'}</Text>
-      {(localVisit ?? activeVisit?.visit) ? <Button title="Open active visit" onPress={() => router.push(`/visit/${(localVisit ?? activeVisit!.visit).id}`)} /> : null}
+      <Text style={styles.runningTitle}>{activeVisitRecord.site?.client?.displayName ?? 'Active visit'}</Text>
+      <Text style={styles.runningMeta}>{activeVisitRecord.site?.name ?? 'Open the visit to manage this timer.'}</Text>
+      <Button title="Open active visit" onPress={() => router.push(`/visit/${activeVisitRecord.id}`)} />
     </Card> : runningKind ? <Card style={styles.running}>
       <View style={styles.runningHead}><View style={styles.liveDot} /><Text style={styles.runningEyebrow}>Timer running{localGeneric ? ' · offline' : ''}</Text></View>
       <Text style={styles.runningClock}>{formatElapsed(runningElapsed)}</Text>
@@ -182,8 +185,8 @@ export default function TimesheetScreen() {
 
     <View><Text style={styles.section}>Time log</Text><Text style={styles.sectionSub}>Newest first. Visit entries are filtered to your account.</Text></View>
     {allEntries.length ? [...allEntries].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((entry) => {
-      const visitEntry = 'visit' in entry ? entry as typeof visitEntries[number] : null;
-      const title = visitEntry ? visitEntry.visit.site.client.displayName : label(entry.kind as GenericKind);
+      const linkedVisit = entry.visit ?? null;
+      const title = linkedVisit?.site?.client?.displayName ?? label(entry.kind as GenericKind | 'visit');
       const running = !entry.endedAt;
       return <Card key={entry.id} style={styles.entry}><View style={[styles.dot, running && styles.dotLive]} /><View style={styles.body}><Text style={styles.site}>{title}</Text><Text style={styles.meta}>{formatOperationalDate(entry.startedAt, timezone, { weekday: 'short', day: 'numeric', month: 'short' })} · {formatOperationalTime(entry.startedAt, timezone)}{entry.endedAt ? `–${formatOperationalTime(entry.endedAt, timezone)}` : ' · Running'}</Text></View><Text style={[styles.duration, running && styles.durationLive]}>{running ? formatElapsed(entrySeconds(entry, clockNow)) : formatMinutes(Math.round(entrySeconds(entry, clockNow) / 60))}</Text></Card>;
     }) : <EmptyState title="No tracked time yet" body="Start a visit or choose another work category above." />}
