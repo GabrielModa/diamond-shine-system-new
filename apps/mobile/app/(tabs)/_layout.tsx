@@ -1,18 +1,20 @@
 import { useAuth } from '@/lib/auth-context';
-import { colors } from '@/lib/theme';
+import { colors, shadow } from '@/lib/theme';
 import { useVisits, VisitsProvider } from '@/lib/use-visits';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, router, Tabs } from 'expo-router';
 import React from 'react';
-import { Pressable, StyleSheet, Text, View } from 'react-native';
+import { Pressable, StyleSheet, Text, useWindowDimensions, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 
 export default function TabLayout() {
   const { session, loading } = useAuth();
   const insets = useSafeAreaInsets();
+  const { fontScale } = useWindowDimensions();
   if (!loading && !session) return <Redirect href="/login" />;
 
-  const tabBarHeight = 62 + insets.bottom;
+  const tabBarBase = fontScale >= 1.3 ? 72 : fontScale >= 1.15 ? 67 : 62;
+  const tabBarHeight = tabBarBase + insets.bottom;
   return (
     <VisitsProvider>
       <View style={styles.shell}><Tabs
@@ -29,6 +31,7 @@ export default function TabLayout() {
             borderTopColor: colors.border,
             backgroundColor: colors.surface,
           },
+          tabBarItemStyle: { minHeight: 48 },
           tabBarLabelStyle: { fontSize: 11, fontWeight: '700' },
           headerShown: false,
         }}>
@@ -55,15 +58,23 @@ function ActiveVisitBar({ bottom }: { bottom: number }) {
   )));
   if (!active) return null;
   const title = active.job?.name ?? active.site.name;
-  return <Pressable accessibilityRole="button" accessibilityLabel={`Return to active visit for ${active.site.client.displayName}`} onPress={() => router.push(`/visit/${active.id}`)} style={[styles.activeBar, { bottom }]}><View style={styles.activeIcon}><Ionicons name="play" size={14} color="#fff" /></View><View style={styles.activeCopy}><Text style={styles.activeLabel}>VISIT IN PROGRESS</Text><Text style={styles.activeTitle} numberOfLines={1}>{active.site.client.displayName} · {title}</Text></View><Text style={styles.activeAction}>Open ›</Text></Pressable>;
+  return <Pressable
+    accessibilityRole="button"
+    accessibilityLabel={`Return to active visit for ${active.site.client.displayName}`}
+    accessibilityHint="Opens the visit currently in progress"
+    hitSlop={6}
+    onPress={() => router.push(`/visit/${active.id}`)}
+    style={({ pressed }) => [styles.activeBar, { bottom }, pressed && styles.activePressed]}
+  ><View style={styles.activeIcon}><Ionicons name="play" size={14} color="#fff" /></View><View style={styles.activeCopy}><Text style={styles.activeLabel}>VISIT IN PROGRESS</Text><Text style={styles.activeTitle} numberOfLines={2}>{active.site.client.displayName} · {title}</Text></View><Text style={styles.activeAction}>Open ›</Text></Pressable>;
 }
 
 const styles = StyleSheet.create({
   shell: { flex: 1 },
-  activeBar: { position: 'absolute', left: 12, right: 12, minHeight: 56, paddingHorizontal: 12, alignItems: 'center', flexDirection: 'row', gap: 9, borderRadius: 15, backgroundColor: colors.ink, shadowColor: '#061B24', shadowOpacity: 0.23, shadowRadius: 10, shadowOffset: { width: 0, height: 5 }, elevation: 6 },
+  activeBar: { position: 'absolute', left: 12, right: 12, minHeight: 58, paddingHorizontal: 12, paddingVertical: 9, alignItems: 'center', flexDirection: 'row', gap: 9, borderRadius: 15, backgroundColor: colors.ink, ...shadow },
+  activePressed: { opacity: 0.92, transform: [{ scale: 0.99 }] },
   activeIcon: { width: 29, height: 29, borderRadius: 99, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primary },
   activeCopy: { flex: 1, minWidth: 0, gap: 1 },
-  activeLabel: { color: '#A7C7B8', fontSize: 9, fontWeight: '900', letterSpacing: .7 },
-  activeTitle: { color: '#fff', fontSize: 12, fontWeight: '800' },
-  activeAction: { color: '#9BE5C1', fontSize: 12, fontWeight: '900' },
+  activeLabel: { color: '#A7C7B8', fontSize: 9, lineHeight: 12, fontWeight: '900', letterSpacing: .7 },
+  activeTitle: { color: '#fff', fontSize: 12, lineHeight: 16, fontWeight: '800' },
+  activeAction: { color: '#9BE5C1', fontSize: 12, lineHeight: 16, fontWeight: '900' },
 });
