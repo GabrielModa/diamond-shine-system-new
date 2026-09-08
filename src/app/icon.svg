@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Diamond Shine">
+  <rect width="64" height="64" rx="14" fill="#102A43"/>
+  <path d="M14 25.5 23.5 14h17L50 25.5 32 51 14 25.5Z" fill="#0F7A55"/>
+  <path d="m23.5 14 8.5 37 8.5-37M14 25.5h36M23.5 14 14 25.5 32 51 50 25.5 40.5 14" fill="none" stroke="#A7E3CA" stroke-width="2.2" stroke-linejoin="round" opacity=".9"/>
+  <path d="M45.5 9.5v7M42 13h7" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/>
+</svg>
