@@ -31,17 +31,24 @@ export default function TabLayout() {
       }}>
       <Tabs.Screen name="index" options={{ title: 'Today', tabBarIcon: ({ color, size }) => <Ionicons name="home" color={color} size={size} /> }} />
       <Tabs.Screen name="schedule" options={{ title: 'Schedule', tabBarIcon: ({ color, size }) => <Ionicons name="calendar" color={color} size={size} /> }} />
-      <Tabs.Screen name="work" options={{ title: 'Work', tabBarIcon: ({ color, size }) => <Ionicons name="briefcase" color={color} size={size} /> }} />
       <Tabs.Screen name="timesheet" options={{ title: 'Time', tabBarIcon: ({ color, size }) => <Ionicons name="time" color={color} size={size} /> }} />
       <Tabs.Screen name="more" options={{ title: 'More', tabBarIcon: ({ color, size }) => <Ionicons name="ellipsis-horizontal-circle" color={color} size={size} /> }} />
+      <Tabs.Screen name="work" options={{ href: null }} />
       <Tabs.Screen name="inbox" options={{ href: null }} />
     </Tabs><ActiveVisitBar bottom={tabBarHeight + 10} /></View>
   );
 }
 
 function ActiveVisitBar({ bottom }: { bottom: number }) {
+  const { session } = useAuth();
   const { visits } = useVisits();
-  const active = visits.find((visit) => visit.status === 'in_progress');
+  const email = session?.email.toLowerCase();
+  const active = visits.find((visit) => (visit.timeEntries ?? []).some((entry) => (
+    entry.kind === 'visit'
+    && entry.status === 'running'
+    && !entry.endedAt
+    && entry.user?.email.toLowerCase() === email
+  )));
   if (!active) return null;
   const title = active.job?.name ?? active.site.name;
   return <Pressable accessibilityRole="button" accessibilityLabel={`Return to active visit for ${active.site.client.displayName}`} onPress={() => router.push(`/visit/${active.id}`)} style={[styles.activeBar, { bottom }]}><View style={styles.activeIcon}><Ionicons name="play" size={14} color="#fff" /></View><View style={styles.activeCopy}><Text style={styles.activeLabel}>VISIT IN PROGRESS</Text><Text style={styles.activeTitle} numberOfLines={1}>{active.site.client.displayName} · {title}</Text></View><Text style={styles.activeAction}>Open ›</Text></Pressable>;
