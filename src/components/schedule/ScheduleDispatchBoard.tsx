@@ -44,6 +44,7 @@ type Visit = {
 type Availability = { id: string; startsAt: string; endsAt: string; reason?: string | null; user: Member }
 type HealthFocus = 'scheduling' | 'conflicts' | 'confirmation' | null
 type AssignmentState = { kind: 'busy' | 'unavailable'; label: string; visitId?: string; clientName?: string; siteName?: string; startsAt?: string; endsAt?: string; overlapMinutes?: number }
+type ExactCapacityResponse = { windows: Array<{ availableUserIds: string[] }> }
 type VisitReason = 'extra_cleaning' | 'client_request' | 'cover_visit' | 'deep_clean' | 'other'
 
 const REASONS: Array<{ value: VisitReason; label: string; description: string }> = [
@@ -100,6 +101,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     dispatchNotes: '',
   })
   const [finder, setFinder] = useState({ date: operationalDateKey(new Date(Date.now() + 86_400_000), timezone), durationMinutes: 120, assigneeIds: [] as string[] })
+  const [draftCapacity, setDraftCapacity] = useState<{ key: string; availableUserIds: string[]; loading: boolean; error: string }>({ key: '', availableUserIds: [], loading: false, error: '' })
 
   const range = useMemo(() => {
     const start = startOfMonth(anchorDate); start.setDate(start.getDate() - 7)
@@ -254,11 +256,61 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
       ? `${weekDays[0].toLocaleDateString('en-IE', { day: 'numeric', month: 'short' })} – ${weekDays[6].toLocaleDateString('en-IE', { day: 'numeric', month: 'short', year: 'numeric' })}`
       : anchorDate.toLocaleDateString('en-IE', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })
   const capacity = useScheduleCapacity(finder, team, timezone, visits.length, showFindTime)
+  const finderSlots = useMemo(() => finder.assigneeIds.length ? capacity.slots.filter((slot) => slot.free === slot.total) : capacity.slots, [capacity.slots, finder.assigneeIds.length])
   const selectedPlan = useMemo(() => plans.find((plan) => plan.id === draft.servicePlanId) ?? null, [draft.servicePlanId, plans])
   const filteredTeamChoices = useMemo(() => {
     const needle = teamQuery.trim().toLowerCase()
     return needle ? team.filter((member) => `${member.name ?? ''} ${member.email}`.toLowerCase().includes(needle)) : team
   }, [team, teamQuery])
+  const draftWindow = useMemo(() => {
+    const start = operationalInputToUtc(draft.startAt, timezone)
+    if (Number.isNaN(start.getTime()) || draft.durationMinutes <= 0) return null
+    return { start, end: new Date(start.getTime() + draft.durationMinutes * 60_000) }
+  }, [draft.durationMinutes, draft.startAt, timezone])
+  const draftCapacityKey = draftWindow ? `${draftWindow.start.toISOString()}|${draftWindow.end.toISOString()}|${visits.length}|${healthRefreshSignal}` : ''
+
+  useEffect(() => {
+    if (!showAdd || !draftWindow) {
+      setDraftCapacity({ key: draftCapacityKey, availableUserIds: [], loading: false, error: '' })
+      return
+    }
+    const controller = new AbortController()
+    setDraftCapacity({ key: draftCapacityKey, availableUserIds: [], loading: true, error: '' })
+    void api<ExactCapacityResponse>('/api/schedule-capacity', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      signal: controller.signal,
+      body: JSON.stringify({ windows: [{ start: draftWindow.start.toISOString(), end: draftWindow.end.toISOString() }] }),
+    }).then((result) => {
+      if (controller.signal.aborted) return
+      setDraftCapacity({ key: draftCapacityKey, availableUserIds: result.windows[0]?.availableUserIds ?? [], loading: false, error: '' })
+    }).catch((cause) => {
+      if (controller.signal.aborted) return
+      setDraftCapacity({ key: draftCapacityKey, availableUserIds: [], loading: false, error: cause instanceof Error ? cause.message : 'Could not check team availability.' })
+    })
+    return () => controller.abort()
+  }, [draftCapacityKey, draftWindow, showAdd])
+
+  const draftCapacityReady = Boolean(draftWindow && draftCapacity.key === draftCapacityKey && !draftCapacity.loading && !draftCapacity.error)
+  const draftAvailableKey = draftCapacity.availableUserIds.join('|')
+  const draftAvailableIds = useMemo(() => new Set(draftCapacity.availableUserIds), [draftAvailableKey])
+  const draftPickerMembers = useMemo(() => draftCapacityReady ? team.filter((member) => draftAvailableIds.has(member.id)) : draftCapacity.error ? team : [], [draftAvailableIds, draftCapacity.error, draftCapacityReady, team])
+  const draftTeamHelper = !draftWindow
+    ? 'Choose a valid visit time before assigning the team.'
+    : draftCapacity.loading
+      ? `Checking who is free for ${timeRange(draftWindow.start, draftWindow.end, timezone)}…`
+      : draftCapacity.error
+        ? 'Availability could not be checked right now. Team choices are shown, and conflicts will still be validated when you save.'
+        : `${draft.assigneeIds.length}/${draft.requiredWorkers} covered · ${draftPickerMembers.length} available for ${timeRange(draftWindow.start, draftWindow.end, timezone)}. Only free staff are shown.`
+
+  useEffect(() => {
+    if (!showAdd || !draftCapacityReady) return
+    const allowed = new Set(draftCapacity.availableUserIds)
+    setDraft((current) => {
+      const assigneeIds = current.assigneeIds.filter((userId) => allowed.has(userId))
+      return assigneeIds.length === current.assigneeIds.length ? current : { ...current, assigneeIds }
+    })
+  }, [draftAvailableKey, draftCapacity.availableUserIds, draftCapacityReady, showAdd])
 
   const assignmentState = useCallback((userId: string, startValue: string, endValue: string, ignoredVisitId?: string): AssignmentState | null => {
     const start = operationalInputToUtc(startValue, timezone); const end = operationalInputToUtc(endValue, timezone)
@@ -414,14 +466,14 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
       <button className={!healthFocus && statusFilter === 'booked' ? 'selected' : ''} onClick={() => clearHealthFocus('booked')}>Booked</button>
       <button className={!healthFocus && statusFilter === 'confirmed' ? 'selected' : ''} onClick={() => clearHealthFocus('confirmed')}>Confirmed</button>
       <button className={!healthFocus && statusFilter === 'done' ? 'selected' : ''} onClick={() => clearHealthFocus('done')}>Done</button>
-      <button className={!healthFocus && statusFilter === 'history' ? 'selected' : ''} onClick={() => clearHealthFocus('history')}>History</button>
+      <button className={!healthFocus && statusFilter === 'history' ? 'selected' : ''} onClick={() => clearHealthFocus('history')}>Cancelled / missed</button>
     </section>
 
     <section className="scheduler-controls" aria-label="Schedule controls">
       <div className="scheduler-period"><button className="btn-secondary" aria-label="Previous period" onClick={() => movePeriod(-1)}>←</button><button className="btn-secondary" aria-label="Next period" onClick={() => movePeriod(1)}>→</button><button className="btn-secondary" onClick={() => setAnchorDate(operationalCalendarDate(new Date(), timezone))}>Today</button><strong>{title}</strong></div>
       <div className="scheduler-filters">
         <div className="schedule-tool-anchor">{canManage ? <button className={showFindTime ? 'btn-primary' : 'btn-secondary'} onClick={() => { closeHealth(); setShowFilters(false); if (!showFindTime) setFinder((current) => ({ ...current, date: calendarDateKey(anchorDate), assigneeIds: focusedEmployeeId ? [focusedEmployeeId] : [] })); setShowFindTime((value) => !value) }}>Find a time</button> : null}
-          {showFindTime ? <section className="schedule-popover find-time" aria-label="Find a workable visit window"><header><div><span className="eyebrow">Capacity finder</span><h2>Find a workable time</h2></div><button className="text-button" onClick={() => setShowFindTime(false)}>Close</button></header><div className="find-time-controls compact"><label>Date<input type="date" value={finder.date} onChange={(event) => setFinder({ ...finder, date: event.target.value })} /></label><DurationField value={finder.durationMinutes} onChange={(durationMinutes) => setFinder({ ...finder, durationMinutes })} /></div><TeamPicker members={team} selectedIds={finder.assigneeIds} onChange={(assigneeIds) => setFinder({ ...finder, assigneeIds })} label="Check availability for" helper="Leave empty to check all assignable staff." />{!finder.date ? <div className="schedule-edit-error" role="alert">Select a date to see workable times.</div> : null}{capacity.loading ? <p>Checking availability…</p> : null}{capacity.error ? <p role="alert">{capacity.error}</p> : null}<div className="find-time-slots compact">{capacity.slots.map((slot) => <button key={slot.start.toISOString()} onClick={() => { setDraft((current) => ({ ...current, startAt: operationalDateTimeInput(slot.start, timezone), durationMinutes: finder.durationMinutes, assigneeIds: finder.assigneeIds })); setAnchorDate(operationalCalendarDate(slot.start, timezone)); setView('day'); setShowFindTime(false); setShowAdd(true) }}><b>{formatOperationalTime(slot.start, timezone)}–{formatOperationalTime(slot.end, timezone)}</b><span>{slot.free} available · {slot.blockerLabel}</span></button>)}</div></section> : null}
+          {showFindTime ? <section className="schedule-popover find-time" aria-label="Find a workable visit window"><header><div><span className="eyebrow">Capacity finder</span><h2>Find a workable time</h2></div><button className="text-button" onClick={() => setShowFindTime(false)}>Close</button></header><div className="find-time-controls compact"><label>Date<input type="date" value={finder.date} onChange={(event) => setFinder({ ...finder, date: event.target.value })} /></label><DurationField value={finder.durationMinutes} onChange={(durationMinutes) => setFinder({ ...finder, durationMinutes })} /></div><TeamPicker members={team} selectedIds={finder.assigneeIds} onChange={(assigneeIds) => setFinder({ ...finder, assigneeIds })} label="Check availability for" helper="Leave empty to check all assignable staff." />{!finder.date ? <div className="schedule-edit-error" role="alert">Select a date to see workable times.</div> : null}{capacity.loading ? <p>Checking availability…</p> : null}{capacity.error ? <p role="alert">{capacity.error}</p> : null}{!capacity.loading && !capacity.error && finder.assigneeIds.length > 0 && capacity.slots.length > 0 && finderSlots.length === 0 ? <p className="muted">No window is fully workable for the selected team. Change the time, duration or team.</p> : null}<div className="find-time-slots compact">{finderSlots.map((slot) => <button key={slot.start.toISOString()} onClick={() => { setDraft((current) => ({ ...current, startAt: operationalDateTimeInput(slot.start, timezone), durationMinutes: finder.durationMinutes, assigneeIds: finder.assigneeIds })); setAnchorDate(operationalCalendarDate(slot.start, timezone)); setView('day'); setShowFindTime(false); setShowAdd(true) }}><b>{formatOperationalTime(slot.start, timezone)}–{formatOperationalTime(slot.end, timezone)}</b><span>{slot.free} available · {slot.blockerLabel}</span></button>)}</div></section> : null}
         </div>
         <div className="schedule-tool-anchor"><button className={showFilters ? 'btn-primary' : 'btn-secondary'} onClick={() => showFilters ? dismissFilters() : (setDraftTeamFilter(teamFilter), setTeamQuery(''), setShowFilters(true))}>Filters{teamFilter !== 'all' ? ' · 1' : ''}</button>{showFilters ? <section className="schedule-popover schedule-filter-popover" role="dialog" aria-modal="true" aria-label="Schedule filters"><header><h2>Filters</h2><button className="text-button" onClick={dismissFilters}>Close</button></header><label>Team<input type="search" value={teamQuery} onChange={(event) => setTeamQuery(event.target.value)} placeholder="Search employee..." /></label><div className="schedule-filter-team"><button className={draftTeamFilter === 'all' ? 'selected' : ''} onClick={() => setDraftTeamFilter('all')}>All team</button><button className={draftTeamFilter === 'unassigned' ? 'selected' : ''} onClick={() => setDraftTeamFilter('unassigned')}>Unassigned only</button>{filteredTeamChoices.map((member) => <button key={member.id} className={draftTeamFilter === member.id ? 'selected' : ''} onClick={() => setDraftTeamFilter(member.id)}>{member.name ?? member.email}</button>)}</div><footer><button className="text-button" onClick={() => setDraftTeamFilter('all')}>Clear</button><button className="btn-primary" onClick={applyFilters}>Apply</button></footer></section> : null}</div>
         <div className="segmented-control schedule-view-tabs">{(['week', 'day', 'month', 'list'] as const).map((item) => <button key={item} className={view === item ? 'selected' : ''} onClick={() => setView(item)}>{item[0].toUpperCase() + item.slice(1)}</button>)}</div>
@@ -437,7 +489,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
         <div className="service-plan-field"><span className="service-plan-label">Client service</span><StandardSelect searchable value={draft.servicePlanId} onChange={selectPlan} ariaLabel="Client service" placeholder="Select client service" searchPlaceholder="Search client, location or service…" options={plans.map((plan) => ({ value: plan.id, label: `${plan.site.client.displayName} · ${plan.site.name}`, description: `${plan.name} · ${formatDuration(plan.expectedDurationMinutes)} · ${plan.requiredWorkers} people required` }))} /></div>
         <div className="form-pair"><div className="service-plan-field"><span className="service-plan-label">Reason</span><StandardSelect value={draft.reason} onChange={(value) => setDraft((current) => ({ ...current, reason: value as VisitReason }))} ariaLabel="Visit reason" options={REASONS} /></div><DateTimeField12h label="Visit start" required value={draft.startAt} onChange={(value) => setDraft((current) => ({ ...current, startAt: value }))} /></div>
         <div className="form-pair"><DurationField value={draft.durationMinutes} onChange={(durationMinutes) => setDraft((current) => ({ ...current, durationMinutes }))} /><label>People required<input required type="number" min={1} max={100} value={draft.requiredWorkers} onChange={(event) => setDraft((current) => ({ ...current, requiredWorkers: Math.max(1, Number(event.target.value)) }))} /></label></div>
-        <div className="schedule-team-field"><TeamPicker members={team} selectedIds={draft.assigneeIds} onChange={(assigneeIds) => setDraft((current) => ({ ...current, assigneeIds }))} label="Assigned cleaning team" helper={`${draft.assigneeIds.length}/${draft.requiredWorkers} covered now. Leave empty to create the visit as a staffing gap.`} /></div>
+        <div className="schedule-team-field"><TeamPicker members={draftPickerMembers} selectedIds={draft.assigneeIds} onChange={(assigneeIds) => setDraft((current) => ({ ...current, assigneeIds }))} label="Assigned cleaning team" helper={draftTeamHelper} disabled={!draftWindow || draftCapacity.loading} /></div>
         <label className="schedule-full-field">Dispatch note <small>Optional</small><textarea value={draft.dispatchNotes} onChange={(event) => setDraft((current) => ({ ...current, dispatchNotes: event.target.value }))} placeholder="Only what the team needs to know for this extra visit" /></label>
         <footer><span className="muted">One visit only · recurring service stays unchanged{selectedPlan ? ` · ${selectedPlan.site.client.displayName}` : ''}</span><button className="btn-primary" disabled={busy || !draft.servicePlanId}>{busy ? 'Adding…' : 'Add visit'}</button></footer>
       </> : <div className="empty-state"><strong>No active client service is available.</strong><span>Set up the client, verified address and cleaning service first.</span><Link className="btn-primary" href="/clients">Open Clients</Link></div>}
