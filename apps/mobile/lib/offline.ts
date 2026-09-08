@@ -17,22 +17,36 @@ export type SyncIssue = { clientMutationId: string; status: 'failed' | 'conflict
 export type SyncResult = { processed: number; remaining: number; issues: SyncIssue[] };
 
 const WORKSPACE_OWNER_KEY = 'diamond-shine-offline-owner-v1';
+const OFFLINE_SCHEMA_VERSION = 2;
 let database: Promise<SQLite.SQLiteDatabase> | null = null;
 let syncInFlight: Promise<SyncResult> | null = null;
 
 async function initializeDatabase() {
   const value = await SQLite.openDatabaseAsync('diamond-shine-field.db');
-  await value.execAsync(`
-    PRAGMA journal_mode = WAL;
-    CREATE TABLE IF NOT EXISTS cached_visits (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS cached_stock (site_id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
-    CREATE TABLE IF NOT EXISTS mutation_queue (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
-    CREATE TABLE IF NOT EXISTS evidence_queue (id TEXT PRIMARY KEY NOT NULL, visit_id TEXT NOT NULL, task_result_id TEXT, uri TEXT NOT NULL, mime_type TEXT NOT NULL, phase TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
-    CREATE TABLE IF NOT EXISTS local_timers (visit_id TEXT PRIMARY KEY NOT NULL, start_mutation_id TEXT NOT NULL, started_at TEXT NOT NULL);
-  `);
-  const evidenceColumns = await value.getAllAsync<{ name: string }>('PRAGMA table_info(evidence_queue)');
-  if (!evidenceColumns.some((column) => column.name === 'version_task_id')) {
-    await value.execAsync('ALTER TABLE evidence_queue ADD COLUMN version_task_id TEXT;');
+  await value.execAsync('PRAGMA journal_mode = WAL;');
+
+  const versionRow = await value.getFirstAsync<{ user_version: number }>('PRAGMA user_version');
+  const currentVersion = versionRow?.user_version ?? 0;
+  if (currentVersion < OFFLINE_SCHEMA_VERSION) {
+    // Existing pilot installs pre-date user_version. Run the idempotent table
+    // bootstrap once, inspect the one legacy column once, then mark the schema
+    // so subsequent launches avoid repeated DDL/table-info work.
+    await value.execAsync(`
+      CREATE TABLE IF NOT EXISTS cached_visits (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS cached_stock (site_id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, updated_at TEXT NOT NULL);
+      CREATE TABLE IF NOT EXISTS mutation_queue (id TEXT PRIMARY KEY NOT NULL, payload TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
+      CREATE TABLE IF NOT EXISTS evidence_queue (id TEXT PRIMARY KEY NOT NULL, visit_id TEXT NOT NULL, task_result_id TEXT, uri TEXT NOT NULL, mime_type TEXT NOT NULL, phase TEXT NOT NULL, created_at TEXT NOT NULL, attempts INTEGER NOT NULL DEFAULT 0, last_error TEXT);
+      CREATE TABLE IF NOT EXISTS local_timers (visit_id TEXT PRIMARY KEY NOT NULL, start_mutation_id TEXT NOT NULL, started_at TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS idx_mutation_queue_created_at ON mutation_queue(created_at);
+      CREATE INDEX IF NOT EXISTS idx_evidence_queue_created_at ON evidence_queue(created_at);
+      CREATE INDEX IF NOT EXISTS idx_mutation_queue_last_error ON mutation_queue(last_error);
+      CREATE INDEX IF NOT EXISTS idx_evidence_queue_last_error ON evidence_queue(last_error);
+    `);
+    const evidenceColumns = await value.getAllAsync<{ name: string }>('PRAGMA table_info(evidence_queue)');
+    if (!evidenceColumns.some((column) => column.name === 'version_task_id')) {
+      await value.execAsync('ALTER TABLE evidence_queue ADD COLUMN version_task_id TEXT;');
+    }
+    await value.execAsync(`PRAGMA user_version = ${OFFLINE_SCHEMA_VERSION};`);
   }
   return value;
 }
