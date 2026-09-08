@@ -2,7 +2,7 @@ import { execFileSync } from 'node:child_process'
 import { join } from 'node:path'
 import { setTimeout as delay } from 'node:timers/promises'
 import { mobileRoot, productionApi } from './mobile-environment.mjs'
-import { qualityPassed, versionMatches, compatibleBuild } from './release-policy.mjs'
+import { qualityPassed, versionMatches, compatibleBuild, parseEasJson } from './release-policy.mjs'
 
 const sha = process.env.RELEASE_SHA
 const repository = process.env.GITHUB_REPOSITORY
@@ -37,9 +37,9 @@ function eas(args) {
 }
 const publicApi = eas(['env:get', 'production', '--variable-name', 'EXPO_PUBLIC_API_URL', '--format', 'short', '--non-interactive']).replace(/\u001b\[[0-9;]*m/g, '')
 if (!publicApi.split(/\r?\n/).some(line => line.trim() === `EXPO_PUBLIC_API_URL=${productionApi}`)) throw new Error('Set the production EAS EXPO_PUBLIC_API_URL plaintext variable to the production API. No OTA published.')
-const fingerprint = JSON.parse(eas(['fingerprint:generate', '--platform', 'android', '--environment', 'production', '--json', '--non-interactive']))
+const fingerprint = parseEasJson(eas(['fingerprint:generate', '--platform', 'android', '--environment', 'production', '--json', '--non-interactive']))
 if (!fingerprint.hash) throw new Error('EAS returned no fingerprint; refusing OTA.')
-const builds = JSON.parse(eas(['build:list', '--platform', 'android', '--channel', 'production', '--status', 'finished', '--runtime-version', fingerprint.hash, '--limit', '50', '--json', '--non-interactive']))
+const builds = parseEasJson(eas(['build:list', '--platform', 'android', '--channel', 'production', '--status', 'finished', '--runtime-version', fingerprint.hash, '--limit', '50', '--json', '--non-interactive']))
 if (!compatibleBuild(builds, fingerprint.hash)) throw new Error(`Native build required for runtime ${fingerprint.hash}. Run npm run mobile:build:production, install/distribute it, then retry. No OTA published.`)
 if (!await gates()) throw new Error('Release gates changed before publication. Retry latest main.')
 console.log(eas(['update', '--platform', 'android', '--channel', 'production', '--environment', 'production', '--message', `main ${sha}`, '--non-interactive']))
