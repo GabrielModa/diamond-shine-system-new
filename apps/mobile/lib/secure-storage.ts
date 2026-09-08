@@ -25,3 +25,32 @@ export async function secureDelete(key: string) {
   }
   await SecureStore.deleteItemAsync(key);
 }
+
+export function canUseBiometricSecureStorage() {
+  return Platform.OS !== 'web' && SecureStore.canUseBiometricAuthentication();
+}
+
+export async function biometricSecureSet(key: string, value: string, prompt = 'Confirm your identity') {
+  if (Platform.OS === 'web') throw new Error('Biometric sign-in is available only on a phone or tablet.');
+  if (!SecureStore.canUseBiometricAuthentication()) throw new Error('Set up fingerprint or Face ID on this device first.');
+  await SecureStore.setItemAsync(key, value, {
+    requireAuthentication: true,
+    authenticationPrompt: prompt,
+    keychainAccessible: SecureStore.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
+  });
+}
+
+export async function biometricSecureGet(key: string, prompt = 'Sign in to Diamond Shine') {
+  if (Platform.OS === 'web') return null;
+  if (!SecureStore.canUseBiometricAuthentication()) return null;
+  return SecureStore.getItemAsync(key, {
+    requireAuthentication: true,
+    authenticationPrompt: prompt,
+    keychainAccessible: SecureStore.WHEN_PASSCODE_SET_THIS_DEVICE_ONLY,
+  });
+}
+
+export async function biometricSecureDelete(key: string) {
+  if (Platform.OS === 'web') return;
+  await SecureStore.deleteItemAsync(key);
+}
