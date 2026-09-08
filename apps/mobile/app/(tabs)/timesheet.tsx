@@ -28,6 +28,7 @@ type TimeLogEntry = TimeEntry & { visit?: Visit | null };
 export default function TimesheetScreen() {
   const { session } = useAuth();
   const { visits } = useVisits();
+  const canTrackOtherTime = session?.membershipRole === 'field_supervisor' || session?.membershipRole === 'organization_admin';
   const [generalEntries, setGeneralEntries] = useState<TimeLogEntry[]>([]);
   const [localTimer, setLocalTimerState] = useState<LocalTimer | null>(null);
   const [loading, setLoading] = useState(true);
@@ -40,30 +41,36 @@ export default function TimesheetScreen() {
   const load = useCallback(async () => {
     if (!session) return;
     setLoading(true);
-    const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
-    const to = new Date(Date.now() + 86_400_000).toISOString();
+    setMessage('');
     try {
-      const entries = await apiFetch<TimeLogEntry[]>(session, `/api/time-entries?mine=true&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-      setGeneralEntries(entries.filter((entry) => entry.kind !== 'visit'));
-      setMessage('');
+      if (canTrackOtherTime) {
+        const from = new Date(Date.now() - 30 * 86_400_000).toISOString();
+        const to = new Date(Date.now() + 86_400_000).toISOString();
+        const entries = await apiFetch<TimeLogEntry[]>(session, `/api/time-entries?mine=true&from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+        setGeneralEntries(entries.filter((entry) => entry.kind !== 'visit'));
+      } else {
+        // Cleaners work through scheduled Visits. Do not fetch or present the
+        // legacy General/Office/Driving/Supplies ledger on their main Time tab.
+        setGeneralEntries([]);
+      }
     } catch {
-      setMessage('Showing downloaded visit time. Other work will refresh when connected.');
+      setMessage(canTrackOtherTime ? 'Showing downloaded visit time. Other supervisor time will refresh when connected.' : 'Showing downloaded visit time.');
     } finally {
       setLocalTimerState(await getAnyLocalTimer());
       setLoading(false);
     }
-  }, [session]);
+  }, [canTrackOtherTime, session]);
 
   useFocusEffect(useCallback(() => { void load(); }, [load]));
 
   const visitEntries = useMemo(() => ownVisitEntries(visits, session?.email), [session?.email, visits]);
-  const activeGeneric = generalEntries.find((entry) => entry.status === 'running' && !entry.endedAt);
+  const activeGeneric = canTrackOtherTime ? generalEntries.find((entry) => entry.status === 'running' && !entry.endedAt) : undefined;
   const activeVisit = visitEntries.find((entry) => entry.status === 'running' && !entry.endedAt);
-  const localGeneric = localTimer?.visitId.startsWith('general:') ? localTimer : null;
-  const localVisit = localTimer && !localGeneric ? visits.find((visit) => visit.id === localTimer.visitId) : null;
-  const runningKind = (activeGeneric?.kind as GenericKind | undefined) ?? (localGeneric?.visitId.split(':')[1] as GenericKind | undefined);
-  const activeVisitRecord = localVisit ?? activeVisit?.visit ?? activeGeneric?.visit ?? null;
-  const runningSince = activeGeneric?.startedAt ?? localGeneric?.startedAt ?? activeVisit?.startedAt ?? localTimer?.startedAt ?? null;
+  const localGeneric = canTrackOtherTime && localTimer?.visitId.startsWith('general:') ? localTimer : null;
+  const localVisit = localTimer && !localTimer.visitId.startsWith('general:') ? visits.find((visit) => visit.id === localTimer.visitId) : null;
+  const runningKind = canTrackOtherTime ? (activeGeneric?.kind as GenericKind | undefined) ?? (localGeneric?.visitId.split(':')[1] as GenericKind | undefined) : undefined;
+  const activeVisitRecord = localVisit ?? activeVisit?.visit ?? null;
+  const runningSince = activeGeneric?.startedAt ?? localGeneric?.startedAt ?? activeVisit?.startedAt ?? localVisit?.timeEntries?.find((entry) => entry.kind === 'visit' && entry.status === 'running' && !entry.endedAt)?.startedAt ?? null;
 
   useEffect(() => {
     if (!runningSince) return;
@@ -72,14 +79,16 @@ export default function TimesheetScreen() {
     return () => clearInterval(timer);
   }, [runningSince]);
 
-  const syntheticLocalGeneric: TimeLogEntry | null = localGeneric && !activeGeneric
+  const syntheticLocalGeneric: TimeLogEntry | null = canTrackOtherTime && localGeneric && !activeGeneric
     ? { id: `local:${localGeneric.startMutationId}`, kind: runningKind ?? 'general', status: 'running', startedAt: localGeneric.startedAt }
     : null;
   const allEntries = useMemo<TimeLogEntry[]>(() => {
-    const values: TimeLogEntry[] = [...generalEntries, ...visitEntries, ...(syntheticLocalGeneric ? [syntheticLocalGeneric] : [])];
+    const values: TimeLogEntry[] = canTrackOtherTime
+      ? [...generalEntries, ...visitEntries, ...(syntheticLocalGeneric ? [syntheticLocalGeneric] : [])]
+      : [...visitEntries];
     const seen = new Set<string>();
     return values.filter((entry) => !seen.has(entry.id) && Boolean(seen.add(entry.id)));
-  }, [generalEntries, syntheticLocalGeneric, visitEntries]);
+  }, [canTrackOtherTime, generalEntries, syntheticLocalGeneric, visitEntries]);
 
   const todayKey = operationalDateKey(new Date(), timezone);
   const weekFrom = zonedDateTimeToUtc(addOperationalDays(todayKey, -6), '00:00', timezone);
@@ -101,7 +110,7 @@ export default function TimesheetScreen() {
   async function act(action: () => Promise<void>) { setBusy(true); setError(''); setMessage(''); try { await action(); } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not update the timer.'); } finally { setBusy(false); } }
 
   async function start(kind: GenericKind) {
-    if (!session) return;
+    if (!session || !canTrackOtherTime) return;
     if (activeVisitRecord && !activeGeneric) {
       setError('A visit is active. Open the visit to pause or finish it before changing time categories.');
       return;
@@ -153,7 +162,7 @@ export default function TimesheetScreen() {
   }
 
   async function stop() {
-    if (!session || (!activeGeneric && !localGeneric)) return;
+    if (!session || !canTrackOtherTime || (!activeGeneric && !localGeneric)) return;
     await act(async () => {
       const location = await coordinates();
       const clientMutationId = mutationId('time-stop');
@@ -182,7 +191,11 @@ export default function TimesheetScreen() {
   if (loading) return <Screen><ActivityIndicator size="large" color={colors.primary} /></Screen>;
 
   return <Screen>
-    <PageHeader eyebrow="My time" title="Time" subtitle="Clock in, switch work categories and review your own timeline." />
+    <PageHeader
+      eyebrow="My time"
+      title="Time"
+      subtitle={canTrackOtherTime ? 'Clock in, switch supervisor work categories and review your own timeline.' : 'Your own recorded visit hours. Start, pause and finish time inside each scheduled visit.'}
+    />
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
 
@@ -192,12 +205,12 @@ export default function TimesheetScreen() {
     </View>
 
     {activeVisitRecord ? <Card style={styles.running}>
-      <View style={styles.runningHead}><View style={styles.liveDot} /><Text style={styles.runningEyebrow}>{runningKind === 'break' ? 'VISIT PAUSED' : 'VISIT IN PROGRESS'}{localTimer ? ' · OFFLINE' : ''}</Text></View>
+      <View style={styles.runningHead}><View style={styles.liveDot} /><Text style={styles.runningEyebrow}>VISIT IN PROGRESS</Text></View>
       <Text style={styles.runningClock}>{formatElapsed(runningElapsed)}</Text>
       <Text style={styles.runningTitle}>{activeVisitRecord.site?.client?.displayName ?? 'Active visit'}</Text>
       <Text style={styles.runningMeta}>{activeVisitRecord.site?.name ?? 'Open the visit to manage this timer.'}</Text>
       <Button title="Open active visit" onPress={() => router.push(`/visit/${activeVisitRecord.id}`)} />
-    </Card> : runningKind ? <>
+    </Card> : canTrackOtherTime && runningKind ? <>
       <Card style={styles.running}>
         <View style={styles.runningHead}><View style={styles.liveDot} /><Text style={styles.runningEyebrow}>CLOCKED IN{localGeneric ? ' · OFFLINE' : ''}</Text></View>
         <Text style={styles.runningClock}>{formatElapsed(runningElapsed)}</Text>
@@ -207,23 +220,26 @@ export default function TimesheetScreen() {
       </Card>
       <View><Text style={styles.section}>Switch activity</Text><Text style={styles.sectionSub}>Starting another category stops the current one at the same moment.</Text></View>
       <View style={styles.categories}>{categories.filter((category) => category.kind !== runningKind).map((category) => <ActivityButton key={category.kind} category={category} busy={busy} onPress={() => void start(category.kind)} />)}</View>
-    </> : <>
+    </> : canTrackOtherTime ? <>
       <Card style={styles.clockInCard}>
         <View style={styles.clockInIcon}><Ionicons name="play" size={22} color="#fff" /></View>
-        <View style={styles.clockInCopy}><Text style={styles.clockInTitle}>Ready to start your day?</Text><Text style={styles.clockInSub}>Clock in to General. Starting a visit later will switch the timer automatically.</Text></View>
+        <View style={styles.clockInCopy}><Text style={styles.clockInTitle}>Supervisor clock</Text><Text style={styles.clockInSub}>Use General only for paid operational work outside a scheduled visit. Starting a visit later switches the timer.</Text></View>
         <Button title="Clock in" loading={busy} onPress={() => void start('general')} />
       </Card>
-      <View><Text style={styles.section}>Other time</Text><Text style={styles.sectionSub}>Use a category directly when your paid time starts with travel, office or supplies.</Text></View>
+      <View><Text style={styles.section}>Other supervisor time</Text><Text style={styles.sectionSub}>Use a category directly when paid operational time starts with travel, office or supplies.</Text></View>
       <View style={styles.categories}>{categories.filter((category) => category.kind !== 'general' && category.kind !== 'break').map((category) => <ActivityButton key={category.kind} category={category} busy={busy} onPress={() => void start(category.kind)} />)}</View>
-    </>}
+    </> : <Card style={styles.cleanerHint}>
+      <View style={styles.cleanerHintIcon}><Ionicons name="briefcase-outline" size={20} color={colors.primary} /></View>
+      <View style={styles.cleanerHintCopy}><Text style={styles.cleanerHintTitle}>Time follows your visits</Text><Text style={styles.cleanerHintText}>Open a scheduled visit to Start work, Pause, Resume or Finish. You do not need a separate General clock.</Text></View>
+    </Card>}
 
-    <View><Text style={styles.section}>Time log</Text><Text style={styles.sectionSub}>Newest first. Overnight work is split correctly in daily totals.</Text></View>
+    <View><Text style={styles.section}>Time log</Text><Text style={styles.sectionSub}>{canTrackOtherTime ? 'Your own visit and supervisor time, newest first.' : 'Your own visit work only, newest first.'}</Text></View>
     {allEntries.length ? [...allEntries].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).map((entry) => {
       const linkedVisit = entry.visit ?? null;
       const title = linkedVisit?.site?.client?.displayName ?? activityLabel(entry.kind as GenericKind | 'visit');
       const running = !entry.endedAt;
       return <Card key={entry.id} style={styles.entry}><View style={[styles.dot, running && styles.dotLive]} /><View style={styles.body}><Text style={styles.site}>{title}</Text><Text style={styles.meta}>{entryWindow(entry, timezone)}</Text></View><Text style={[styles.duration, running && styles.durationLive]}>{running ? formatElapsed(entrySeconds(entry, clockNow)) : formatMinutes(Math.round(entrySeconds(entry, clockNow) / 60))}</Text></Card>;
-    }) : <EmptyState title="No tracked time yet" body="Clock in or start a scheduled visit to begin your time log." />}
+    }) : <EmptyState title="No visit time yet" body="Your recorded time appears here after you start a scheduled visit." />}
   </Screen>;
 }
 
@@ -287,6 +303,11 @@ const styles = StyleSheet.create({
   clockInCopy: { gap: 4 },
   clockInTitle: { color: colors.ink, fontSize: 20, fontWeight: '900' },
   clockInSub: { color: colors.muted, fontSize: 12, lineHeight: 18 },
+  cleanerHint: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, borderColor: '#C9D8E2', backgroundColor: '#F8FAFC' },
+  cleanerHintIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
+  cleanerHintCopy: { flex: 1 },
+  cleanerHintTitle: { color: colors.ink, fontSize: 16, fontWeight: '900' },
+  cleanerHintText: { color: colors.muted, fontSize: 11, lineHeight: 17, marginTop: 3 },
   entry: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   dot: { width: 9, height: 9, borderRadius: 99, backgroundColor: '#B7C3CB' },
   dotLive: { backgroundColor: colors.success },
