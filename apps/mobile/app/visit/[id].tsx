@@ -1,7 +1,8 @@
 import { Button, Card, EmptyState, Screen } from '@/components/ui';
-import { apiFetch, isNetworkApiError } from '@/lib/api';
+import { ApiError, apiFetch, isNetworkApiError } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { getDeviceId } from '@/lib/device';
+import { fieldVisitState } from '@/lib/field-presentation';
 import { cachedVisit, clearLocalTimer, enqueue, getAnyLocalTimer, getLocalTimer, hasPendingOperation, mutationId, prepareVisitForOffline, setLocalTimer, updateCachedVisit, type LocalTimer } from '@/lib/offline';
 import { formatOperationalTime } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
@@ -64,6 +65,7 @@ export default function VisitScreen() {
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  const [timerConflict, setTimerConflict] = useState(false);
   const [localTimer, setLocalTimerState] = useState<LocalTimer | null>(null);
   const [completionPending, setCompletionPending] = useState(false);
   const [declining, setDeclining] = useState(false);
@@ -77,6 +79,7 @@ export default function VisitScreen() {
     if (!session || !id) return;
     setLoading(true);
     setError('');
+    setTimerConflict(false);
     try {
       const remote = prepareVisitForOffline(await apiFetch<Visit>(session, `/api/visits/${id}`));
       setVisit(remote);
@@ -186,6 +189,7 @@ export default function VisitScreen() {
     setBusy(true);
     setError('');
     setMessage('');
+    setTimerConflict(false);
     try {
       await action();
     } catch (cause) {
@@ -215,7 +219,8 @@ export default function VisitScreen() {
     await withAction(async () => {
       const otherTimer = await getAnyLocalTimer();
       if (otherTimer && otherTimer.visitId !== visit.id) {
-        throw new Error('Another timer is already running on this device. Finish it before starting this visit.');
+        setTimerConflict(true);
+        throw new Error('You already have work in progress. Open Time to continue or finish it before starting this visit.');
       }
       if (otherTimer && otherTimer.visitId === visit.id) {
         throw new Error(localTimerKind(otherTimer) === 'break' ? 'This visit is paused. Resume it instead.' : 'This visit timer is already running.');
@@ -245,6 +250,10 @@ export default function VisitScreen() {
         setMessage('Work started.');
         await load();
       } catch (cause) {
+        if (cause instanceof ApiError && (cause.code === 'ACTIVE_TIMER' || cause.code === 'TIMER_ALREADY_RUNNING')) {
+          setTimerConflict(true);
+          throw cause;
+        }
         if (!isNetworkApiError(cause)) throw cause;
         await saveOffline();
       }
@@ -561,11 +570,12 @@ export default function VisitScreen() {
   const timerToneLabel = paused ? 'Paused' : timerTone === 'over' ? 'Over planned time' : timerTone === 'warning' ? 'Approaching planned time' : 'On track';
   const remainingLabel = remainingSeconds >= 0 ? `${formatDuration(remainingSeconds)} planned remaining` : `${formatDuration(Math.abs(remainingSeconds))} over planned time`;
   const scheduleResponseNeeded = Boolean(ownAssignment && PENDING_ASSIGNMENTS.has(ownAssignment.status) && !visitExecutionOpen && !visitSubmitted);
+  const fieldState = fieldVisitState(visit, session?.email);
 
   return <Screen>
     <View style={styles.hero}>
       <View style={styles.statusRow}>
-        <Text style={styles.status}>{visit.status.replaceAll('_', ' ')}</Text>
+        <Text style={styles.status}>{fieldState.label}</Text>
         <Text style={styles.time}>{formatOperationalTime(visit.scheduledStart, timezone)}–{formatOperationalTime(visit.scheduledEnd, timezone)}</Text>
       </View>
       <Text style={styles.client}>{visit.site.client.displayName}</Text>
@@ -587,6 +597,11 @@ export default function VisitScreen() {
 
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+    {timerConflict ? <Card style={styles.timerConflict}>
+      <Text style={styles.sectionTitle}>Work already in progress</Text>
+      <Text style={styles.sectionSub}>You can only run one timer at a time. Open Time to return to the active work, then finish or pause it before starting this visit.</Text>
+      <Button title="Open Time" onPress={() => router.push('/(tabs)/timesheet')} />
+    </Card> : null}
 
     {scheduleResponseNeeded ? <Card style={styles.assignment}>
       <View>
@@ -601,7 +616,7 @@ export default function VisitScreen() {
           <Button title="Notify operations" variant="danger" compact loading={busy} onPress={() => void respondToAssignment('declined')} />
         </View>
       </> : <View style={styles.assignmentActions}>
-        <Button title="Confirm this visit" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} />
+        <Button title="Confirm visit" compact loading={busy} onPress={() => void respondToAssignment('acknowledged')} />
         <Button title="Can't attend" variant="secondary" compact onPress={() => setDeclining(true)} />
       </View>}
     </Card> : null}
@@ -760,6 +775,7 @@ const styles = StyleSheet.create({
   address: { color: '#B7C7D7', lineHeight: 20 },
   success: { padding: 12, borderRadius: 12, color: colors.success, fontWeight: '800', backgroundColor: colors.primarySoft },
   error: { padding: 12, borderRadius: 12, color: colors.danger, fontWeight: '700', backgroundColor: '#FDECEA' },
+  timerConflict: { borderColor: '#E2B15D', backgroundColor: '#FFFCF5' },
   readOnly: { borderColor: '#BFD0DC', backgroundColor: '#F6FAFC' },
   assignment: { borderLeftWidth: 5, borderLeftColor: colors.primary },
   assignmentTitle: { color: colors.ink, fontSize: 17, fontWeight: '900', marginTop: 3 },
