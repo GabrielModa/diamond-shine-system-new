@@ -55,7 +55,8 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
   try {
     if (network.isConnected) {
       try {
-        const result = await withDatabaseRetry(() => syncPending(session, getDeviceId()));
+        const deviceId = await getDeviceId();
+        const result = await withDatabaseRetry(() => syncPending(session, deviceId));
         if (result.issues.length) {
           error = `${result.issues.length} saved change${result.issues.length === 1 ? '' : 's'} need attention after reconnecting. Successful changes were kept.`;
         }
