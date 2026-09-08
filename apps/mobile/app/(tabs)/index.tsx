@@ -3,6 +3,7 @@ import { entrySeconds, fieldVisitState, formatMinutes, minutesBetween, ownVisitE
 import { useAuth } from '@/lib/auth-context';
 import { formatOperationalTime, operationalDateKey, operationalGreeting } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
+import type { Visit } from '@/lib/types';
 import { useVisits } from '@/lib/use-visits';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
@@ -20,16 +21,21 @@ export default function HomeScreen() {
   const plannedMinutes = operationalVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0);
   const workedSeconds = ownVisitEntries(todaysVisits, session?.email).reduce((sum, entry) => sum + entrySeconds(entry), 0);
   const workedMinutes = Math.round(workedSeconds / 60);
-  const leftMinutes = Math.max(0, plannedMinutes - workedMinutes);
-  const completed = todaysVisits.filter((visit) => visit.status === 'completed').length;
+  const remainingMinutes = Math.max(0, plannedMinutes - workedMinutes);
+  const completed = operationalVisits.filter((visit) => visit.status === 'completed').length;
+  const progress = plannedMinutes > 0 ? Math.min(1, workedMinutes / plannedMinutes) : completed === operationalVisits.length && operationalVisits.length ? 1 : 0;
+  const progressWidth = `${Math.round(progress * 100)}%` as `${number}%`;
   const syncAttention = Boolean(error || issues);
   const firstName = session?.name?.split(' ')[0] ?? 'team';
+  const activeVisit = operationalVisits.find((visit) => visit.status === 'in_progress' || visit.status === 'completion_blocked');
+  const nextVisit = activeVisit ?? operationalVisits.find((visit) => visit.status !== 'completed');
+  const laterVisits = operationalVisits.filter((visit) => visit.id !== nextVisit?.id && visit.status !== 'completed');
 
   return <Screen>
     <PageHeader
       eyebrow="Today"
       title={`${operationalGreeting(new Date(), timezone)}, ${firstName}`}
-      subtitle={`${formatMinutes(plannedMinutes)} planned · ${todaysVisits.length} visit${todaysVisits.length === 1 ? '' : 's'} today`}
+      subtitle={operationalVisits.length ? `${operationalVisits.length} visit${operationalVisits.length === 1 ? '' : 's'} · ${formatMinutes(plannedMinutes)} scheduled` : 'Your workday is clear.'}
     />
 
     {offline || queued || syncAttention ? <View style={[styles.syncBanner, syncAttention && styles.syncProblem]}>
@@ -38,36 +44,71 @@ export default function HomeScreen() {
       <Button title="Sync now" compact variant="secondary" onPress={() => void refresh()} />
     </View> : null}
 
-    <View style={styles.metricsGrid}>
-      <Metric icon="calendar-outline" label="Planned" value={formatMinutes(plannedMinutes)} />
-      <Metric icon="checkmark-circle-outline" label="Worked" value={formatMinutes(workedMinutes)} />
-      <Metric icon="hourglass-outline" label="Left" value={formatMinutes(leftMinutes)} />
-      <Metric icon="briefcase-outline" label="Visits" value={`${completed}/${todaysVisits.length}`} hint="done" />
-    </View>
+    <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/schedule')} style={({ pressed }) => pressed && styles.pressed}>
+      <View style={styles.workdayCard}>
+        <View style={styles.workdayTop}>
+          <View><Text style={styles.workdayEyebrow}>WORKDAY</Text><Text style={styles.workdayValue}>{formatMinutes(plannedMinutes)} scheduled</Text></View>
+          <View style={styles.donePill}><Ionicons name="checkmark-circle-outline" size={15} color="#AEE7D1" /><Text style={styles.donePillText}>{completed}/{operationalVisits.length} done</Text></View>
+        </View>
+        <View style={styles.progressTrack}><View style={[styles.progressFill, { width: progressWidth }]} /></View>
+        <View style={styles.workdayStats}>
+          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{formatMinutes(workedMinutes)}</Text><Text style={styles.workdayStatLabel}>Worked</Text></View>
+          <View style={styles.workdayDivider} />
+          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{formatMinutes(remainingMinutes)}</Text><Text style={styles.workdayStatLabel}>Remaining</Text></View>
+          <View style={styles.workdayDivider} />
+          <View style={styles.workdayStat}><Text style={styles.workdayStatValue}>{operationalVisits.length}</Text><Text style={styles.workdayStatLabel}>Visits</Text></View>
+        </View>
+        <View style={styles.scheduleLink}><Text style={styles.scheduleLinkText}>View schedule</Text><Ionicons name="chevron-forward" size={15} color="#AEE7D1" /></View>
+      </View>
+    </Pressable>
 
-    <View style={styles.sectionHead}><View><Text style={styles.sectionTitle}>Today&apos;s route</Text><Text style={styles.sectionSub}>{formatMinutes(plannedMinutes)} expected · {formatMinutes(workedMinutes)} recorded</Text></View><Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.refreshButton}><Ionicons name="refresh" size={18} color={colors.primary} /></Pressable></View>
-
-    {loading ? <ActivityIndicator color={colors.primary} size="large" /> : todaysVisits.length ? todaysVisits.map((visit, index) => {
-      const state = fieldVisitState(visit, session?.email);
-      const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
-      return <Pressable key={visit.id} onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
-        <Card style={styles.visit}>
-          <View style={styles.routeIndex}><Text style={styles.routeIndexText}>{index + 1}</Text></View>
-          <View style={styles.visitBody}>
-            <View style={styles.visitTop}><Text style={styles.visitClient}>{visit.site.client.displayName}</Text><View style={[styles.statusChip, state.tone === 'attention' && styles.statusAttention, state.tone === 'confirmed' && styles.statusConfirmed, state.tone === 'live' && styles.statusLive, state.tone === 'done' && styles.statusDone]}><Text style={[styles.statusText, state.tone === 'attention' && styles.statusTextAttention, state.tone === 'confirmed' && styles.statusTextConfirmed, state.tone === 'live' && styles.statusTextLive, state.tone === 'done' && styles.statusTextDone]}>{state.label}</Text></View></View>
-            <Text style={styles.visitName}>{visit.job?.name ?? visit.site.name}</Text>
-            <View style={styles.metaRow}><Ionicons name="time-outline" size={15} color={colors.primary} /><Text style={styles.visitMeta}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}–{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)} · <Text style={styles.durationStrong}>{duration} planned</Text></Text></View>
-            <View style={styles.metaRow}><Ionicons name="location-outline" size={15} color={colors.muted} /><Text style={styles.visitMeta} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}</Text></View>
-            <View style={styles.openRow}><Text style={styles.open}>Open</Text><Ionicons name="arrow-forward" size={16} color={colors.primary} /></View>
-          </View>
-        </Card>
-      </Pressable>;
-    }) : <EmptyState title="No visits today" body="Your assigned work will appear here as soon as it is scheduled." />}
+    {loading ? <ActivityIndicator color={colors.primary} size="large" /> : nextVisit ? <>
+      <View style={styles.sectionHead}><View><Text style={styles.sectionEyebrow}>{activeVisit ? 'NOW' : 'NEXT UP'}</Text><Text style={styles.sectionTitle}>{activeVisit ? 'Continue your visit' : 'Your next visit'}</Text></View><Pressable accessibilityRole="button" onPress={() => void refresh()} style={styles.refreshButton}><Ionicons name="refresh" size={18} color={colors.primary} /></Pressable></View>
+      <NextVisitCard visit={nextVisit} email={session?.email} timezone={timezone} active={Boolean(activeVisit)} />
+      {laterVisits.length ? <View style={styles.laterSection}>
+        <View><Text style={styles.sectionEyebrow}>LATER TODAY</Text><Text style={styles.sectionSub}>{laterVisits.length} more visit{laterVisits.length === 1 ? '' : 's'} · {formatMinutes(laterVisits.reduce((sum, visit) => sum + minutesBetween(visit.scheduledStart, visit.scheduledEnd), 0))}</Text></View>
+        {laterVisits.map((visit) => <CompactVisitRow key={visit.id} visit={visit} email={session?.email} timezone={timezone} />)}
+      </View> : null}
+    </> : operationalVisits.length && completed === operationalVisits.length ? <Card style={styles.allDone}>
+      <View style={styles.allDoneIcon}><Ionicons name="checkmark" size={24} color="#fff" /></View>
+      <Text style={styles.allDoneTitle}>All done for today</Text>
+      <Text style={styles.allDoneCopy}>{formatMinutes(workedMinutes)} recorded across {completed} completed visit{completed === 1 ? '' : 's'}.</Text>
+    </Card> : <EmptyState title="No visits today" body="Your assigned work will appear here as soon as it is scheduled." />}
   </Screen>;
 }
 
-function Metric({ icon, label, value, hint }: { icon: keyof typeof Ionicons.glyphMap; label: string; value: string; hint?: string }) {
-  return <View style={styles.metricCard}><View style={styles.metricIcon}><Ionicons name={icon} size={18} color="#AEE7D1" /></View><Text style={styles.metric}>{value}</Text><Text style={styles.metricLabel}>{label}{hint ? ` · ${hint}` : ''}</Text></View>;
+function NextVisitCard({ visit, email, timezone, active }: { visit: Visit; email?: string | null; timezone: string; active: boolean }) {
+  const state = fieldVisitState(visit, email);
+  const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
+  return <Pressable accessibilityRole="button" onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => pressed && styles.pressed}>
+    <Card style={[styles.nextCard, active && styles.nextCardActive]}>
+      <View style={styles.nextTop}>
+        <View style={styles.nextTime}><Text style={styles.nextTimeMain}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.nextTimeEnd}>{formatOperationalTime(visit.scheduledEnd, visit.timezone ?? timezone)} · {duration}</Text></View>
+        <StatusChip state={state} />
+      </View>
+      <Text style={styles.nextClient}>{visit.site.client.displayName}</Text>
+      <Text style={styles.nextSite}>{visit.job?.name ?? visit.site.name}</Text>
+      <View style={styles.metaRow}><Ionicons name="location-outline" size={15} color={colors.muted} /><Text style={styles.nextAddress} numberOfLines={2}>{visit.site.name} · {visit.site.addressLine1}</Text></View>
+      <View style={styles.nextAction}><Text style={styles.nextActionText}>{state.label === 'Needs confirmation' ? 'Review & confirm' : active ? 'Continue work' : 'Open visit'}</Text><Ionicons name="arrow-forward" size={17} color="#fff" /></View>
+    </Card>
+  </Pressable>;
+}
+
+function CompactVisitRow({ visit, email, timezone }: { visit: Visit; email?: string | null; timezone: string }) {
+  const state = fieldVisitState(visit, email);
+  const duration = formatMinutes(minutesBetween(visit.scheduledStart, visit.scheduledEnd));
+  return <Pressable accessibilityRole="button" onPress={() => router.push(`/visit/${visit.id}`)} style={({ pressed }) => [styles.compactRow, pressed && styles.pressed]}>
+    <View style={styles.compactTime}><Text style={styles.compactTimeMain}>{formatOperationalTime(visit.scheduledStart, visit.timezone ?? timezone)}</Text><Text style={styles.compactDuration}>{duration}</Text></View>
+    <View style={styles.compactBody}><Text style={styles.compactClient} numberOfLines={2}>{visit.site.client.displayName}</Text><Text style={styles.compactSite} numberOfLines={1}>{visit.site.name}</Text></View>
+    <StatusChip state={state} />
+    <Ionicons name="chevron-forward" size={18} color={colors.primary} />
+  </Pressable>;
+}
+
+function StatusChip({ state }: { state: ReturnType<typeof fieldVisitState> }) {
+  return <View style={[styles.statusChip, state.tone === 'attention' && styles.statusAttention, state.tone === 'confirmed' && styles.statusConfirmed, state.tone === 'live' && styles.statusLive, state.tone === 'done' && styles.statusDone]}>
+    <Text style={[styles.statusText, state.tone === 'attention' && styles.statusTextAttention, state.tone === 'confirmed' && styles.statusTextConfirmed, state.tone === 'live' && styles.statusTextLive, state.tone === 'done' && styles.statusTextDone]}>{state.label}</Text>
+  </View>;
 }
 
 const styles = StyleSheet.create({
@@ -77,26 +118,47 @@ const styles = StyleSheet.create({
   syncTitle: { color: colors.warning, fontSize: 16, fontWeight: '900' },
   syncProblemTitle: { color: colors.danger },
   syncText: { color: colors.ink, fontSize: 13, lineHeight: 19 },
-  metricsGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
-  metricCard: { width: '48%', minHeight: 104, padding: 14, borderRadius: 18, backgroundColor: colors.ink, justifyContent: 'center' },
-  metricIcon: { width: 31, height: 31, borderRadius: 10, alignItems: 'center', justifyContent: 'center', backgroundColor: '#184358', marginBottom: 8 },
-  metric: { color: '#fff', fontSize: 24, fontWeight: '900' },
-  metricLabel: { color: '#C9D6E2', fontSize: 11, fontWeight: '700', marginTop: 2 },
+  workdayCard: { padding: 18, borderRadius: 22, backgroundColor: colors.ink, gap: 15 },
+  workdayTop: { flexDirection: 'row', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 },
+  workdayEyebrow: { color: '#AEE7D1', fontSize: 10, fontWeight: '900', letterSpacing: 1.2 },
+  workdayValue: { color: '#fff', fontSize: 28, fontWeight: '900', marginTop: 4 },
+  donePill: { flexDirection: 'row', alignItems: 'center', gap: 5, paddingHorizontal: 9, paddingVertical: 6, borderRadius: 99, backgroundColor: '#173E53' },
+  donePillText: { color: '#D9E8E1', fontSize: 10, fontWeight: '800' },
+  progressTrack: { height: 7, borderRadius: 99, backgroundColor: '#24495B', overflow: 'hidden' },
+  progressFill: { height: '100%', borderRadius: 99, backgroundColor: '#62D3A2' },
+  workdayStats: { flexDirection: 'row', alignItems: 'center' },
+  workdayStat: { flex: 1 },
+  workdayStatValue: { color: '#fff', fontSize: 17, fontWeight: '900' },
+  workdayStatLabel: { color: '#AFC0CC', fontSize: 10, fontWeight: '700', marginTop: 2 },
+  workdayDivider: { width: 1, height: 28, backgroundColor: '#345566', marginHorizontal: 10 },
+  scheduleLink: { flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-end' },
+  scheduleLinkText: { color: '#AEE7D1', fontSize: 11, fontWeight: '800' },
   sectionHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
-  sectionTitle: { color: colors.ink, fontSize: 20, fontWeight: '900' },
-  sectionSub: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  sectionEyebrow: { color: colors.accent, fontSize: 10, fontWeight: '900', letterSpacing: 1.1 },
+  sectionTitle: { color: colors.ink, fontSize: 21, fontWeight: '900', marginTop: 2 },
+  sectionSub: { color: colors.muted, fontSize: 12, marginTop: 3 },
   refreshButton: { width: 42, height: 42, borderRadius: 13, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.primarySoft },
-  visit: { flexDirection: 'row', gap: 12 },
-  routeIndex: { width: 36, height: 36, alignItems: 'center', justifyContent: 'center', borderRadius: 12, backgroundColor: colors.primarySoft },
-  routeIndexText: { color: colors.primary, fontWeight: '900' },
-  visitBody: { flex: 1, minWidth: 0, gap: 6 },
-  visitTop: { flexDirection: 'row', gap: 8, alignItems: 'flex-start', justifyContent: 'space-between' },
-  visitClient: { flex: 1, color: colors.ink, fontSize: 17, lineHeight: 21, fontWeight: '900' },
-  visitName: { color: colors.ink, fontWeight: '700' },
-  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 6 },
-  visitMeta: { flex: 1, color: colors.muted, fontSize: 12, lineHeight: 17 },
-  durationStrong: { color: colors.ink, fontWeight: '800' },
-  statusChip: { maxWidth: '48%', paddingHorizontal: 8, paddingVertical: 5, borderRadius: 99, backgroundColor: '#EEF2F5' },
+  nextCard: { gap: 9, borderLeftWidth: 5, borderLeftColor: colors.primary },
+  nextCardActive: { borderLeftColor: colors.success, backgroundColor: '#F6FFFA' },
+  nextTop: { flexDirection: 'row', justifyContent: 'space-between', gap: 10, alignItems: 'flex-start' },
+  nextTime: { flex: 1 },
+  nextTimeMain: { color: colors.primary, fontSize: 24, fontWeight: '900' },
+  nextTimeEnd: { color: colors.muted, fontSize: 12, marginTop: 2 },
+  nextClient: { color: colors.ink, fontSize: 21, lineHeight: 25, fontWeight: '900' },
+  nextSite: { color: colors.ink, fontSize: 14, fontWeight: '700' },
+  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 5 },
+  nextAddress: { flex: 1, color: colors.muted, fontSize: 12, lineHeight: 17 },
+  nextAction: { minHeight: 44, borderRadius: 13, paddingHorizontal: 15, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7, backgroundColor: colors.primary, marginTop: 3 },
+  nextActionText: { color: '#fff', fontSize: 13, fontWeight: '900' },
+  laterSection: { gap: 10 },
+  compactRow: { minHeight: 78, padding: 13, flexDirection: 'row', alignItems: 'center', gap: 10, borderWidth: 1, borderColor: colors.border, borderRadius: 17, backgroundColor: colors.surface },
+  compactTime: { width: 66 },
+  compactTimeMain: { color: colors.primary, fontSize: 15, fontWeight: '900' },
+  compactDuration: { color: colors.muted, fontSize: 10, marginTop: 3 },
+  compactBody: { flex: 1, minWidth: 0 },
+  compactClient: { color: colors.ink, fontSize: 14, lineHeight: 18, fontWeight: '900' },
+  compactSite: { color: colors.muted, fontSize: 11, marginTop: 3 },
+  statusChip: { maxWidth: 115, paddingHorizontal: 8, paddingVertical: 5, borderRadius: 99, backgroundColor: '#EEF2F5' },
   statusText: { color: colors.muted, fontSize: 9, fontWeight: '900' },
   statusAttention: { backgroundColor: '#FFF1D6' },
   statusTextAttention: { color: '#B86B00' },
@@ -106,7 +168,9 @@ const styles = StyleSheet.create({
   statusTextLive: { color: colors.success },
   statusDone: { backgroundColor: '#EDF2F5' },
   statusTextDone: { color: '#60717D' },
-  openRow: { flexDirection: 'row', alignItems: 'center', gap: 4, marginTop: 2 },
-  open: { color: colors.primary, fontSize: 12, fontWeight: '900' },
+  allDone: { alignItems: 'center', paddingVertical: 28 },
+  allDoneIcon: { width: 48, height: 48, borderRadius: 99, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.success },
+  allDoneTitle: { color: colors.ink, fontSize: 22, fontWeight: '900' },
+  allDoneCopy: { color: colors.muted, fontSize: 13, lineHeight: 19, textAlign: 'center' },
   pressed: { opacity: 0.76 },
 });
