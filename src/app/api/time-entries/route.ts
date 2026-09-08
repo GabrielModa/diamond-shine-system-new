@@ -99,8 +99,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ ok: true, data: duplicate, duplicate: true })
     }
   }
-
-  const requestedStartAt = parsed.data.startedAt ?? parsed.data.capturedAt ?? new Date()
+  const startedAt = parsed.data.startedAt ?? parsed.data.capturedAt ?? new Date()
   const hasLocation = parsed.data.latitude != null && parsed.data.longitude != null
   const timerStart = await (async () => {
     try {
@@ -108,36 +107,9 @@ export async function POST(request: NextRequest) {
         await lockUserTimerStart(tx, auth.user.organizationId, auth.user.id)
         const running = await tx.timeEntry.findFirst({
           where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-          select: { id: true, kind: true, visitId: true, startedAt: true, reviewReason: true },
+          select: { id: true, kind: true },
         })
-
-        if (running?.kind === parsed.data.kind && running.visitId === (parsed.data.visitId ?? null)) {
-          return { running } as const
-        }
-
-        const startedAt = running && requestedStartAt < running.startedAt
-          ? running.startedAt
-          : requestedStartAt
-
-        let switched: { id: string; kind: string; visitId: string | null; endedAt: Date } | null = null
-        if (running) {
-          const durationSeconds = Math.max(0, Math.round((startedAt.getTime() - running.startedAt.getTime()) / 1000))
-          const claimed = await tx.timeEntry.updateMany({
-            where: {
-              id: running.id,
-              organizationId: auth.user.organizationId,
-              userId: auth.user.id,
-              status: 'running',
-            },
-            data: {
-              status: running.reviewReason ? 'needs_review' : 'completed',
-              endedAt: startedAt,
-              durationSeconds,
-            },
-          })
-          if (claimed.count !== 1) return { retry: true as const }
-          switched = { id: running.id, kind: running.kind, visitId: running.visitId, endedAt: startedAt }
-        }
+        if (running) return { running } as const
 
         const entry = await tx.timeEntry.create({
           data: {
@@ -160,13 +132,13 @@ export async function POST(request: NextRequest) {
               longitude: parsed.data.longitude!,
               accuracyM: parsed.data.accuracyM,
               classification: 'unavailable',
-              capturedAt: startedAt,
+              capturedAt: parsed.data.capturedAt ?? startedAt,
               source: parsed.data.source,
             } } : undefined,
           },
           include: { locationEvents: true },
         })
-        return { entry, switched } as const
+        return { entry } as const
       })
     } catch (error) {
       if (
@@ -194,39 +166,17 @@ export async function POST(request: NextRequest) {
       throw error
     }
   })()
-
   if ('response' in timerStart) return timerStart.response
-  if ('retry' in timerStart) {
-    return NextResponse.json({
-      ok: false,
-      error: 'Your current timer changed while switching activity. Try again.',
-      code: 'TIMER_SWITCH_RETRY',
-    }, { status: 409 })
-  }
   if ('running' in timerStart) {
     return NextResponse.json({
       ok: false,
-      error: `Your ${timerStart.running.kind} timer is already running.`,
+      error: timerStart.running
+        ? `Stop the current ${timerStart.running.kind} timer before starting another.`
+        : 'Another timer is already running. Stop it before starting another.',
       code: 'TIMER_ALREADY_RUNNING',
-      data: timerStart.running,
     }, { status: 409 })
   }
-
   const entry = timerStart.entry
-  if (timerStart.switched) {
-    await logAudit(auth.user.email, 'switch_time_entry', 'time_entry', timerStart.switched.id, {
-      fromKind: timerStart.switched.kind,
-      fromVisitId: timerStart.switched.visitId,
-      toKind: entry.kind,
-      toVisitId: entry.visitId,
-      endedAt: timerStart.switched.endedAt.toISOString(),
-    }, auth.user.organizationId)
-  }
-  await logAudit(auth.user.email, 'start_time_entry', 'time_entry', entry.id, {
-    kind: entry.kind,
-    source: entry.source,
-    visitId: entry.visitId,
-    switchedFromTimeEntryId: timerStart.switched?.id ?? null,
-  }, auth.user.organizationId)
-  return NextResponse.json({ ok: true, data: entry, switchedFrom: timerStart.switched }, { status: 201 })
+  await logAudit(auth.user.email, 'start_time_entry', 'time_entry', entry.id, { kind: entry.kind, source: entry.source, visitId: entry.visitId }, auth.user.organizationId)
+  return NextResponse.json({ ok: true, data: entry }, { status: 201 })
 }
