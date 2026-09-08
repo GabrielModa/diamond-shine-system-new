@@ -15,8 +15,21 @@ type VisitSnapshot = {
   error: string;
 };
 
+type CachedSnapshot = { snapshot: VisitSnapshot; savedAt: number };
+
+const SNAPSHOT_TTL_MS = 20_000;
 let refreshInFlight: Promise<VisitSnapshot> | null = null;
 let refreshKey = '';
+const snapshotCache = new Map<string, CachedSnapshot>();
+
+function sessionKey(session: Session) {
+  return `${session.organizationId}:${session.email.toLowerCase()}:${session.baseUrl}`;
+}
+
+function freshSnapshot(session: Session) {
+  const cached = snapshotCache.get(sessionKey(session));
+  return cached && Date.now() - cached.savedAt < SNAPSHOT_TTL_MS ? cached.snapshot : null;
+}
 
 function databaseBusy(cause: unknown) {
   const message = cause instanceof Error ? cause.message : String(cause ?? '');
@@ -67,8 +80,11 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
       const from = new Date(Date.now() - 86_400_000).toISOString();
       const to = new Date(Date.now() + 30 * 86_400_000).toISOString();
       const data = await apiFetch<Visit[]>(session, `/api/sync?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
+      // The network response is already the canonical snapshot. Persist it for
+      // offline use, but do not immediately read the same large payload back
+      // out of SQLite before painting the screen.
+      visits = data;
       await withDatabaseRetry(() => cacheVisits(data));
-      visits = await withDatabaseRetry(() => cachedVisits());
     } else {
       visits = await withDatabaseRetry(() => cachedVisits());
       offline = true;
@@ -97,12 +113,17 @@ async function buildSnapshot(session: Session): Promise<VisitSnapshot> {
   return { visits, offline, queued, issues, error };
 }
 
-function sharedRefresh(session: Session) {
-  const key = `${session.organizationId}:${session.email.toLowerCase()}:${session.baseUrl}`;
+function sharedRefresh(session: Session, force = false) {
+  const key = sessionKey(session);
+  const cached = !force ? freshSnapshot(session) : null;
+  if (cached) return Promise.resolve(cached);
   if (refreshInFlight && refreshKey === key) return refreshInFlight;
 
   refreshKey = key;
-  const promise = buildSnapshot(session);
+  const promise = buildSnapshot(session).then((snapshot) => {
+    snapshotCache.set(key, { snapshot, savedAt: Date.now() });
+    return snapshot;
+  });
   refreshInFlight = promise;
   void promise.finally(() => {
     if (refreshInFlight === promise) {
@@ -115,31 +136,36 @@ function sharedRefresh(session: Session) {
 
 export function useVisits() {
   const { session } = useAuth();
-  const [visits, setVisits] = useState<Visit[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [offline, setOffline] = useState(false);
-  const [queued, setQueued] = useState(0);
-  const [issues, setIssues] = useState(0);
-  const [error, setError] = useState('');
+  const initial = session ? freshSnapshot(session) : null;
+  const [visits, setVisits] = useState<Visit[]>(initial?.visits ?? []);
+  const [loading, setLoading] = useState(!initial);
+  const [offline, setOffline] = useState(initial?.offline ?? false);
+  const [queued, setQueued] = useState(initial?.queued ?? 0);
+  const [issues, setIssues] = useState(initial?.issues ?? 0);
+  const [error, setError] = useState(initial?.error ?? '');
 
-  const refresh = useCallback(async () => {
+  const refresh = useCallback(async (force = true) => {
     if (!session) return;
-    setLoading(true);
-    const snapshot = await sharedRefresh(session);
+    const cached = !force ? freshSnapshot(session) : null;
+    if (!cached && !visits.length) setLoading(true);
+    const snapshot = cached ?? await sharedRefresh(session, force);
     setVisits(snapshot.visits);
     setOffline(snapshot.offline);
     setQueued(snapshot.queued);
     setIssues(snapshot.issues);
     setError(snapshot.error);
     setLoading(false);
-  }, [session]);
+  }, [session, visits.length]);
 
-  useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
+  // Tab changes are not a reason to download and rewrite the whole offline
+  // package again. A fresh snapshot is shared for a short period; explicit
+  // refresh buttons still force a real sync.
+  useFocusEffect(useCallback(() => { void refresh(false); }, [refresh]));
   useEffect(() => {
     if (!session) return;
     let initialized = false;
     const unsubscribe = NetInfo.addEventListener((state) => {
-      if (initialized && state.isConnected) void refresh();
+      if (initialized && state.isConnected) void refresh(true);
       initialized = true;
     });
     return unsubscribe;
