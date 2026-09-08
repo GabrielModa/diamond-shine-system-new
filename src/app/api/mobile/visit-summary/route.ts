@@ -2,7 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { requireCapability } from '../../../../../lib/auth'
 import { prisma } from '../../../../../lib/prisma'
-import { assignedVisitFilter } from '../../../../../modules/execution/access'
+import { ownAssignedVisitFilter } from '../../../../../modules/execution/access'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
@@ -10,13 +10,13 @@ const querySchema = z.object({
 })
 
 /**
- * Fast mobile projection for Today / Schedule / Time.
+ * Fast personal projection for Today / Schedule / Time.
  *
  * The full /api/sync snapshot intentionally carries checklist, evidence,
  * incidents, areas and location-event history so a Visit can execute offline.
  * Loading all of that before rendering the tab shell is unnecessary. This
- * endpoint returns only the fields the tab workspace needs; the full offline
- * pack is refreshed separately after the UI is interactive.
+ * endpoint returns only the fields the personal tab workspace needs; the full
+ * offline pack is refreshed separately after the UI is interactive.
  */
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'visits.execute')
@@ -34,15 +34,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Visit window cannot exceed 31 days.' }, { status: 400 })
   }
 
-  const access = assignedVisitFilter(auth.user)
   const visits = await prisma.visit.findMany({
     where: {
       organizationId: auth.user.organizationId,
       scheduledStart: { gte: from, lte: to },
-      ...access,
-      // Preserve assignment scoping from assignedVisitFilter while allowing
-      // completed visits in the mobile timeline. Cancelled/missed work is not
-      // operational and does not need to occupy the hot-path payload.
+      ...ownAssignedVisitFilter(auth.user),
       status: { notIn: ['cancelled', 'missed'] },
     },
     select: {
@@ -53,8 +49,6 @@ export async function GET(request: NextRequest) {
       timezone: true,
       requiredWorkers: true,
       completedAt: true,
-      reopenedAt: true,
-      reopenReason: true,
       site: {
         select: {
           id: true,
@@ -64,11 +58,6 @@ export async function GET(request: NextRequest) {
           city: true,
           postalCode: true,
           timezone: true,
-          latitude: true,
-          longitude: true,
-          geofenceVerifiedM: true,
-          geofenceNearM: true,
-          geofenceSuspiciousM: true,
           client: { select: { id: true, displayName: true } },
         },
       },
