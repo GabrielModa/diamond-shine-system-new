@@ -2,10 +2,11 @@ import { apiFetch, subscribeApiMutations } from '@/lib/api';
 import { useAuth } from '@/lib/auth-context';
 import { reconcileFieldNotifications, resetFieldNotificationFingerprint } from '@/lib/field-notifications';
 import type { Visit } from '@/lib/types';
+import type { WorkCommitment } from '@/lib/use-work-commitments';
 import { useEffect, useRef } from 'react';
 import { AppState, InteractionManager } from 'react-native';
 
-const RELEVANT_MUTATION = /^\/api\/(?:visits\/|time-entries|sync|work-commitments)/;
+const RELEVANT_MUTATION = /^\/api\/(?:visits\/|time-entries|sync|work-commitments|mobile\/work-commitments)/;
 
 export default function FieldNotificationPlanner() {
   const { session } = useAuth();
@@ -25,8 +26,11 @@ export default function FieldNotificationPlanner() {
       running = (async () => {
         const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString();
         const to = new Date(Date.now() + 30 * 24 * 60 * 60 * 1000).toISOString();
-        const visits = await apiFetch<Visit[]>(session, `/api/mobile/visit-summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`);
-        if (!disposed) await reconcileFieldNotifications(visits, session);
+        const [visits, commitments] = await Promise.all([
+          apiFetch<Visit[]>(session, `/api/mobile/visit-summary?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`),
+          apiFetch<WorkCommitment[]>(session, '/api/mobile/work-commitments').catch(() => []),
+        ]);
+        if (!disposed) await reconcileFieldNotifications(visits, session, commitments);
       })().catch(() => undefined).finally(() => {
         running = null;
       });
