@@ -23,6 +23,13 @@ export function normalizeBaseUrl(value: string) {
 
 type ApiPayload<T> = { ok?: boolean; data?: T; error?: string; code?: string; details?: unknown };
 
+function mobileErrorMessage(payload: ApiPayload<unknown> | null) {
+  if (payload?.code === 'ACTIVE_TIMER' || payload?.code === 'TIMER_ALREADY_RUNNING') {
+    return 'You already have work in progress. Open Time to continue or finish it before starting another timer.';
+  }
+  return payload?.error ?? 'Unable to reach Diamond Shine.';
+}
+
 async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit) {
   const controller = new AbortController();
   const timeoutMs = init?.body instanceof FormData ? 45_000 : 15_000;
@@ -57,7 +64,7 @@ async function requestJson<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>,
 export async function apiFetch<T>(session: Pick<Session, 'accessToken' | 'baseUrl'>, path: string, init?: RequestInit): Promise<T> {
   const { response, payload } = await requestJson<T>(session, path, init);
   if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to reach Diamond Shine.', response.status, payload?.code, payload?.details, payload?.data);
+    throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
 }
@@ -68,7 +75,7 @@ export async function apiFetchSyncBatch<T>(session: Pick<Session, 'accessToken' 
   // The mobile queue must inspect every result and preserve successful operations.
   if (response.status === 207 && payload) return payload as T;
   if (!response.ok || payload?.ok === false) {
-    throw new ApiError(payload?.error ?? 'Unable to synchronize saved changes.', response.status, payload?.code, payload?.details, payload?.data);
+    throw new ApiError(mobileErrorMessage(payload), response.status, payload?.code, payload?.details, payload?.data);
   }
   return (payload?.data ?? payload) as T;
 }
