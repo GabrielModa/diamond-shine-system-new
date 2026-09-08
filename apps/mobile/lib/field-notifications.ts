@@ -1,6 +1,7 @@
 import { Platform } from 'react-native';
 import { addOperationalDays, formatOperationalTime, operationalDateKey, zonedDateTimeToUtc } from './operational-time';
 import type { Session, TimeEntry, Visit } from './types';
+import type { WorkCommitment } from './use-work-commitments';
 
 type NotificationsModule = typeof import('expo-notifications');
 
@@ -18,7 +19,6 @@ type PlannedReminder = {
 };
 
 const FIELD_SOURCE = 'diamond_shine_field';
-const PENDING_ASSIGNMENTS = new Set(['assigned', 'notified', 'seen']);
 const COLORS: Record<ReminderTone, string> = {
   primary: '#0F7A55',
   warning: '#E67E22',
@@ -160,41 +160,49 @@ function workReminders(visit: Visit, email: string, now: Date): PlannedReminder[
   return reminders;
 }
 
-function plannedScheduleReminders(visits: Visit[], email: string, defaultTimezone: string, now: Date) {
+function plannedScheduleReminders(
+  visits: Visit[],
+  commitments: WorkCommitment[],
+  email: string,
+  defaultTimezone: string,
+  now: Date,
+) {
   const reminders: PlannedReminder[] = [];
   const confirmedByDay = new Map<string, { timezone: string; visits: Visit[] }>();
-  const pendingByDay = new Map<string, { timezone: string; visits: Visit[] }>();
+  const pendingByDay = new Map<string, { timezone: string; commitments: WorkCommitment[] }>();
 
   for (const visit of visits) {
     if (['completed', 'cancelled', 'missed'].includes(visit.status)) continue;
     const assignment = ownAssignment(visit, email);
-    if (!assignment || assignment.status === 'declined' || assignment.status === 'removed') continue;
+    if (!assignment || assignment.status !== 'acknowledged') continue;
     const timezone = visit.timezone ?? visit.site.timezone ?? defaultTimezone;
     const dayKey = operationalDateKey(visit.scheduledStart, timezone);
     const groupKey = `${timezone}|${dayKey}`;
+    const current = confirmedByDay.get(groupKey) ?? { timezone, visits: [] };
+    current.visits.push(visit);
+    confirmedByDay.set(groupKey, current);
 
-    if (assignment.status === 'acknowledged') {
-      const current = confirmedByDay.get(groupKey) ?? { timezone, visits: [] };
-      current.visits.push(visit);
-      confirmedByDay.set(groupKey, current);
-
-      const twoHoursBefore = new Date(new Date(visit.scheduledStart).getTime() - 2 * 60 * 60 * 1000);
-      if (twoHoursBefore.getTime() > now.getTime()) {
-        reminders.push({
-          date: twoHoursBefore,
-          title: 'Visit in 2 hours',
-          body: `${visit.site.client.displayName} · ${formatOperationalTime(visit.scheduledStart, timezone)} · ${visit.site.name}`,
-          type: 'visit_reminder',
-          visitId: visit.id,
-          channelId: 'visit-reminders',
-          tone: 'ink',
-        });
-      }
-    } else if (PENDING_ASSIGNMENTS.has(assignment.status)) {
-      const current = pendingByDay.get(groupKey) ?? { timezone, visits: [] };
-      current.visits.push(visit);
-      pendingByDay.set(groupKey, current);
+    const twoHoursBefore = new Date(new Date(visit.scheduledStart).getTime() - 2 * 60 * 60 * 1000);
+    if (twoHoursBefore.getTime() > now.getTime()) {
+      reminders.push({
+        date: twoHoursBefore,
+        title: 'Visit in 2 hours',
+        body: `${visit.site.client.displayName} · ${formatOperationalTime(visit.scheduledStart, timezone)} · ${visit.site.name}`,
+        type: 'visit_reminder',
+        visitId: visit.id,
+        channelId: 'visit-reminders',
+        tone: 'ink',
+      });
     }
+  }
+
+  for (const commitment of commitments) {
+    const timezone = commitment.timezone || defaultTimezone;
+    const dayKey = operationalDateKey(commitment.scheduledStart, timezone);
+    const groupKey = `${timezone}|${dayKey}`;
+    const current = pendingByDay.get(groupKey) ?? { timezone, commitments: [] };
+    current.commitments.push(commitment);
+    pendingByDay.set(groupKey, current);
   }
 
   for (const [groupKey, group] of confirmedByDay) {
@@ -216,18 +224,20 @@ function plannedScheduleReminders(visits: Visit[], email: string, defaultTimezon
     });
   }
 
-  // If tomorrow still has unconfirmed work, remind once at 09:00 and again at
-  // 13:00. Group by operational day so a cleaner with several visits is not spammed.
+  // The canonical work-commitments endpoint already collapses an accepted
+  // recurring schedule into a single response. Use it here instead of raw
+  // per-occurrence assignment statuses so reminder counts match Today/Work.
   for (const [groupKey, group] of pendingByDay) {
     const dayKey = groupKey.split('|').slice(1).join('|');
     const previousDay = addOperationalDays(dayKey, -1);
-    const sorted = [...group.visits].sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart));
+    const sorted = [...group.commitments].sort((a, b) => a.scheduledStart.localeCompare(b.scheduledStart));
     for (const clock of ['09:00', '13:00']) {
       const date = zonedDateTimeToUtc(previousDay, clock, group.timezone);
       if (date.getTime() <= now.getTime()) continue;
+      const first = sorted[0];
       const body = sorted.length === 1
-        ? `${sorted[0].site.client.displayName} is waiting for your confirmation for tomorrow.`
-        : `${sorted.length} visits tomorrow are still waiting for your confirmation.`;
+        ? `${first.clientName} is waiting for your confirmation for tomorrow.`
+        : `${sorted.length} schedule responses for tomorrow still need your confirmation.`;
       reminders.push({
         date,
         title: 'Schedule needs your response',
@@ -242,15 +252,18 @@ function plannedScheduleReminders(visits: Visit[], email: string, defaultTimezon
   return reminders;
 }
 
-function fingerprint(visits: Visit[], email: string) {
-  return JSON.stringify(visits.map((visit) => ({
-    id: visit.id,
-    status: visit.status,
-    start: visit.scheduledStart,
-    end: visit.scheduledEnd,
-    assignment: ownAssignment(visit, email)?.status ?? null,
-    time: ownEntries(visit, email).map((entry) => [entry.id, entry.kind, entry.status, entry.startedAt, entry.endedAt, entry.durationSeconds]),
-  })));
+function fingerprint(visits: Visit[], commitments: WorkCommitment[], email: string) {
+  return JSON.stringify({
+    visits: visits.map((visit) => ({
+      id: visit.id,
+      status: visit.status,
+      start: visit.scheduledStart,
+      end: visit.scheduledEnd,
+      assignment: ownAssignment(visit, email)?.status ?? null,
+      time: ownEntries(visit, email).map((entry) => [entry.id, entry.kind, entry.status, entry.startedAt, entry.endedAt, entry.durationSeconds]),
+    })),
+    commitments: commitments.map((commitment) => [commitment.key, commitment.scheduledStart, commitment.reason, commitment.occurrences]),
+  });
 }
 
 async function cancelFieldNotifications(Notifications: NotificationsModule) {
@@ -284,8 +297,12 @@ async function scheduleReminder(Notifications: NotificationsModule, reminder: Pl
   });
 }
 
-export async function reconcileFieldNotifications(visits: Visit[], session: Pick<Session, 'email' | 'timezone'>) {
-  const nextFingerprint = fingerprint(visits, session.email);
+export async function reconcileFieldNotifications(
+  visits: Visit[],
+  session: Pick<Session, 'email' | 'timezone'>,
+  commitments: WorkCommitment[] = [],
+) {
+  const nextFingerprint = fingerprint(visits, commitments, session.email);
   if (nextFingerprint === lastFingerprint) return;
   if (reconcileInFlight) {
     await reconcileInFlight;
@@ -299,7 +316,7 @@ export async function reconcileFieldNotifications(visits: Visit[], session: Pick
 
     const now = new Date();
     const reminders = [
-      ...plannedScheduleReminders(visits, session.email, session.timezone, now),
+      ...plannedScheduleReminders(visits, commitments, session.email, session.timezone, now),
       ...visits.flatMap((visit) => workReminders(visit, session.email, now)),
     ];
 
