@@ -154,7 +154,28 @@ export function buildOperationalEmailText(data: OperationalEmailData) {
   ].join('\n')
 }
 
+async function operationalRecipientOverride(organizationId: string) {
+  try {
+    const setting = await prisma.notificationSetting.findUnique({
+      where: {
+        organizationId_key: {
+          organizationId,
+          key: 'operational_email_override',
+        },
+      },
+      select: { recipients: true },
+    })
+    return uniqueEmails(setting?.recipients?.split(',') ?? [])
+  } catch (error) {
+    console.error('[EMAIL] failed to resolve operational recipient override', error)
+    return []
+  }
+}
+
 async function resolveRecipients(data: OperationalEmailData, organizationId: string) {
+  const override = await operationalRecipientOverride(organizationId)
+  if (override.length) return override
+
   const userIds = [...new Set(data.userIds ?? [])]
   const memberships = userIds.length ? await prisma.membership.findMany({
     where: {

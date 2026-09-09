@@ -60,7 +60,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
   const [recipientQuery, setRecipientQuery] = useState('')
   const [draft, setDraft] = useState({ type: 'schedule_change', priority: 'high', title: '', body: '', siteId: '', requiresAcknowledgement: true })
-  const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '' })
+  const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '', operationalAlerts: '' })
   const [queue, setQueue] = useState<QueueData>({ items: [], counts: {} })
   const [templates, setTemplates] = useState<Template[]>([])
   const [acknowledgementNotes, setAcknowledgementNotes] = useState<Record<string, string>>({})
@@ -264,7 +264,17 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     </section> : null}
 
     {tab === 'delivery' && canConfigure ? <section className="delivery-stack">
-      <article className="card"><h2>Email escalation recipients</h2><div className="admin-form-grid two-columns"><label><span>Supply alerts</span><input value={alerts.supplyAlerts} onChange={(event) => setAlerts((current) => ({ ...current, supplyAlerts: event.target.value }))} /></label><label><span>Quality alerts</span><input value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} /></label></div><button type="button" onClick={() => void saveDelivery()}>Save recipients</button></article>
+      <article className="card">
+        <h2>Email escalation recipients</h2>
+        <p>Configure the real escalation inboxes here. Operational email can also be temporarily redirected to a test inbox without changing employee or manager accounts.</p>
+        <div className="admin-form-grid two-columns">
+          <label><span>Supply alerts</span><input value={alerts.supplyAlerts} onChange={(event) => setAlerts((current) => ({ ...current, supplyAlerts: event.target.value }))} /></label>
+          <label><span>Quality alerts</span><input value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} /></label>
+          <label><span>Operational emails · test override</span><input value={alerts.operationalAlerts} onChange={(event) => setAlerts((current) => ({ ...current, operationalAlerts: event.target.value }))} placeholder="Leave blank to use real event recipients" /></label>
+        </div>
+        <p><small>When the operational override is blank, confirmations, declines and other operational emails go to the real recipients selected by each workflow. During testing, enter one or more comma-separated test inboxes here.</small></p>
+        <button type="button" onClick={() => void saveDelivery()}>Save recipients</button>
+      </article>
       <article className="card">
         <div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div>
         <div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span></div>)}</div>

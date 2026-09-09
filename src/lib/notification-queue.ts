@@ -36,7 +36,30 @@ type EnqueueInput = {
 
 export async function enqueueNotification(input: EnqueueInput) {
   const queuedAt = new Date()
-  return prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
+  const job = await prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
+
+  // On the production Next.js request path, make the first delivery attempt after
+  // the response is committed. Import request-scoped Next.js APIs lazily so CLI,
+  // Vitest and background-worker runtimes can import this shared module safely.
+  // The durable queue remains the source of truth if the post-response attempt is
+  // unavailable or delivery fails.
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      const { after } = await import('next/server')
+      after(async () => {
+        try {
+          await processNotificationJob(job.id, job.organizationId)
+        } catch (error) {
+          console.error('[NOTIFICATION] post-response delivery attempt failed', { id: job.id, kind: job.kind }, error)
+        }
+      })
+    } catch {
+      // `after` is request-scoped. CLI scripts and background workers can enqueue
+      // safely; their jobs remain queued for the normal worker.
+    }
+  }
+
+  return job
 }
 
 async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: string) {
