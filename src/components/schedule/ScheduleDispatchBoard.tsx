@@ -305,12 +305,12 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
 
   useEffect(() => {
     if (!showAdd || !draftCapacityReady) return
-    const allowed = new Set(draftCapacity.availableUserIds)
+    const allowed = draftAvailableIds
     setDraft((current) => {
       const assigneeIds = current.assigneeIds.filter((userId) => allowed.has(userId))
       return assigneeIds.length === current.assigneeIds.length ? current : { ...current, assigneeIds }
     })
-  }, [draftAvailableKey, draftCapacity.availableUserIds, draftCapacityReady, showAdd])
+  }, [draftAvailableIds, draftCapacityReady, showAdd])
 
   const assignmentState = useCallback((userId: string, startValue: string, endValue: string, ignoredVisitId?: string): AssignmentState | null => {
     const start = operationalInputToUtc(startValue, timezone); const end = operationalInputToUtc(endValue, timezone)
