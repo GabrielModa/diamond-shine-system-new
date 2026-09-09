@@ -153,6 +153,7 @@ async function normalizeFutureScenarioAssignments() {
 
   const firstLiffeyId = visits.find((visit) => visit.site.client.externalId === 'scenario-liffey-tech')?.id
   const firstGreenparkId = visits.find((visit) => visit.site.client.externalId === 'scenario-greenpark-care')?.id
+  const gabrielReserve = await user('gabriel.moda@ds.ie')
 
   const reserved = await prisma.user.findMany({ where: { email: { in: RESERVED_EMAILS } }, select: { id: true } })
   const reservedIds = new Set(reserved.map((person) => person.id))
@@ -183,12 +184,30 @@ async function normalizeFutureScenarioAssignments() {
       to: maxEnd,
       timezone: TIMEZONE,
     })
+    const gabrielReserveAllocator = await buildDefaultTeamAllocator(tx, {
+      organizationId: LEGACY_ORGANIZATION_ID,
+      userIds: [gabrielReserve.id],
+      from: visits[0].scheduledStart,
+      to: maxEnd,
+      timezone: TIMEZONE,
+    })
     const acknowledgedAt = new Date()
     for (const visit of visits) {
       const targetWorkers = visit.id === firstLiffeyId ? 0 : visit.id === firstGreenparkId ? 1 : visit.requiredWorkers
       const selected = targetWorkers > 0
         ? allocator.select(visit.scheduledStart, visit.scheduledEnd, targetWorkers)
         : []
+      if (
+        selected.length < targetWorkers &&
+        visit.site.client.externalId === 'scenario-liffey-tech' &&
+        visit.id !== firstLiffeyId
+      ) {
+        selected.push(...gabrielReserveAllocator.select(
+          visit.scheduledStart,
+          visit.scheduledEnd,
+          targetWorkers - selected.length,
+        ))
+      }
       if (selected.length !== targetWorkers) {
         throw new Error(
           `Operational lab could not safely cover ${visit.site.client.displayName} · ${visit.site.name} ` +
