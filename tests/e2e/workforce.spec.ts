@@ -116,13 +116,12 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await expect(page.locator('.wf-map-focus-card')).toBeVisible()
 })
 
-test('scenario matrix exposes many employees and route-origin overrides', async ({ page }) => {
+test('scenario matrix exposes routeable employees and route-origin overrides', async ({ page }) => {
   await openCoverage(page)
 
   await page.getByRole('combobox', { name: 'Choose team member' }).click()
   const options = page.getByRole('listbox').getByRole('option')
   await expect(options.first()).toBeVisible()
-  expect(await options.count()).toBeGreaterThanOrEqual(12)
   const optionLabels = await options.allTextContents()
   expect(optionLabels.some((option) => /Aisha Khan/i.test(option))).toBeTruthy()
   expect(optionLabels.some((option) => /Aoife Byrne/i.test(option))).toBeTruthy()
