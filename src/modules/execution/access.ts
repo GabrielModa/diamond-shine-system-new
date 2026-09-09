@@ -3,17 +3,18 @@ import type { AuthUser } from '../../lib/auth'
 import { ACTIVE_ASSIGNMENT_STATUSES, NON_OPERATIONAL_VISIT_STATUSES } from '../scheduling/assignment-lifecycle'
 
 export function assignedVisitFilter(user: AuthUser): Prisma.VisitWhereInput {
-  return user.membershipRole === 'employee'
-    ? {
-        status: { notIn: [...NON_OPERATIONAL_VISIT_STATUSES] },
-        assignments: {
-          some: {
-            userId: user.id,
-            status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] },
-          },
-        },
-      }
-    : {}
+  // Execution endpoints are always for work assigned to the signed-in person.
+  // Management capabilities allow planning and review; they must not turn an
+  // arbitrary Visit into a field action through a direct API call.
+  return {
+    status: { notIn: [...NON_OPERATIONAL_VISIT_STATUSES] },
+    assignments: {
+      some: {
+        userId: user.id,
+        status: { in: [...ACTIVE_ASSIGNMENT_STATUSES] },
+      },
+    },
+  }
 }
 
 /**
