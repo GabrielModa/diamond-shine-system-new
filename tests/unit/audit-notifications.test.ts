@@ -85,6 +85,7 @@ describe('audit operational notifications', () => {
         userIds: ['admin-1', 'scheduler-1'],
         tone: 'success',
         title: 'Cleaning schedule confirmed',
+        action: { label: 'Review schedule', path: '/schedule' },
       }),
     }))
   })
@@ -113,6 +114,10 @@ describe('audit operational notifications', () => {
     expect(mocks.enqueue.mock.calls.map(([job]) => job.payload.title)).toEqual([
       'You were added to a cleaning visit',
       'You were removed from a cleaning visit',
+    ])
+    expect(mocks.enqueue.mock.calls.map(([job]) => job.payload.action)).toEqual([
+      { label: 'Review visit', path: '/schedule?visit=visit-1' },
+      { label: 'Review visit', path: '/schedule?visit=visit-1' },
     ])
   })
 
