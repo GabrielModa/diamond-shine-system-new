@@ -45,7 +45,8 @@ describe('operational email delivery contract', () => {
 
   it('attempts the first queued delivery after the response while retaining the durable worker', () => {
     const queue = source('src/lib/notification-queue.ts')
-    expect(queue).toContain("import { after } from 'next/server'")
+    expect(queue).toContain("await import('next/server')")
+    expect(queue).not.toContain("import { after } from 'next/server'")
     expect(queue).toContain('after(async () => {')
     expect(queue).toContain('await processNotificationJob(job.id, job.organizationId)')
     expect(queue).toContain('export async function processDueNotifications')
