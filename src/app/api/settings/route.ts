@@ -4,14 +4,19 @@ import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 
-const emailList = z.string().min(1).refine((value) => {
+const validEmailList = (value: string, allowEmpty = false) => {
   const emails = value.split(',').map((email) => email.trim()).filter(Boolean)
-  return emails.length > 0 && emails.every((email) => z.string().email().safeParse(email).success)
-}, 'Invalid email list')
+  if (!emails.length) return allowEmpty
+  return emails.every((email) => z.string().email().safeParse(email).success)
+}
+
+const emailList = z.string().min(1).refine((value) => validEmailList(value), 'Invalid email list')
+const optionalEmailList = z.string().refine((value) => validEmailList(value, true), 'Invalid email list')
 
 const updateSchema = z.object({
   supplyAlerts: emailList,
   feedbackAlerts: emailList,
+  operationalAlerts: optionalEmailList.optional(),
 })
 
 export async function GET(request: NextRequest) {
@@ -28,6 +33,7 @@ export async function GET(request: NextRequest) {
     data: {
       supplyAlerts: map.get('supply_alerts') ?? '',
       feedbackAlerts: map.get('feedback_alerts') ?? '',
+      operationalAlerts: map.get('operational_email_override') ?? '',
     },
   })
 }
@@ -41,7 +47,7 @@ export async function PUT(request: NextRequest) {
     return NextResponse.json({ ok: false, error: 'Invalid body' }, { status: 400 })
   }
 
-  await prisma.$transaction([
+  const writes = [
     prisma.notificationSetting.upsert({
       where: {
         organizationId_key: {
@@ -70,13 +76,32 @@ export async function PUT(request: NextRequest) {
         recipients: parsed.data.feedbackAlerts,
       },
     }),
-  ])
+  ]
+
+  if (parsed.data.operationalAlerts !== undefined) {
+    writes.push(prisma.notificationSetting.upsert({
+      where: {
+        organizationId_key: {
+          organizationId: auth.user.organizationId,
+          key: 'operational_email_override',
+        },
+      },
+      update: { recipients: parsed.data.operationalAlerts },
+      create: {
+        organizationId: auth.user.organizationId,
+        key: 'operational_email_override',
+        recipients: parsed.data.operationalAlerts,
+      },
+    }))
+  }
+
+  await prisma.$transaction(writes)
   await logAudit(
     auth.user.email,
     'update_notification_recipients',
     'settings',
     undefined,
-    undefined,
+    { operationalOverrideConfigured: Boolean(parsed.data.operationalAlerts?.trim()) },
     auth.user.organizationId
   )
 
