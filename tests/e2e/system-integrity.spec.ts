@@ -50,7 +50,7 @@ test('employee receives a role-specific home instead of manager command centre',
   await expect(page.getByText('Operations command centre')).toHaveCount(0)
 })
 
-test('cancelled visit leaves Operational schedule and remains in History with its reason', async ({ page }) => {
+test('cancelled visit leaves the operational schedule and remains under Cancelled / missed with its reason', async ({ page }) => {
   const name = `${prefix} ${Date.now()}`
   const planId = await page.evaluate(async () => {
     const response = await fetch('/api/service-plans', { credentials: 'include', cache: 'no-store' })
@@ -78,7 +78,7 @@ test('cancelled visit leaves Operational schedule and remains in History with it
   await page.getByRole('button', { name: 'Cancel visit', exact: true }).click()
 
   await expect(page.getByRole('button', { name: new RegExp(name) })).toHaveCount(0)
-  await page.getByRole('button', { name: 'History', exact: true }).click()
+  await page.getByRole('button', { name: 'Cancelled / missed', exact: true }).click()
   await expect(page.getByRole('button', { name: new RegExp(name) })).toBeVisible()
   await page.getByRole('button', { name: new RegExp(name) }).click()
   await expect(page.getByLabel('Cancellation reason')).toHaveValue('Client requested closure for access works')

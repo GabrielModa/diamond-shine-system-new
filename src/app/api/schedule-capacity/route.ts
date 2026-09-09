@@ -174,15 +174,20 @@ export async function POST(request: NextRequest) {
       recurring_unavailability: 0,
       school: 0,
     })
+    const blockedIds = new Set(blocked.map((item) => item.userId))
+    const availableUserIds = memberships
+      .map((membership) => membership.user.id)
+      .filter((userId) => !blockedIds.has(userId))
 
     return {
       start: window.start,
       end: window.end,
       total: memberships.length,
-      available: Math.max(0, memberships.length - blocked.length),
+      available: availableUserIds.length,
       blockedCount: blocked.length,
       blockedBy,
       blocked,
+      availableUserIds,
     }
   })
 
