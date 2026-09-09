@@ -1,12 +1,67 @@
-import { PropsWithChildren, ReactNode } from 'react';
-import { ActivityIndicator, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, useWindowDimensions, View, ViewStyle } from 'react-native';
+import { Children, PropsWithChildren, ReactNode, isValidElement, useEffect, useRef, useState } from 'react';
+import { ActivityIndicator, Animated, Platform, Pressable, ScrollView, StyleProp, StyleSheet, Text, TextStyle, useWindowDimensions, View, ViewStyle } from 'react-native';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
 import { colors, shadow } from '@/lib/theme';
+
+function isLegacySuccessFeedback(child: ReactNode) {
+  if (!isValidElement<{ style?: StyleProp<TextStyle> }>(child)) return false;
+  const flattened = StyleSheet.flatten(child.props.style);
+  return flattened?.color === colors.success && flattened?.backgroundColor === colors.primarySoft;
+}
+
+function TransientToast({ message }: { message: ReactNode }) {
+  const text = typeof message === 'string' || typeof message === 'number' ? String(message) : '';
+  const [visible, setVisible] = useState('');
+  const lastMessage = useRef('');
+  const opacity = useRef(new Animated.Value(0)).current;
+  const translateY = useRef(new Animated.Value(-8)).current;
+
+  useEffect(() => {
+    if (!text) {
+      lastMessage.current = '';
+      return;
+    }
+    if (lastMessage.current === text) return;
+    lastMessage.current = text;
+    setVisible(text);
+    opacity.stopAnimation();
+    translateY.stopAnimation();
+    opacity.setValue(0);
+    translateY.setValue(-8);
+    Animated.parallel([
+      Animated.timing(opacity, { toValue: 1, duration: 160, useNativeDriver: true }),
+      Animated.timing(translateY, { toValue: 0, duration: 180, useNativeDriver: true }),
+    ]).start();
+
+    const timer = setTimeout(() => {
+      Animated.parallel([
+        Animated.timing(opacity, { toValue: 0, duration: 180, useNativeDriver: true }),
+        Animated.timing(translateY, { toValue: -6, duration: 180, useNativeDriver: true }),
+      ]).start(({ finished }) => { if (finished) setVisible(''); });
+    }, 2800);
+
+    return () => clearTimeout(timer);
+  }, [opacity, text, translateY]);
+
+  if (!visible) return null;
+  return <Animated.View
+    pointerEvents="none"
+    accessibilityRole="alert"
+    accessibilityLiveRegion="polite"
+    style={[styles.toast, { opacity, transform: [{ translateY }] }]}
+  >
+    <Text style={styles.toastText}>{visible}</Text>
+  </Animated.View>;
+}
 
 export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?: boolean }>) {
   const insets = useSafeAreaInsets();
   const { width } = useWindowDimensions();
   const horizontalPadding = width < 360 ? 14 : width >= 700 ? 24 : 18;
+  const childList = Children.toArray(children);
+  const transientFeedback = childList.find(isLegacySuccessFeedback);
+  const contentChildren = transientFeedback ? childList.filter((child) => child !== transientFeedback) : childList;
+  const toastMessage = isValidElement<{ children?: ReactNode }>(transientFeedback) ? transientFeedback.props.children : null;
   const contentStyle = [
     styles.content,
     {
@@ -23,9 +78,12 @@ export function Screen({ children, scroll = true }: PropsWithChildren<{ scroll?:
         contentInsetAdjustmentBehavior="automatic"
         showsVerticalScrollIndicator={false}
         removeClippedSubviews={Platform.OS === 'android'}
-      >{children}</ScrollView>
-    : <View style={[contentStyle, styles.flex]}>{children}</View>;
-  return <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>{body}</SafeAreaView>;
+      >{contentChildren}</ScrollView>
+    : <View style={[contentStyle, styles.flex]}>{contentChildren}</View>;
+  return <SafeAreaView edges={['top', 'left', 'right']} style={styles.safe}>
+    {body}
+    <TransientToast message={toastMessage} />
+  </SafeAreaView>;
 }
 
 export function PageHeader({ eyebrow, title, subtitle, right }: { eyebrow?: string; title: string; subtitle?: string; right?: ReactNode }) {
@@ -49,9 +107,11 @@ export function Button({ title, onPress, variant = 'primary', disabled, loading,
 export function EmptyState({ title, body }: { title: string; body: string }) { return <Card style={styles.empty}><Text style={styles.emptyTitle}>{title}</Text><Text style={styles.subtitle}>{body}</Text></Card>; }
 
 const styles = StyleSheet.create({
-  safe: { flex: 1, backgroundColor: colors.canvas },
+  safe: { flex: 1, backgroundColor: colors.canvas, position: 'relative' },
   flex: { flex: 1 },
   content: { width: '100%', maxWidth: 760, alignSelf: 'center', paddingTop: 18, gap: 16 },
+  toast: { position: 'absolute', top: 10, left: 18, right: 18, zIndex: 100, elevation: 12, alignSelf: 'center', maxWidth: 720, borderWidth: 1, borderColor: '#A7F3D0', borderRadius: 14, backgroundColor: '#ECFDF3', paddingHorizontal: 14, paddingVertical: 12, ...shadow },
+  toastText: { color: colors.success, fontSize: 14, lineHeight: 20, fontWeight: '800', textAlign: 'center' },
   header: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', justifyContent: 'space-between', gap: 12, paddingTop: 6, marginBottom: 4 },
   headerCopy: { flexGrow: 1, flexShrink: 1, minWidth: 220, gap: 5 },
   headerRight: { flexShrink: 0 },
