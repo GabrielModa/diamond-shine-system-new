@@ -56,6 +56,53 @@ function statusLabel(value: string) {
   return ({ invited: 'Invited', active: 'Active', suspended: 'Suspended', removed: 'Removed', pending: 'Pending', inactive: 'Inactive' } as Record<string, string>)[value] ?? value
 }
 
+function defaultEmailAction(
+  input: AuditNotificationInput,
+  entityType: string,
+  entityId?: string,
+): OperationalEmailData['action'] | undefined {
+  const encodedId = entityId ? encodeURIComponent(entityId) : ''
+  switch (input.action) {
+    case 'visit_assignment_response':
+    case 'declare_unavailability':
+    case 'cancel_unavailability':
+      return { label: 'Review schedule', path: '/schedule' }
+    case 'create_time_entry_dispute':
+      return { label: 'Review time correction', path: '/field-control' }
+    case 'resolve_time_entry_dispute':
+      return { label: 'Open time records', path: '/timesheets' }
+    case 'report_incident':
+      return { label: 'Review incident', path: encodedId ? `/field-control?incident=${encodedId}` : '/field-control' }
+    case 'update_incident':
+      return { label: 'Open schedule', path: '/schedule' }
+    case 'complete_invited_account_setup':
+      return { label: 'Review employee', path: '/people' }
+    case 'create_manual_visit':
+    case 'update_visit':
+      return { label: 'Review visit', path: entityType === 'visit' && encodedId ? `/schedule?visit=${encodedId}` : '/schedule' }
+    case 'review_visit':
+      return { label: 'Open visit', path: entityType === 'visit' && encodedId ? `/schedule?visit=${encodedId}` : '/schedule' }
+    case 'cancel_visit':
+    case 'create_job':
+    case 'create_client_service':
+    case 'change_client_service':
+    case 'create_service_pause':
+      return { label: 'Open schedule', path: '/schedule' }
+    case 'update_user_role':
+    case 'update_user_status':
+    case 'update_user_identity':
+    case 'update_workforce_employment_settings':
+      return { label: 'Open Diamond Shine', path: '/home' }
+    case 'remove_user_from_organization':
+    case 'delete_pending_invitation':
+      return undefined
+    default:
+      if (entityType === 'visit' && encodedId) return { label: 'Open visit', path: `/schedule?visit=${encodedId}` }
+      if (['availability', 'job', 'service_plan', 'service_pause'].includes(entityType)) return { label: 'Open schedule', path: '/schedule' }
+      return undefined
+  }
+}
+
 async function managementUserIds(organizationId: string, actorEmail?: string) {
   const managers = await prisma.membership.findMany({
     where: {
@@ -78,13 +125,14 @@ async function queueEmail(
   entityId = input.targetId,
 ) {
   if (!(data.userIds?.length || data.recipientEmails?.length)) return
+  const action = data.action ?? defaultEmailAction(input, entityType, entityId)
   await enqueueNotification({
     organizationId: input.organizationId,
     kind: 'operational_email',
     createdBy: input.actorEmail,
     entityType,
     entityId: input.auditLogId ?? entityId,
-    payload: data as unknown as Prisma.InputJsonValue,
+    payload: { ...data, ...(action ? { action } : {}) } as unknown as Prisma.InputJsonValue,
   })
 }
 
