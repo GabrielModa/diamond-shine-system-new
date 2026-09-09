@@ -4,7 +4,6 @@ import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { enqueueNotification } from '../../../../../lib/notification-queue'
 import { calculateSupplyDueAt } from '../../../../../lib/business-logic'
-import { assignedVisitFilter } from '../../../../../modules/execution/access'
 import { stockCountSchema } from '../../../../../modules/materials/schemas'
 import { asInputJson } from '../../../../../modules/operations/json'
 
@@ -23,12 +22,14 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!site) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
 
   if (parsed.data.visitId) {
+    // Stock counting is a supervisor/site-management action, not field Visit
+    // execution. A supplies manager may associate the count with any visit at
+    // this site without also being personally assigned to that visit.
     const visit = await prisma.visit.findFirst({
       where: {
         id: parsed.data.visitId,
         siteId: site.id,
         organizationId: auth.user.organizationId,
-        ...assignedVisitFilter(auth.user),
       },
     })
     if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found' }, { status: 404 })
