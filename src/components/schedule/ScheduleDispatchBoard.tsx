@@ -292,8 +292,7 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   }, [draftCapacityKey, draftWindow, showAdd])
 
   const draftCapacityReady = Boolean(draftWindow && draftCapacity.key === draftCapacityKey && !draftCapacity.loading && !draftCapacity.error)
-  const draftAvailableKey = draftCapacity.availableUserIds.join('|')
-  const draftAvailableIds = useMemo(() => new Set(draftCapacity.availableUserIds), [draftAvailableKey])
+  const draftAvailableIds = useMemo(() => new Set(draftCapacity.availableUserIds), [draftCapacity.availableUserIds])
   const draftPickerMembers = useMemo(() => draftCapacityReady ? team.filter((member) => draftAvailableIds.has(member.id)) : draftCapacity.error ? team : [], [draftAvailableIds, draftCapacity.error, draftCapacityReady, team])
   const draftTeamHelper = !draftWindow
     ? 'Choose a valid visit time before assigning the team.'
