@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import {
   sendClientNotification,
@@ -36,7 +37,28 @@ type EnqueueInput = {
 
 export async function enqueueNotification(input: EnqueueInput) {
   const queuedAt = new Date()
-  return prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
+  const job = await prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
+
+  // On the production Next.js request path, make the first delivery attempt after
+  // the response is committed. The durable queue remains the source of truth, so
+  // failures still keep their normal retry state and non-request callers can rely
+  // on the scheduled/manual worker without blocking the operational mutation.
+  if (process.env.NODE_ENV === 'production') {
+    try {
+      after(async () => {
+        try {
+          await processNotificationJob(job.id, job.organizationId)
+        } catch (error) {
+          console.error('[NOTIFICATION] post-response delivery attempt failed', { id: job.id, kind: job.kind }, error)
+        }
+      })
+    } catch {
+      // `after` is request-scoped. CLI scripts and background workers can enqueue
+      // safely; their jobs remain queued for the normal worker.
+    }
+  }
+
+  return job
 }
 
 async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: string) {
