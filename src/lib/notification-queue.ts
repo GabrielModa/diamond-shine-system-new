@@ -1,4 +1,3 @@
-import { after } from 'next/server'
 import type { Prisma } from '@prisma/client'
 import {
   sendClientNotification,
@@ -40,11 +39,13 @@ export async function enqueueNotification(input: EnqueueInput) {
   const job = await prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
 
   // On the production Next.js request path, make the first delivery attempt after
-  // the response is committed. The durable queue remains the source of truth, so
-  // failures still keep their normal retry state and non-request callers can rely
-  // on the scheduled/manual worker without blocking the operational mutation.
+  // the response is committed. Import request-scoped Next.js APIs lazily so CLI,
+  // Vitest and background-worker runtimes can import this shared module safely.
+  // The durable queue remains the source of truth if the post-response attempt is
+  // unavailable or delivery fails.
   if (process.env.NODE_ENV === 'production') {
     try {
+      const { after } = await import('next/server')
       after(async () => {
         try {
           await processNotificationJob(job.id, job.organizationId)
