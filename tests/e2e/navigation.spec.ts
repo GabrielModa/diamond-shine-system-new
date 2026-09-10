@@ -55,8 +55,8 @@ test('desktop navigation exposes every normal module and keeps only advanced reg
   await login(page, 'admin@ds.ie')
 
   const expectedBySection = new Map<string, string[]>([
-    ['Run operations', ['Command centre', 'Schedule', 'Plan coverage', 'Live workforce', 'Field control', 'Supplies', 'Timesheets']],
-    ['Quality & insights', ['Operations intelligence', 'Team performance', 'Quality control', 'Service feedback', 'Management dashboard']],
+    ['Run operations', ['Command centre', 'Schedule', 'Plan coverage', 'Live workforce', 'Field control', 'Operations desk', 'Supplies', 'Timesheets']],
+    ['Quality & insights', ['Operational insights', 'Team performance', 'Quality control', 'Service feedback']],
     ['Manage business', ['Clients', 'People & access', 'Audit trail']],
     ['My workspace', ['Inbox', 'My requests', 'My profile']],
   ])
