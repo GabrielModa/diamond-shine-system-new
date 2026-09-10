@@ -227,15 +227,19 @@ Order follows the operating lifecycle:
 `Live workforce` answers who is working now, upcoming starts and workforce exceptions. `Field control` owns execution review such as timers, GPS evidence, visit proof and incidents. They must not be presented as interchangeable concepts.
 
 ### Quality & insights
-Answers: **How are we performing, what are clients telling us and where is management attention needed?**
+Answers: **How are we performing over time, what are clients telling us and where are repeated risks emerging?**
 
-- Operations intelligence
+- Operational insights
 - Team performance
 - Quality control
 - Service feedback
-- Management dashboard
 
-`Quality control` owns inspections and corrective actions. `Service feedback` owns the history and analysis of client/manager evaluations and must not be an alias of Quality control. `Management dashboard` is a manager-only cross-operation view combining supply-request management, feedback context and recent activity; it complements rather than replaces the dedicated Supplies workspace.
+`Operational insights` owns 30-day delivery/quality/labour/risk trends; future scheduling gaps stay in Schedule. `Quality control` owns inspections and corrective actions. `Service feedback` owns the deeper history and analysis of client/manager evaluations.
+
+### Operations desk
+Answers: **What arrived from the field and what administrative step happens next?**
+
+`Operations desk` is a Run operations workspace for organization admins and field supervisors. It owns supply-request triage, assignment, procurement progression and client notification while preserving the existing employee feedback ratings and history as immediate operational context. `Supplies` remains the source of truth for stock counts, par/reorder risk and request creation/tracking.
 
 ### Manage business
 Answers: **What customer, access and governance records do we maintain?**

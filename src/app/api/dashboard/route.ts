@@ -6,7 +6,7 @@ import { parseStringArray } from '../../../lib/json'
 
 export async function GET(request: NextRequest) {
   console.log('[API /api/dashboard GET]')
-  const auth = await requireAuth(request, ['admin'])
+  const auth = await requireAuth(request, ['admin', 'supervisor'])
   if ('response' in auth) return auth.response
 
   const organizationId = auth.user.organizationId

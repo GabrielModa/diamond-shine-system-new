@@ -30,8 +30,18 @@ beforeEach(async () => {
 })
 
 describe('GET /api/dashboard', () => {
-  it('admin → 200', async () => {
+  it('admin and supervisor → 200', async () => {
     expect((await request(app).get('/api/dashboard').set('Cookie', adminCookie)).status).toBe(200)
+    expect((await request(app).get('/api/dashboard').set('Cookie', supervisorCookie)).status).toBe(200)
+  })
+
+  it('supply managers can load Operations desk assignees without membership-admin access', async () => {
+    const response = await request(app).get('/api/supplies/assignees').set('Cookie', supervisorCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ email: 'super@ds.ie', role: 'field_supervisor' }),
+      expect.objectContaining({ email: 'admin@ds.ie', role: 'organization_admin' }),
+    ]))
   })
 
   it('preserves dashboard aggregates while only returning recent rows', async () => {
