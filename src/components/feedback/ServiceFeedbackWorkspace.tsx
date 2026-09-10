@@ -5,10 +5,13 @@ import type { ApiResponse, FeedbackEntry } from '../../types'
 import StandardSelect from '../ui/StandardSelect'
 import { FeedbackDetailSheet } from '../dashboard/FeedbackDetailSheet'
 import styles from './ServiceFeedbackWorkspace.module.css'
+import EmployeeFeedbackOverview, { type EmployeeFeedbackSummary, type FeedbackTrend } from './EmployeeFeedbackOverview'
 
 type FeedbackMetrics = {
   overall: number
   cleanliness: number
+  punctuality: number
+  equipment: number
   clientRelations: number
   attention: number
 }
@@ -18,6 +21,8 @@ type FeedbackPage = {
   items: FeedbackEntry[]
   employees: string[]
   metrics: FeedbackMetrics
+  employeeSummaries: EmployeeFeedbackSummary[]
+  trend: FeedbackTrend
   pagination: {
     page: number
     pageSize: number
@@ -57,9 +62,13 @@ export default function ServiceFeedbackWorkspace() {
   const [metrics, setMetrics] = useState<FeedbackMetrics>({
     overall: 0,
     cleanliness: 0,
+    punctuality: 0,
+    equipment: 0,
     clientRelations: 0,
     attention: 0,
   })
+  const [employeeSummaries, setEmployeeSummaries] = useState<EmployeeFeedbackSummary[]>([])
+  const [trend, setTrend] = useState<FeedbackTrend>({ currentCount: 0, previousCount: 0, currentAverage: null, previousAverage: null, delta: null })
   const [total, setTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
@@ -78,6 +87,8 @@ export default function ServiceFeedbackWorkspace() {
       setItems(data.items)
       setEmployees(data.employees)
       setMetrics(data.metrics)
+      setEmployeeSummaries(data.employeeSummaries)
+      setTrend(data.trend)
       setTotal(data.total)
       setTotalPages(data.pagination.totalPages)
     } catch (cause) {
@@ -109,14 +120,16 @@ export default function ServiceFeedbackWorkspace() {
 
     {error ? <div className="toast error" role="alert">{error}</div> : null}
 
-    <section className={styles.summary} aria-label="Feedback summary">
-      <article><span>Average rating</span><strong>{loading ? '—' : metrics.overall ? metrics.overall.toFixed(1) : '—'}</strong><small>Current filtered view</small></article>
-      <article><span>Cleanliness</span><strong>{loading ? '—' : metrics.cleanliness ? metrics.cleanliness.toFixed(1) : '—'}</strong><small>Average score</small></article>
-      <article><span>Client relations</span><strong>{loading ? '—' : metrics.clientRelations ? metrics.clientRelations.toFixed(1) : '—'}</strong><small>Average score</small></article>
-      <article className={metrics.attention ? styles.attention : ''}><span>Needs attention</span><strong>{loading ? '—' : metrics.attention}</strong><small>Ratings below 4.0</small></article>
-    </section>
+    {!loading ? <EmployeeFeedbackOverview
+      employees={employeeSummaries}
+      totalEvaluations={employeeSummaries.reduce((sum, item) => sum + item.evaluations, 0)}
+      attention={metrics.attention}
+      average={metrics.overall}
+      trend={trend}
+      onEmployee={(name) => { setEmployee(name); setCategory(''); setQuery(''); setPage(1); document.getElementById('feedback-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+    /> : <section className="card empty-state">Loading employee feedback performance…</section>}
 
-    <section className={`card ${styles.panel}`}>
+    <section id="feedback-history" className={`card ${styles.panel}`}>
       <div className="section-heading">
         <div><h2>Feedback history</h2><p className="muted">{scopeLabel}</p></div>
       </div>
