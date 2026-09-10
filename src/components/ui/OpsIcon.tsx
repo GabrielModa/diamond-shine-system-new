@@ -7,6 +7,10 @@ export type OpsIconName =
   | 'calendar'
   | 'check'
   | 'clock'
+  | 'clockIn'
+  | 'clockOut'
+  | 'presence'
+  | 'expand'
   | 'download'
   | 'field'
   | 'filter'
@@ -43,6 +47,10 @@ export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGEl
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></>,
     check: <><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
+    clockIn: <><path d="M13 4h6v16h-6" /><path d="M3 12h11" /><path d="m9 8 4 4-4 4" /></>,
+    clockOut: <><path d="M11 4H5v16h6" /><path d="M21 12H10" /><path d="m15 8-4 4 4 4" /></>,
+    presence: <><circle cx="12" cy="12" r="2.5" /><circle cx="12" cy="12" r="7" /><path d="M12 2v2M12 20v2M2 12h2M20 12h2" /></>,
+    expand: <><path d="M8 3H3v5M16 3h5v5M3 16v5h5M21 16v5h-5" /><path d="m3 8 5-5M21 8l-5-5M3 16l5 5M21 16l-5 5" /></>,
     download: <><path d="M12 3v12" /><path d="m7.5 10.5 4.5 4.5 4.5-4.5" /><path d="M4 20h16" /></>,
     field: <><path d="M4 19V7l5-3 6 3 5-2v12l-5 3-6-3-5 2Z" /><path d="M9 4v13M15 7v13" /></>,
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
