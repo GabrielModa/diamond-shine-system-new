@@ -20,8 +20,8 @@ test.beforeEach(async ({ page }) => {
 test('full happy path: employee submits a supply request', async ({ page }) => {
   const note = `E2E supply test: ${Date.now()}`
   await page.goto('/supplies')
-  await expect(page.getByRole('heading', { name: 'Materials control' })).toBeVisible()
-  await page.getByRole('button', { name: 'Request', exact: true }).click()
+  await expect(page.getByRole('heading', { name: 'Supplies' })).toBeVisible()
+  await page.getByRole('button', { name: 'New request', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Client site' })).toContainText(/.+/)
   await page.getByRole('button', { name: 'Normal', exact: true }).click()
   await page.getByLabel('All-purpose cleaner requested quantity').first().fill('3')
