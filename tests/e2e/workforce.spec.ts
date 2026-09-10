@@ -107,7 +107,7 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await chooseEmployee(page, 'Aisha')
   await expect(page.getByTestId('map-employee-card')).toBeVisible()
 
-  await page.getByRole('button', { name: /All sites/ }).click()
+  await expect(page.getByRole('button', { name: /Upcoming sites/ })).toHaveAttribute('aria-pressed', 'true')
   const siteMarkers = page.locator('[data-workforce-site-marker]')
   await expect(siteMarkers.first()).toBeVisible({ timeout: 15_000 })
   await siteMarkers.first().dispatchEvent('click')
