@@ -34,7 +34,8 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - Command counts must use the same active-assignment definition as Schedule/People.
 
 **UX/UI gate**
-- Manager home should prioritize exceptions and next decisions rather than duplicate every analytics screen.
+- Manager home is exception-first: summarize today, then link each issue to the workspace that owns the decision.
+- Do not reproduce the dispatch board here. Visit-by-visit planning, assignment and coverage remain owned by Schedule.
 - Field employees need a role-appropriate landing experience, not empty/403-backed manager cards.
 - Status colors must communicate operational meaning, not reuse generic “Pending/Completed” for unrelated states.
 
@@ -278,29 +279,30 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 
 ---
 
-## 10. Operations Intelligence (`/insights`)
+## 10. Operational Insights (`/insights`)
 
-**Manager decision:** What should I act on first, and why?
+**Manager decision:** What has been improving or deteriorating over the last 30 days, and which sites show repeated operational risk?
 
 **Sources:**
 - `src/components/intelligence/IntelligenceWorkspace.tsx`
 - `src/app/api/intelligence/route.ts`
 - `src/modules/intelligence/scoring.ts`
 
-**Must fix**
-- Cancelled visits cannot reduce completion rate or create false unassigned work.
-- Coverage uses active assignments only.
-- Corrective action links point to canonical Quality route.
+**Product boundary**
+- Scheduling, future coverage, assignment gaps and acknowledgement of schedule changes belong to Schedule, not this page.
+- This page is historical/analytical: service delivery, labour, time confidence, quality, materials, incidents and corrective actions.
+- Team performance remains a separate coaching/workload view.
 
 **UX/UI gate**
-- Global health score must be explainable: show components and weights, not a magic number.
-- “Act now” remains more important than charts.
+- Global health score must be explainable and data-aware: missing signals are shown as missing and are never silently treated as 100/100.
+- Planned labour uses worker-hours, not visit duration alone, when a service requires multiple workers.
+- Default site view prioritizes Critical / High / Watch; healthy sites are available only when requested.
 - Risk reason text should link to the actual record where possible.
 
 **Tests**
-- Unit score components/weights.
-- Integration cancelled/declined semantics.
-- E2E score explanation and action navigation.
+- Unit score components, weights and missing-data confidence.
+- Integration: future scheduling gaps do not leak into historical site risk.
+- E2E score explanation and risk filtering.
 
 ---
 
@@ -420,24 +422,31 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 
 ---
 
-## 16. Legacy Dashboard (`/dashboard`)
+## 16. Operations Desk (`/dashboard`)
 
-**Current behavior:** “Enhanced Management” dashboard centered on supply requests + legacy feedback.
+**Manager decision:** What arrived from the field, who owns it, and what administrative step happens next?
 
 **Sources:**
 - `src/app/(protected)/dashboard/page.tsx`
 - `src/app/api/dashboard/route.ts`
+- `src/components/dashboard/SuppliesStats.tsx`
+- `src/components/dashboard/PerformanceOverview.tsx`
 
-**Product gap**
-- Duplicates/overlaps Command Centre, Materials, Quality and Intelligence.
-- Nav label “Service performance” does not match a supplies/legacy-feedback dashboard.
+**Product boundary**
+- Operations Desk owns manager triage and procurement progression for supply requests: Requested → Triaged → Approved → Ordered → In transit → Delivered, plus assignment and client notification.
+- Supplies owns stock reality: counts, par/reorder risk, manual requests and request tracking. Admin/supervisor processing links back to Operations Desk; stock-controller capability remains a safe fallback.
+- Employee feedback keeps the existing rating model (cleanliness, punctuality, equipment, client relations → overall/category) and employee-level rating history. Dedicated Service feedback remains the deeper searchable history.
+- Command Centre may point to requests awaiting triage, but does not process them.
 
-**UX/UI decision required**
-- Prefer one clear manager command centre and purpose-specific drill-down modules.
-- Retire, rename or redefine this route after supply/feedback consolidation; do not maintain two manager workflows for the same request lifecycle.
+**UX/UI gate**
+- Keep supply and feedback as the two clear work lanes; do not grow this page back into a generic management dashboard.
+- Rating filters must use the same existing feedback categories and thresholds rather than creating a parallel score.
+- Field supervisors and organization admins can use the desk without requiring membership-administration access merely to load supply assignees.
 
 **Tests**
-- Keep regression coverage until migration/deprecation is deliberate.
+- Supply lifecycle/assignment/email regression coverage.
+- Employee rating search/filter/detail coverage.
+- Supervisor access to dashboard summary and supply-scoped assignees.
 
 ---
 
