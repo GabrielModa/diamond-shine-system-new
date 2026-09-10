@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { createPortal } from 'react-dom'
 import type { FeedbackEntry } from '../../types'
-import { calculateFeedbackTrend, consecutiveExcellent } from '../../lib/business-logic'
+import { calculateFeedbackTrend, consecutiveExcellent, getCategoryLabel } from '../../lib/business-logic'
 import { useDialogFocus } from './useDialogFocus'
 
 type PerformanceOverviewProps = {
@@ -15,10 +15,13 @@ type EmployeeSummary = {
   name: string
   evaluations: FeedbackEntry[]
 }
+type RatingFilter = 'all' | 'Excellent' | 'Very Good' | 'Good' | 'Fair' | 'Poor'
+type RatedEmployeeSummary = EmployeeSummary & { average: number; category: Exclude<RatingFilter, 'all'> }
 
 export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceOverviewProps) {
   const [query, setQuery] = useState('')
   const [debounced, setDebounced] = useState('')
+  const [ratingFilter, setRatingFilter] = useState<RatingFilter>('all')
   const [profileOpen, setProfileOpen] = useState(false)
   const [selectedEmployee, setSelectedEmployee] = useState<EmployeeSummary | null>(null)
   const [mounted, setMounted] = useState(false)
@@ -56,20 +59,23 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
   }, [employees.length, feedback])
 
   const trend = useMemo(() => calculateFeedbackTrend(feedback), [feedback])
-  const needsAttention = useMemo(() => employees
-    .map((employee) => ({
-      ...employee,
-      average: employee.evaluations.reduce((sum, entry) => sum + entry.overall, 0) / employee.evaluations.length,
-    }))
+  const ratedEmployees = useMemo<RatedEmployeeSummary[]>(() => employees.map((employee) => {
+    const average = employee.evaluations.reduce((sum, entry) => sum + entry.overall, 0) / employee.evaluations.length
+    return { ...employee, average, category: getCategoryLabel(average) }
+  }), [employees])
+  const filteredEmployees = useMemo(() => ratedEmployees
+    .filter((employee) => ratingFilter === 'all' || employee.category === ratingFilter)
+    .sort((a, b) => b.average - a.average || a.name.localeCompare(b.name)), [ratedEmployees, ratingFilter])
+  const needsAttention = useMemo(() => ratedEmployees
     .filter((employee) => employee.average < 4)
     .sort((a, b) => a.average - b.average)
-    .slice(0, 3), [employees])
+    .slice(0, 3), [ratedEmployees])
 
   const matches = useMemo(() => {
-    if (debounced.length < 2) return [] as EmployeeSummary[]
+    if (debounced.length < 2) return [] as RatedEmployeeSummary[]
     const needle = debounced.toLowerCase()
-    return employees.filter((employee) => employee.name.toLowerCase().includes(needle))
-  }, [debounced, employees])
+    return filteredEmployees.filter((employee) => employee.name.toLowerCase().includes(needle))
+  }, [debounced, filteredEmployees])
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
@@ -152,6 +158,14 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
         />
       </div>
 
+      <div className="filter-pills" role="group" aria-label="Filter employee ratings">
+        {(['all', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor'] as const).map((item) => (
+          <button type="button" key={item} className={ratingFilter === item ? 'selected' : ''} aria-pressed={ratingFilter === item} onClick={() => setRatingFilter(item)}>
+            {item === 'all' ? 'All ratings' : item}
+          </button>
+        ))}
+      </div>
+
       {debounced.length < 2 ? (
         <div className="grid-2 metric-grid">
           <div className="metric-card">
@@ -192,6 +206,22 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
               <strong>{employee.average.toFixed(1)}</strong>
             </button>
           ))}
+        </section>
+      ) : null}
+
+      {debounced.length < 2 ? (
+        <section className="attention-list" aria-labelledby="employee-ratings-title">
+          <div className="section-heading">
+            <h3 id="employee-ratings-title">Employee ratings</h3>
+            <span className="muted">{ratingFilter === 'all' ? ratedEmployees.length + ' rated employees' : filteredEmployees.length + ' ' + ratingFilter.toLowerCase()}</span>
+          </div>
+          {filteredEmployees.slice(0, 10).map((employee) => (
+            <button key={employee.name} type="button" className="attention-row" onClick={() => { setSelectedEmployee(employee); setProfileOpen(true) }}>
+              <span>{employee.name}<small className="muted">{employee.category}</small></span>
+              <strong>{employee.average.toFixed(1)}</strong>
+            </button>
+          ))}
+          {!filteredEmployees.length ? <div className="empty-state compact">No employees match this rating.</div> : null}
         </section>
       ) : null}
 
