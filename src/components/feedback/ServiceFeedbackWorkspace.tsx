@@ -6,6 +6,7 @@ import StandardSelect from '../ui/StandardSelect'
 import { FeedbackDetailSheet } from '../dashboard/FeedbackDetailSheet'
 import styles from './ServiceFeedbackWorkspace.module.css'
 import EmployeeFeedbackOverview, { type EmployeeFeedbackSummary, type FeedbackTrend } from './EmployeeFeedbackOverview'
+import OpsIcon from '../ui/OpsIcon'
 
 type FeedbackMetrics = {
   overall: number
@@ -115,7 +116,7 @@ export default function ServiceFeedbackWorkspace() {
         <h1>Service feedback</h1>
         <p className="muted">See how delivered cleaning is being rated, spot repeated concerns and open the exact evaluation behind the signal.</p>
       </div>
-      <button type="button" className="btn-secondary" onClick={() => void refresh()} disabled={loading}>↻ Refresh</button>
+      <button type="button" className="btn-secondary" onClick={() => void refresh()} disabled={loading}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </header>
 
     {error ? <div className="toast error" role="alert">{error}</div> : null}
