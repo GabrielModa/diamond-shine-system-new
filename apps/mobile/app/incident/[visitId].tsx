@@ -4,7 +4,6 @@ import { useAuth } from '@/lib/auth-context';
 import { enqueue, mutationId } from '@/lib/offline';
 import { colors } from '@/lib/theme';
 import type { Visit } from '@/lib/types';
-import { useVisits } from '@/lib/use-visits';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import NetInfo from '@react-native-community/netinfo';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
@@ -35,8 +34,7 @@ function evidencePhase(metadata: unknown) {
 export default function IncidentScreen() {
   const { visitId } = useLocalSearchParams<{ visitId: string }>();
   const { session } = useAuth();
-  const { visits } = useVisits();
-  const visit = visits.find((item) => item.id === visitId);
+  const [visit, setVisit] = useState<Visit | null>(null);
   const [category, setCategory] = useState<Category>('other');
   const [severity, setSeverity] = useState<Severity>('medium');
   const [description, setDescription] = useState('');
@@ -46,17 +44,20 @@ export default function IncidentScreen() {
   const [error, setError] = useState('');
   const [offlineSaved, setOfflineSaved] = useState(false);
 
-  const refreshEvidence = useCallback(async () => {
-    if (!session || !visitId || !created) return;
+  const refreshVisit = useCallback(async () => {
+    if (!session || !visitId) return;
     try {
       const remote = await apiFetch<Visit>(session, `/api/visits/${visitId}`);
-      setPhotoCount((remote.evidenceAssets ?? []).filter((asset) => evidencePhase(asset.metadata) === `incident:${created.id}`).length);
+      setVisit(remote);
+      if (created) {
+        setPhotoCount((remote.evidenceAssets ?? []).filter((asset) => evidencePhase(asset.metadata) === `incident:${created.id}`).length);
+      }
     } catch {
-      // The issue is already saved. Evidence count is a convenience and must
-      // never turn a successful report into an error state.
+      // Reporting the issue must stay usable even if the visit detail refresh
+      // is temporarily unavailable. The create endpoint still enforces visit access.
     }
   }, [created, session, visitId]);
-  useFocusEffect(useCallback(() => { void refreshEvidence(); }, [refreshEvidence]));
+  useFocusEffect(useCallback(() => { void refreshVisit(); }, [refreshVisit]));
 
   const selectedLabel = useMemo(() => CATEGORIES.find((item) => item.value === category)?.label ?? 'Other', [category]);
 
