@@ -13,6 +13,17 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const current = await prisma.timeEntry.findFirst({ where: { id, organizationId: auth.user.organizationId } })
   if (!current) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (current.status === 'running') return NextResponse.json({ ok: false, error: 'Stop the timer before reviewing it.' }, { status: 409 })
+  const recordedSeconds = current.durationSeconds
+    ?? (current.endedAt ? Math.max(0, Math.round((current.endedAt.getTime() - current.startedAt.getTime()) / 1000)) : 0)
+  const requestedPayable = parsed.data.decision === 'approved'
+    ? (parsed.data.payableSeconds ?? recordedSeconds)
+    : 0
+  if (requestedPayable > recordedSeconds) {
+    return NextResponse.json({ ok: false, error: 'Payable time cannot exceed the recorded duration.' }, { status: 400 })
+  }
+  if (parsed.data.decision === 'approved' && requestedPayable !== recordedSeconds && !parsed.data.note?.trim()) {
+    return NextResponse.json({ ok: false, error: 'Explain why the payable time differs from the recorded time.' }, { status: 400 })
+  }
   const reason = parsed.data.note
     ? [current.reviewReason, `REVIEW: ${parsed.data.note}`].filter(Boolean).join(' | ')
     : current.reviewReason
@@ -20,6 +31,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     where: { id: current.id },
     data: {
       status: parsed.data.decision,
+      payableSeconds: requestedPayable,
       approvedBy: parsed.data.decision === 'approved' ? auth.user.id : null,
       approvedAt: parsed.data.decision === 'approved' ? new Date() : null,
       reviewReason: reason,
@@ -29,6 +41,9 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
     decision: parsed.data.decision,
     note: parsed.data.note,
     userId: current.userId,
+    recordedSeconds,
+    payableSeconds: requestedPayable,
+    excludedSeconds: Math.max(0, recordedSeconds - requestedPayable),
   }, auth.user.organizationId)
   return NextResponse.json({ ok: true, data: updated })
 }
