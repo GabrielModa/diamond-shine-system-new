@@ -147,7 +147,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
       <div className="card-header">
         <h2>
           <span className="title-icon">⭐</span>
-          Performance Overview
+          Employee feedback
         </h2>
         <input
           type="search"
@@ -212,7 +212,7 @@ export function PerformanceOverview({ feedback, onSelectFeedback }: PerformanceO
       {debounced.length < 2 ? (
         <section className="attention-list" aria-labelledby="employee-ratings-title">
           <div className="section-heading">
-            <h3 id="employee-ratings-title">Employee ratings</h3>
+            <h3 id="employee-ratings-title">Ratings by employee</h3>
             <span className="muted">{ratingFilter === 'all' ? ratedEmployees.length + ' rated employees' : filteredEmployees.length + ' ' + ratingFilter.toLowerCase()}</span>
           </div>
           {filteredEmployees.slice(0, 10).map((employee) => (
