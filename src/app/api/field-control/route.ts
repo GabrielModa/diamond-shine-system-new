@@ -53,7 +53,23 @@ export async function GET(request: NextRequest) {
       },
       include: {
         user: { select: { id: true, name: true, email: true } },
-        visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
+        visit: {
+          select: {
+            id: true,
+            site: {
+              select: {
+                name: true,
+                addressLine1: true,
+                city: true,
+                postalCode: true,
+                latitude: true,
+                longitude: true,
+                geofenceVerifiedM: true,
+                client: { select: { displayName: true } },
+              },
+            },
+          },
+        },
         locationEvents: { orderBy: { capturedAt: 'asc' } },
         disputes: { where: { status: 'open' }, select: { id: true, reason: true, createdAt: true } },
       },

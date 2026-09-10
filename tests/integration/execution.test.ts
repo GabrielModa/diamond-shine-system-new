@@ -246,28 +246,54 @@ describe('field execution', () => {
     expect(entries.some((entry) => entry.status === 'running')).toBe(false)
   })
 
-  it('records distant or unavailable GPS without blocking the work', async () => {
+  it('keeps expected site and captured visit GPS available for manager location review', async () => {
     const { visit } = await executionVisit()
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({
-      latitude: 53.45,
-      longitude: -6.45,
+      latitude: 53.3498,
+      longitude: -6.2603,
+      accuracyM: 8,
       capturedAt: '2026-08-24T08:00:00.000Z',
     })
     expect(started.status).toBe(201)
-    expect(started.body.location.classification).toBe('suspicious')
-    expect(started.body.warning).toBe('LOCATION_FAR_FROM_SITE')
+    expect(started.body.location.classification).toBe('verified')
 
-    const stopped = await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({})
+    const presence = await request(app).post(`/api/time-entries/${started.body.data.id}/heartbeat`).set('Cookie', employeeCookie).send({
+      latitude: 53.3528,
+      longitude: -6.2603,
+      accuracyM: 12,
+      capturedAt: '2026-08-24T08:05:00.000Z',
+    })
+    expect(presence.status).toBe(201)
+    expect(presence.body.warning).toContain('PRESENCE_LOCATION_ANOMALY')
+
+    const stopped = await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({
+      latitude: 53.45,
+      longitude: -6.45,
+      accuracyM: 10,
+      endedAt: '2026-08-24T09:00:00.000Z',
+    })
     expect(stopped.status).toBe(200)
     expect(stopped.body.data.status).toBe('needs_review')
-    expect(stopped.body.data.reviewReason).toContain('GPS_UNAVAILABLE')
+    expect(stopped.body.data.reviewReason).toContain('PRESENCE_LOCATION_ANOMALY')
+    expect(stopped.body.data.reviewReason).toContain('LOCATION_FAR_FROM_SITE')
 
     const queue = await request(app).get('/api/time-entries?status=needs_review').set('Cookie', adminCookie)
     expect(queue.status).toBe(200)
     expect(queue.body.data).toHaveLength(1)
+
     const control = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
     expect(control.body.data.summary.needsReview).toBe(1)
+    const reviewEntry = control.body.data.reviewEntries.find((entry: { id: string }) => entry.id === started.body.data.id)
+    expect(Number(reviewEntry.visit.site.latitude)).toBeCloseTo(53.3498, 4)
+    expect(Number(reviewEntry.visit.site.longitude)).toBeCloseTo(-6.2603, 4)
+    expect(reviewEntry.visit.site.geofenceVerifiedM).toBeGreaterThan(0)
+    expect(reviewEntry.locationEvents).toEqual(expect.arrayContaining([
+      expect.objectContaining({ kind: 'clock_in', classification: 'verified', latitude: expect.anything(), longitude: expect.anything() }),
+      expect.objectContaining({ kind: 'heartbeat', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
+      expect.objectContaining({ kind: 'clock_out', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
+    ]))
+
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
     expect(approved.body.data.status).toBe('approved')
