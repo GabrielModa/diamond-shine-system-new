@@ -5,7 +5,6 @@ import {
   sendFeedbackNotification,
   sendQualityNotification,
   sendSuppliesNotification,
-  sendProfileChangeNotification,
   type ClientEmailData,
   type FeedbackEmailData,
   type QualityEmailData,
@@ -63,6 +62,19 @@ export async function enqueueNotification(input: EnqueueInput) {
   return job
 }
 
+function profileChangeAsOperationalEmail(data: ProfileChangeEmailData): OperationalEmailData {
+  return {
+    recipientEmails: data.to,
+    subject: `Diamond Shine · ${data.employeeName} updated their profile`,
+    eyebrow: 'Operational profile update',
+    title: `${data.employeeName} updated their profile`,
+    message: data.summary,
+    tone: 'info',
+    details: data.changes.map((change) => ({ label: 'Change', value: change })),
+    action: { label: 'Review employee', path: '/people' },
+  }
+}
+
 async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: string) {
   if (kind === 'supply_alert') return sendSuppliesNotification(payload as unknown as SupplyEmailData, organizationId)
   if (kind === 'feedback_alert') return sendFeedbackNotification(payload as unknown as FeedbackEmailData, organizationId)
@@ -76,7 +88,13 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
   if (kind === 'operational_email') {
     return sendOperationalEmail(payload as unknown as OperationalEmailData, organizationId)
   }
-  if (kind === 'profile_change_alert') return sendProfileChangeNotification(payload as unknown as ProfileChangeEmailData)
+  if (kind === 'profile_change_alert') {
+    // Legacy profile-change jobs used a dedicated mailer with literal manager
+    // addresses in the payload, bypassing the operational test override. Route
+    // them through the standard operational mailer so test/prod recipient policy,
+    // SMTP diagnostics and per-recipient privacy are consistent.
+    return sendOperationalEmail(profileChangeAsOperationalEmail(payload as unknown as ProfileChangeEmailData), organizationId)
+  }
   return { ok: false, error: `Unsupported notification kind: ${kind}` }
 }
 

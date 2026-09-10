@@ -43,6 +43,14 @@ describe('operational email delivery contract', () => {
     expect(email).toContain('...(data.recipientEmails ?? [])')
   })
 
+  it('routes profile-change alerts through the operational mailer so the test override is respected', () => {
+    const queue = source('src/lib/notification-queue.ts')
+    expect(queue).toContain('function profileChangeAsOperationalEmail')
+    expect(queue).toContain("if (kind === 'profile_change_alert')")
+    expect(queue).toContain('return sendOperationalEmail(profileChangeAsOperationalEmail')
+    expect(queue).not.toContain("if (kind === 'profile_change_alert') return sendProfileChangeNotification")
+  })
+
   it('attempts the first queued delivery after the response while retaining the durable worker', () => {
     const queue = source('src/lib/notification-queue.ts')
     expect(queue).toContain("await import('next/server')")
