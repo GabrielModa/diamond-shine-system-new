@@ -31,7 +31,17 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
     },
     include: {
       site: { include: { client: true, access: true, areas: true } },
-      job: true,
+      job: {
+        select: {
+          id: true,
+          name: true,
+          servicePlan: {
+            select: {
+              evidencePolicy: { select: { minimumPhotoCount: true, requireFinishPhoto: true } },
+            },
+          },
+        },
+      },
       servicePlanVersion: { include: { tasks: { orderBy: { sortOrder: 'asc' } } } },
       assignments: { include: { user: { select: { id: true, name: true, email: true } } } },
       taskResults: { include: { versionTask: true, evidence: true }, orderBy: { versionTask: { sortOrder: 'asc' } } },
