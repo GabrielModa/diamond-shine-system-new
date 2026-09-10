@@ -8,6 +8,10 @@ async function loginAsAdmin(page: Page) {
   await page.waitForURL(/\/home/)
 }
 
+async function expectNoHorizontalOverflow(page: Page) {
+  await expect.poll(() => page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
+}
+
 test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page)
   await page.goto('/people', { waitUntil: 'domcontentloaded' })
@@ -27,6 +31,7 @@ test('coverage map starts clean and site filters are exclusive, truthful and rev
   await expect(covered).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('[data-workforce-site-marker]')).toHaveCount(0)
   await expect(page.locator('[data-workforce-employee-marker]')).toHaveCount(0)
+  await expectNoHorizontalOverflow(page)
 
   await needsStaff.click()
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'true')
@@ -48,6 +53,7 @@ test('coverage map starts clean and site filters are exclusive, truthful and rev
   await allSites.click()
   await expect(allSites).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('[data-workforce-site-marker]').first()).toBeVisible({ timeout: 15_000 })
+  await expectNoHorizontalOverflow(page)
 
   const legend = page.getByLabel('Map legend')
   await expect(legend).toContainText('Needs staff')
