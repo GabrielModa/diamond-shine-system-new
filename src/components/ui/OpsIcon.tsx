@@ -3,6 +3,7 @@ import type { ReactNode, SVGProps } from 'react'
 export type OpsIconName =
   | 'activity'
   | 'alert'
+  | 'box'
   | 'calendar'
   | 'check'
   | 'clock'
@@ -11,11 +12,15 @@ export type OpsIconName =
   | 'filter'
   | 'incident'
   | 'map'
+  | 'message'
   | 'payroll'
   | 'refresh'
   | 'review'
   | 'search'
   | 'spreadsheet'
+  | 'star'
+  | 'trend'
+  | 'truck'
   | 'user'
 
 export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGElement> & { name: OpsIconName; size?: number }) {
@@ -34,6 +39,7 @@ export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGEl
   const paths: Record<OpsIconName, ReactNode> = {
     activity: <><path d="M3 12h4l2.1-6 4 12 2.2-6H21" /></>,
     alert: <><path d="M12 4 3.5 19h17L12 4Z" /><path d="M12 9v4" /><path d="M12 16h.01" /></>,
+    box: <><path d="m4 7 8-4 8 4-8 4-8-4Z" /><path d="M4 7v10l8 4 8-4V7M12 11v10" /></>,
     calendar: <><rect x="3" y="5" width="18" height="16" rx="2" /><path d="M7 3v4M17 3v4M3 10h18" /></>,
     check: <><circle cx="12" cy="12" r="9" /><path d="m8.5 12 2.2 2.2 4.8-5" /></>,
     clock: <><circle cx="12" cy="12" r="9" /><path d="M12 7v5l3 2" /></>,
@@ -42,11 +48,15 @@ export default function OpsIcon({ name, size = 18, ...props }: SVGProps<SVGSVGEl
     filter: <><path d="M4 6h16M7 12h10M10 18h4" /></>,
     incident: <><circle cx="12" cy="12" r="9" /><path d="M12 7v6M12 17h.01" /></>,
     map: <><path d="M4 5.5 9 3l6 2.5L20 3v15.5L15 21l-6-2.5L4 21V5.5Z" /><path d="M9 3v15.5M15 5.5V21" /></>,
+    message: <><path d="M4 5h16v11H9l-5 4V5Z" /><path d="M8 9h8M8 12h5" /></>,
     payroll: <><rect x="4" y="4" width="16" height="16" rx="2" /><path d="M8 8h8M8 12h8M8 16h4" /></>,
     refresh: <><path d="M20 6v5h-5" /><path d="M4 18v-5h5" /><path d="M6.5 8A7 7 0 0 1 18 7l2 4M4 13l2 4a7 7 0 0 0 11.5-1" /></>,
     review: <><path d="M5 4h14v16H5z" /><path d="M8 8h8M8 12h5M8 16h3" /></>,
     search: <><circle cx="11" cy="11" r="6.5" /><path d="m16 16 4 4" /></>,
     spreadsheet: <><rect x="4" y="3" width="16" height="18" rx="2" /><path d="M4 9h16M10 9v12M15 9v12M4 15h16" /></>,
+    star: <><path d="m12 3 2.8 5.7 6.2.9-4.5 4.4 1.1 6.2-5.6-2.9-5.6 2.9 1.1-6.2L3 9.6l6.2-.9L12 3Z" /></>,
+    trend: <><path d="M4 17 9 12l3 3 7-8" /><path d="M14 7h5v5" /></>,
+    truck: <><path d="M3 6h11v10H3zM14 10h4l3 3v3h-7z" /><circle cx="7" cy="18" r="2" /><circle cx="18" cy="18" r="2" /></>,
     user: <><circle cx="12" cy="8" r="3.5" /><path d="M5 20c.7-4 3-6 7-6s6.3 2 7 6" /></>,
   }
 

@@ -3,11 +3,13 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { operationalDayRange, operationalGreeting } from '../../lib/operational-time'
+import CommandActivityFeed from './CommandActivityFeed'
 
 type Visit = { id: string; status: string }
 type TimeEntry = { id: string; status: string; disputes: Array<{ status: string }> }
-type SupplyResponse = { items: Array<{ id: string; status: string; priority: string }> }
-type FieldSummary = { summary: { openIncidents: number; criticalIncidents: number; needsReview: number; blocked: number } }
+type SupplyResponse = { items: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; status: string; priority: string }> }
+type FeedbackResponse = { items: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; overall: number; category: string }> }
+type FieldSummary = { summary: { openIncidents: number; criticalIncidents: number; needsReview: number; blocked: number }; incidents: Array<{ id: string; createdAt: string; title: string; severity: string; status: string; visit: { site: { name: string; client: { displayName: string } } } }> }
 type QualitySummary = { summary: { openActions: number; overdueActions: number; criticalActions: number } }
 type ScheduleHealth = { summary: { attention: number } }
 
@@ -21,6 +23,7 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
   const [visits, setVisits] = useState<Visit[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [supplies, setSupplies] = useState<SupplyResponse | null>(null)
+  const [feedback, setFeedback] = useState<FeedbackResponse | null>(null)
   const [field, setField] = useState<FieldSummary | null>(null)
   const [quality, setQuality] = useState<QualitySummary | null>(null)
   const [health, setHealth] = useState<ScheduleHealth | null>(null)
@@ -29,10 +32,11 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [visitData, entryData, supplyData, fieldData, qualityData, healthData] = await Promise.all([
+    const [visitData, entryData, supplyData, feedbackData, fieldData, qualityData, healthData] = await Promise.all([
       read<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
       read<TimeEntry[]>('/api/time-entries'),
       read<SupplyResponse>('/api/supplies?limit=200'),
+      read<FeedbackResponse>('/api/feedback?page=1&pageSize=20'),
       read<FieldSummary>('/api/field-control'),
       read<QualitySummary>('/api/quality/control'),
       read<ScheduleHealth>(`/api/schedule-health?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
@@ -40,6 +44,7 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
     setVisits(visitData ?? [])
     setEntries(entryData ?? [])
     setSupplies(supplyData)
+    setFeedback(feedbackData)
     setField(fieldData)
     setQuality(qualityData)
     setHealth(healthData)
@@ -74,9 +79,9 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
       detail: `${openIncidents} open · ${criticalIncidents} critical · ${blockedVisits} blocked visit${blockedVisits === 1 ? '' : 's'}`,
     } : null,
     awaitingTriage ? {
-      href: '/dashboard',
+      href: '/supplies',
       title: 'Supply requests are waiting',
-      detail: `${awaitingTriage} waiting for triage · ${urgentSupplies} urgent · process in Operations desk`,
+      detail: `${awaitingTriage} waiting for triage · ${urgentSupplies} urgent · process in Supplies`,
     } : null,
     qualityAttention ? {
       href: '/quality',
@@ -98,7 +103,7 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
         <p>See what needs attention now, then jump to the workspace that owns the decision.</p>
       </div>
       <div className="manager-home-actions">
-        <Link href="/dashboard" className="btn-primary">Open Operations desk</Link>
+        <Link href="/supplies" className="btn-primary">Open supplies</Link>
         <Link href="/schedule" className="btn-secondary">Open schedule</Link>
       </div>
     </header>
@@ -122,10 +127,12 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
         <span className="eyebrow">Workspaces</span>
         <h2>Go where the work belongs</h2>
         <Link href="/schedule"><b>Schedule</b><span>Plan visits, coverage, assignments and conflicts.</span>→</Link>
-        <Link href="/dashboard"><b>Operations desk</b><span>Triage field supply requests and review employee feedback.</span>→</Link>
+        <Link href="/supplies"><b>Supplies</b><span>Process requests, procurement and stock in one place.</span>→</Link>
         <Link href="/field-control"><b>Field control</b><span>Handle live visit incidents, evidence and blockers.</span>→</Link>
         <Link href="/insights"><b>Operational insights</b><span>Review longer-term delivery, quality and risk patterns.</span>→</Link>
       </aside>
     </section>
+
+    <CommandActivityFeed supplies={supplies?.items ?? []} feedback={feedback?.items ?? []} incidents={field?.incidents ?? []} />
   </main>
 }

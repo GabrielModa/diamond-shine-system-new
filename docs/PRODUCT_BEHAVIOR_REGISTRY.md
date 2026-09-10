@@ -35,6 +35,7 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 
 **UX/UI gate**
 - Manager home is exception-first: summarize today, then link each issue to the workspace that owns the decision.
+- Recent activity is a non-action feed across field incidents, supply requests and service feedback; it must stay visually distinct from Needs attention.
 - Do not reproduce the dispatch board here. Visit-by-visit planning, assignment and coverage remain owned by Schedule.
 - Field employees need a role-appropriate landing experience, not empty/403-backed manager cards.
 - Status colors must communicate operational meaning, not reuse generic “Pending/Completed” for unrelated states.
@@ -194,9 +195,9 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - Auto-generated shortage request remains idempotent per open item/site.
 
 **UX/UI gate**
-- One coherent flow: count → shortage → request → triage → approve → order → transit → deliver.
-- Do not force managers to leave Materials and hunt through a legacy Dashboard for basic lifecycle actions.
-- Replenishment queue should surface owner, SLA, overdue state and next legal action.
+- One coherent flow: request priority/status overview → triage/assignment/procurement → stock health/counting → replenishment history.
+- Supplies is the single manager workspace for the request lifecycle and stock reality; no second dashboard owns procurement.
+- Replenishment queue should surface owner, SLA, overdue state, client notification and next legal action.
 - Large catalog/site selectors need search/typeahead.
 
 **Tests**
@@ -255,27 +256,29 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 
 ---
 
-## 9. Legacy Service Feedback (`/feedback` + `/api/feedback`)
+## 9. Service Feedback (`/feedback` + `/api/feedback`)
 
-**Decision:** Client/manager feedback about delivered service and employee interaction.
+**Decision:** How is delivered cleaning being rated, which employees show repeated strengths/concerns and what exact evaluations support that signal?
 
 **Sources:**
-- `src/app/(protected)/feedback/page.tsx`
+- `src/components/feedback/ServiceFeedbackWorkspace.tsx`
+- `src/components/feedback/EmployeeFeedbackOverview.tsx`
 - `src/app/api/feedback/route.ts`
-- `src/lib/constants.ts`
+- `src/lib/business-logic.ts`
 
-**Must fix**
-- `/feedback` and `/quality` currently render the same `QualityWorkspace`; navigation promises two concepts but serves one UI.
-- Legacy feedback API uses hard-coded `CLIENT_LOCATIONS` strings instead of canonical Site/Visit relationships.
-- Decide canonical model: service feedback should reference real Site/Visit and optionally employee; do not silently delete historical records.
+**Product boundary**
+- Preserve the existing rating model: cleanliness, punctuality, equipment and client relations produce overall/category using the canonical thresholds.
+- Employee performance is an aggregate view of that same feedback history, not a parallel scoring model.
+- Quality inspections/corrective actions remain in Quality control.
 
 **UX/UI gate**
-- Separate “client/service feedback” from “internal quality inspection” if both remain product concepts.
-- Avoid duplicate nav destinations with identical content.
+- One page combines employee rating overview, category filters and exact feedback history.
+- Clicking an employee should take the manager directly to that employee’s underlying evaluations.
+- Historical feedback records remain readable even while future work moves toward canonical Site/Visit relationships.
 
 **Tests**
-- Migration/backward-compatibility test before changing legacy feedback data.
-- E2E only after IA/model decision is explicit.
+- API aggregation preserves existing categories and filtered history semantics.
+- E2E employee rating → exact history/detail.
 
 ---
 
@@ -422,33 +425,23 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 
 ---
 
-## 16. Operations Desk (`/dashboard`)
+## 16. Consolidated Dashboard Bridge (`/dashboard`)
 
-**Manager decision:** What arrived from the field, who owns it, and what administrative step happens next?
-
-**Sources:**
-- `src/app/(protected)/dashboard/page.tsx`
-- `src/app/api/dashboard/route.ts`
-- `src/components/dashboard/SuppliesStats.tsx`
-- `src/components/dashboard/PerformanceOverview.tsx`
+**Decision:** Backward-compatible route only; operational work has moved to its owning workspaces.
 
 **Product boundary**
-- Operations Desk owns manager triage and procurement progression for supply requests: Requested → Triaged → Approved → Ordered → In transit → Delivered, plus assignment and client notification.
-- Supplies owns stock reality: counts, par/reorder risk, manual requests and request tracking. Admin/supervisor processing links back to Operations Desk; stock-controller capability remains a safe fallback.
-- Employee feedback keeps the existing rating model (cleanliness, punctuality, equipment, client relations → overall/category) and employee-level rating history. Dedicated Service feedback remains the deeper searchable history.
-- Command Centre may point to requests awaiting triage, but does not process them.
+- Supply request triage, assignment, procurement, notification and stock live in Supplies.
+- Employee ratings and evaluation history live in Service feedback.
+- Recent cross-operation activity lives in Command centre.
+- `/dashboard` stays directly addressable as a migration bridge but is hidden from normal navigation.
 
 **UX/UI gate**
-- Keep supply and feedback as the two clear work lanes; do not grow this page back into a generic management dashboard.
-- Rating filters must use the same existing feedback categories and thresholds rather than creating a parallel score.
-- Field supervisors and organization admins can use the desk without requiring membership-administration access merely to load supply assignees.
+- Do not recreate a second manager dashboard here.
+- The bridge must clearly point old bookmarks to Supplies, Service feedback and Command centre.
 
 **Tests**
-- Supply lifecycle/assignment/email regression coverage.
-- Employee rating search/filter/detail coverage.
-- Supervisor access to dashboard summary and supply-scoped assignees.
-
----
+- Route remains accessible to existing authorized managers.
+- Navigation does not expose the migrated dashboard as a normal module.
 
 ## 17. Mobile Schedule / Work / Offline Sync
 

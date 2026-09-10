@@ -22,9 +22,8 @@ export const pageMeta: Record<string, PageMeta> = {
   people: { label: 'Plan coverage', href: '/people', section: 'control', order: 30, any: ['schedule.manage'] },
   'live-operations': { label: 'Live workforce', href: '/live-operations', section: 'control', order: 40, any: ['schedule.manage'] },
   'field-control': { label: 'Field control', href: '/field-control', section: 'control', order: 50, any: ['visits.review'] },
-  dashboard: { label: 'Operations desk', href: '/dashboard', section: 'control', order: 60, roles: ['organization_admin', 'field_supervisor'] },
-  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 70, any: ['supplies.request'] },
-  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 80, any: ['time.own.manage', 'time.team.review'] },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'] },
+  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 70, any: ['time.own.manage', 'time.team.review'] },
 
   // Quality and management views explain outcomes without replacing the operational workspaces that produce them.
   insights: { label: 'Operational insights', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
@@ -39,6 +38,7 @@ export const pageMeta: Record<string, PageMeta> = {
   // but the normal product flow is Client account -> Service -> Schedule.
   'work-orders': { label: 'Work orders', href: '/work-orders', section: 'admin', order: 90, any: ['schedule.read', 'service_plans.read'], excludedRoles: ['employee'], nav: false },
   operations: { label: 'Service setup', href: '/operations', section: 'admin', order: 100, any: ['service_plans.read', 'sites.read'], excludedRoles: ['employee'], nav: false },
+  dashboard: { label: 'Operations desk (moved)', href: '/dashboard', section: 'admin', order: 110, roles: ['organization_admin', 'field_supervisor'], nav: false },
 
   // Personal attention belongs together: communication first, then submitted work, then account settings.
   communications: {

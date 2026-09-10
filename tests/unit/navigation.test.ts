@@ -33,12 +33,11 @@ describe('protected navigation registry', () => {
       .map(([route]) => route)
       .sort()
 
-    expect(hidden).toEqual(['operations', 'work-orders'])
+    expect(hidden).toEqual(['dashboard', 'operations', 'work-orders'])
     expect(pageMeta.feedback).toMatchObject({ label: 'Service feedback' })
     expect(pageMeta.insights).toMatchObject({ label: 'Operational insights', section: 'analytics' })
     expect(pageMeta.feedback.nav).not.toBe(false)
-    expect(pageMeta.dashboard).toMatchObject({ label: 'Operations desk', section: 'control' })
-    expect(pageMeta.dashboard.nav).not.toBe(false)
+    expect(pageMeta.dashboard).toMatchObject({ label: 'Operations desk (moved)', nav: false })
   })
 
   it('has deterministic ordering inside each navigation section', () => {
