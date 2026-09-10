@@ -34,10 +34,6 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid service setup', details: parsed.error.flatten() }, { status: 400 })
   const { id: clientId } = await params
   const organizationId = auth.user.organizationId
-  const now = new Date()
-  if (parsed.data.startAt.getTime() < now.getTime() - 5 * 60_000) {
-    return NextResponse.json({ ok: false, error: 'Service start time cannot be in the past.' }, { status: 400 })
-  }
 
   const site = await prisma.site.findFirst({
     where: { id: parsed.data.siteId, clientId, organizationId, archivedAt: null },
@@ -49,6 +45,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     },
   })
   if (!site) return NextResponse.json({ ok: false, error: 'Service location not found for this client.' }, { status: 404 })
+
+  const now = new Date()
+  if (parsed.data.startAt.getTime() < now.getTime() - 5 * 60_000) {
+    return NextResponse.json({ ok: false, error: 'Service start time cannot be in the past.' }, { status: 400 })
+  }
 
   const duplicate = await prisma.servicePlan.findFirst({
     where: {
