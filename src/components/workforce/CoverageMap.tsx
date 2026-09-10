@@ -69,7 +69,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     const map=mapRef.current,layers=layersRef.current;if(cancelled||!map||!layers)return
     const L=m.default;layers.clearLayers();const bounds:[number,number][]=[]
-    if(showSites)sites.filter(site=>site.latitude!=null&&site.longitude!=null&&(siteCoverageFilter==='all'||site.coverageState===siteCoverageFilter)).forEach(site=>{
+    if(showSites)sites.filter(site=>site.latitude!=null&&site.longitude!=null&&(siteCoverageFilter==='all'?site.coverageState!=='no_upcoming':site.coverageState===siteCoverageFilter)).forEach(site=>{
       const lat=site.latitude!,lng=site.longitude!;bounds.push([lat,lng])
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-site-pin ${site.coverageState}">${siteMarkerIcon(site.coverageState)}</span>`,iconSize:[34,42],iconAnchor:[17,40]})})
         .bindTooltip(`<strong>${site.name}</strong><br>${site.client.displayName} · ${siteStateLabel(site.coverageState)}`,{direction:'top',className:'wf-map-tooltip'})
@@ -103,7 +103,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
-    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span><span><i className="site" style={{background:'#7b8494'}}><b>–</b></i>No upcoming visits</span></div>
+    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
     {selectedSite&&dismissedSiteId!==selectedSite.id?<aside className="wf-map-site-card" data-testid="map-site-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>{setDismissedSiteId(selectedSite.id);onCloseSite?.()}}>×</button>
       <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
