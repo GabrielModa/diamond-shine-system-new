@@ -35,8 +35,9 @@ describe('protected navigation registry', () => {
 
     expect(hidden).toEqual(['operations', 'work-orders'])
     expect(pageMeta.feedback).toMatchObject({ label: 'Service feedback' })
+    expect(pageMeta.insights).toMatchObject({ label: 'Operational insights', section: 'analytics' })
     expect(pageMeta.feedback.nav).not.toBe(false)
-    expect(pageMeta.dashboard).toMatchObject({ label: 'Management dashboard' })
+    expect(pageMeta.dashboard).toMatchObject({ label: 'Operations desk', section: 'control' })
     expect(pageMeta.dashboard.nav).not.toBe(false)
   })
 
