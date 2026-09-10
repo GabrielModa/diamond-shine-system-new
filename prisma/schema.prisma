@@ -750,6 +750,7 @@ model TimeEntry {
   startedAt          DateTime
   endedAt            DateTime?
   durationSeconds    Int?
+  payableSeconds     Int?
   startLatitude      Decimal?           @db.Decimal(10, 7)
   startLongitude     Decimal?           @db.Decimal(10, 7)
   startAccuracyM     Int?
