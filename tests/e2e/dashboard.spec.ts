@@ -48,9 +48,9 @@ test.beforeEach(async ({ page }) => {
   await page.waitForURL(/\/home/)
 })
 
-test('management dashboard loads as the manager cross-functional overview', async ({ page }) => {
+test('operations desk loads the supply and feedback workbench', async ({ page }) => {
   await page.goto('/dashboard')
-  await expect(page.locator('#main-content').getByText('Management dashboard', { exact: true })).toBeVisible()
+  await expect(page.locator('#main-content').getByText('Operations desk', { exact: true })).toBeVisible()
   await expect(page.getByText('Enhanced Management', { exact: true })).toHaveCount(0)
   await waitForDashboardCards(page)
   await expect(page.locator('[data-testid="stat-urgent"]')).toBeVisible()
@@ -180,6 +180,31 @@ test('searching an employee shows their profile with evaluations', async ({ page
   await expect(page.locator('.found-count')).toContainText('Found')
   await page.click('.result-row:has-text("Strikerlift")')
   await expect(page.locator('text=👤 Strikerlift')).toBeVisible()
+})
+
+test('employee ratings can be filtered using the existing feedback categories', async ({ page }) => {
+  await createFeedback(page, {
+    employeeName: 'Strikerlift',
+    clientLocation: 'TechCorp Office - Dublin 2',
+    cleanliness: 5,
+    punctuality: 5,
+    equipment: 5,
+    clientRelations: 5,
+  })
+  await createFeedback(page, {
+    employeeName: 'Sam Keane',
+    clientLocation: 'Green Bank - Temple Bar',
+    cleanliness: 2,
+    punctuality: 2,
+    equipment: 2,
+    clientRelations: 2,
+  })
+
+  await page.goto('/dashboard')
+  await waitForDashboardCards(page)
+  await page.getByRole('button', { name: 'Excellent', exact: true }).click()
+  await expect(page.getByRole('button', { name: /Strikerlift.*5\.0/ })).toBeVisible()
+  await expect(page.getByRole('button', { name: /Sam Keane.*2\.0/ })).toHaveCount(0)
 })
 
 test('clicking an evaluation in employee profile opens Feedback Detail', async ({ page }) => {
