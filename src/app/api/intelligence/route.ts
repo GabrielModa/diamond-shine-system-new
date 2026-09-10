@@ -41,7 +41,7 @@ export async function GET(request: NextRequest) {
       include: {
         site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
         job: { select: { defaultDurationMin: true } },
-        timeEntries: { select: { id: true, status: true, durationSeconds: true, startLocationClass: true } },
+        timeEntries: { select: { id: true, kind: true, status: true, durationSeconds: true, startLocationClass: true } },
         incidents: { select: { status: true, severity: true } },
       },
       orderBy: { scheduledStart: 'asc' },
@@ -75,8 +75,8 @@ export async function GET(request: NextRequest) {
 
   const currentEntries = currentVisits.flatMap((visit) => visit.timeEntries)
   const previousEntries = previousVisits.flatMap((visit) => visit.timeEntries)
-  const currentRecorded = currentEntries.filter((entry) => entry.durationSeconds != null && ['completed', 'approved', 'needs_review'].includes(entry.status))
-  const previousRecorded = previousEntries.filter((entry) => entry.durationSeconds != null && ['completed', 'approved', 'needs_review'].includes(entry.status))
+  const currentRecorded = currentEntries.filter((entry) => entry.kind === 'visit' && entry.durationSeconds != null && ['completed', 'approved', 'needs_review'].includes(entry.status))
+  const previousRecorded = previousEntries.filter((entry) => entry.kind === 'visit' && entry.durationSeconds != null && ['completed', 'approved', 'needs_review'].includes(entry.status))
   const currentReview = currentRecorded.filter((entry) => entry.status === 'needs_review' || ['suspicious', 'unavailable'].includes(entry.startLocationClass ?? ''))
   const previousReview = previousRecorded.filter((entry) => entry.status === 'needs_review' || ['suspicious', 'unavailable'].includes(entry.startLocationClass ?? ''))
 
