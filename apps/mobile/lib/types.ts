@@ -76,7 +76,16 @@ export type Visit = {
   dispatchNotes?: string | null;
   completionNotes?: string | null;
   site: Site;
-  job?: { id: string; name: string };
+  job?: {
+    id: string;
+    name: string;
+    servicePlan?: {
+      evidencePolicy?: {
+        minimumPhotoCount: number;
+        requireFinishPhoto: boolean;
+      } | null;
+    };
+  };
   servicePlanVersion?: { tasks: VersionTask[] };
   assignments?: Array<{
     id: string;
