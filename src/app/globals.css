@@ -2793,3 +2793,6 @@ textarea {
 
 /* Human-readable duration controls; minutes remain an internal storage unit. */
 .duration-field{min-width:0;margin:0;padding:0;border:0}.duration-field>legend{margin:0 0 7px;color:#5f6b7a;font-size:.84rem;font-weight:700}.duration-field-controls{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.duration-field-controls label{display:grid;gap:5px;min-width:0}.duration-field-controls label>span{color:#737d8d;font-size:.75rem;font-weight:700}.duration-field-controls input,.duration-field-controls select{width:100%;min-width:0}
+
+/* Delivery errors stay readable on narrow screens. */
+.delivery-jobs>div{flex-wrap:wrap}.delivery-jobs>div>small{flex-basis:100%;overflow-wrap:anywhere;color:var(--surface-muted)}

@@ -6,7 +6,7 @@ This runbook is the deploy/operations contract after Product Readiness V11. V12 
 
 Use Node.js 20+, PostgreSQL 16+ and HTTPS at the public origin. Evidence must use durable private storage. On hosts with a persistent encrypted volume, set `EVIDENCE_STORAGE_PROVIDER=filesystem` and mount the absolute path configured by `EVIDENCE_STORAGE_ROOT`. On Vercel or another serverless/ephemeral host, set `EVIDENCE_STORAGE_PROVIDER=supabase` and use a private Supabase Storage bucket. The application must not rely on the repository-local `.data/uploads` fallback in production.
 
-The notification queue is durable in PostgreSQL, but delivery still needs a scheduler. Run `npm run notifications:worker` at least once per minute from the production platform scheduler/cron. The endpoint is protected by an independent `NOTIFICATION_WORKER_SECRET`.
+The notification queue is durable in PostgreSQL. Production requests attempt immediate delivery after the response; scheduled recovery handles due retries. See [email delivery diagnostics and retries](email-delivery.md) for the authenticated Vercel GET cron, plan-specific frequency and admin SMTP test. External schedulers can continue using `npm run notifications:worker` with the independent `NOTIFICATION_WORKER_SECRET`.
 
 ## Required production configuration
 
@@ -36,7 +36,7 @@ For Supabase Storage, create a **private** bucket (recommended name: `diamond-sh
 5. Run `npm run db:deploy` exactly once for the release.
 6. Start the application with `npm start` behind HTTPS.
 7. Wait for `/api/health/live` = 200, then `/api/health` = 200.
-8. Start/enable the one-minute notification worker schedule.
+8. Configure `CRON_SECRET` and enable the Vercel cron, or enable an external notification worker schedule. Confirm the frequency is supported by the Vercel plan; see [email delivery](email-delivery.md).
 9. Run `npm run production:smoke` against the public origin.
 10. Validate one manager login and one field/mobile login before declaring the release healthy.
 

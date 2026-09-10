@@ -103,6 +103,11 @@ export function assessProductionReadiness(env: NodeJS.ProcessEnv = process.env):
   const workerSecret = env.NOTIFICATION_WORKER_SECRET?.trim() ?? ''
   add(checks, 'notification-worker-secret', present(workerSecret) && workerSecret.length >= 32 && workerSecret !== sessionSecret, 'NOTIFICATION_WORKER_SECRET must be an independent 32+ character secret.')
 
+  if (env.VERCEL === '1') {
+    const cronSecret = env.CRON_SECRET?.trim() ?? ''
+    add(checks, 'notification-cron-secret', present(cronSecret) && cronSecret.length >= 32 && cronSecret !== sessionSecret && cronSecret !== workerSecret, 'CRON_SECRET must be an independent 32+ character secret for scheduled notification retries.', 'recommended')
+  }
+
   const transport = env.EMAIL_TRANSPORT?.trim().toLowerCase()
   const smtpPort = Number(env.SMTP_PORT ?? '587')
   const smtpAuthPaired = Boolean(env.SMTP_USER?.trim()) === Boolean(env.SMTP_PASS)

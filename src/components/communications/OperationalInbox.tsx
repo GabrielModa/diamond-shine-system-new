@@ -23,7 +23,7 @@ type Notice = {
 type NoticeData = { items: Notice[]; summary: Record<string, number> }
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
 type Job = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string }
-type QueueData = { items: Job[]; counts: Record<string, number> }
+type QueueData = { items: Job[]; counts: Record<string, number>; latestFailure?: { kind: string; lastError: string; lastAttemptAt: string | null } | null }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init })
@@ -157,6 +157,16 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     } finally { setBusy(false) }
   }
 
+  async function testDelivery() {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      const result = await api<{ message: string }>('/api/notifications/test', { method: 'POST' })
+      setNotice(result.message)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Email delivery test failed.')
+    } finally { setBusy(false) }
+  }
+
   async function processQueue() {
     setBusy(true); setError(''); setNotice('')
     try {
@@ -276,8 +286,14 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <button type="button" onClick={() => void saveDelivery()}>Save recipients</button>
       </article>
       <article className="card">
-        <div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div>
-        <div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span></div>)}</div>
+        <h2>Test email delivery</h2>
+        <p>Verify SMTP and send a test email to your signed-in account. Check your inbox and spam folder after sending.</p>
+        <button type="button" disabled={busy} onClick={() => void testDelivery()}>Test email delivery</button>
+      </article>
+      <article className="card">
+        <div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Exhausted {queue.counts.exhausted ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div>
+        {queue.latestFailure ? <p role="status">Latest failure: {queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</p> : null}
+        <div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
       </article>
       <section><h2>Email templates</h2><div className="communication-grid">{templates.map((template) => <article className="card communication-card" key={template.id}><strong>{template.key.replaceAll('_', ' ')}</strong><label><span>Subject</span><input value={template.subject} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, subject: event.target.value } : item))} /></label><label><span>HTML body</span><textarea value={template.body} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, body: event.target.value } : item))} /></label><button type="button" onClick={() => void saveTemplate(template)}>Save template</button></article>)}</div></section>
     </section> : null}

@@ -1,3 +1,4 @@
+import { sanitizeDeliveryError } from './delivery-error'
 import nodemailer from 'nodemailer'
 import { ADMIN_EMAIL, FEEDBACK_EMAIL, SMTP_FROM } from './constants'
 import { prisma } from './prisma'
@@ -236,7 +237,7 @@ async function getRecipients(
 export async function sendSuppliesNotification(
   data: SupplyEmailData,
   organizationId = LEGACY_ORGANIZATION_ID
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const transport = getTransport()
     const recipients = await getRecipients('supply_alerts', ADMIN_EMAIL, organizationId)
@@ -248,15 +249,15 @@ export async function sendSuppliesNotification(
     })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed supplies notification', error)
-    return { ok: false }
+    console.error('[EMAIL] failed supplies notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
 export async function sendFeedbackNotification(
   data: FeedbackEmailData,
   organizationId = LEGACY_ORGANIZATION_ID
-): Promise<{ ok: boolean }> {
+): Promise<{ ok: boolean; error?: string }> {
   try {
     const transport = getTransport()
     const recipients = await getRecipients('feedback_alerts', FEEDBACK_EMAIL, organizationId)
@@ -268,8 +269,8 @@ export async function sendFeedbackNotification(
     })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed feedback notification', error)
-    return { ok: false }
+    console.error('[EMAIL] failed feedback notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
@@ -281,8 +282,8 @@ export async function sendClientNotification(
     await transport.sendMail({ from: SMTP_FROM, to: data.to, subject: data.subject, html: data.htmlBody })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed client notification', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed client notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
@@ -330,8 +331,8 @@ export async function sendQualityNotification(
     })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed quality notification', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed quality notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
@@ -374,8 +375,8 @@ export async function sendUserInvite(
     })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed invite email', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed invite email', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
@@ -397,8 +398,8 @@ export async function sendPasswordReset(
     await transport.sendMail({ from: SMTP_FROM, to: data.to, subject: rendered.subject, html: rendered.body })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed password reset email', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed password reset email', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
 
@@ -415,7 +416,7 @@ export async function sendProfileChangeNotification(data: ProfileChangeEmailData
     })
     return { ok: true }
   } catch (error) {
-    console.error('[EMAIL] failed profile change notification', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed profile change notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }

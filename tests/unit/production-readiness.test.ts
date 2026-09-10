@@ -133,3 +133,13 @@ describe('production readiness', () => {
     expect(result.checks.find((check) => check.key === 'notification-worker-secret')?.ok).toBe(false)
   })
 })
+
+it('reports missing or reused Vercel cron credentials without exposing them', () => {
+  for (const secret of ['', readyEnv.SESSION_SECRET, readyEnv.NOTIFICATION_WORKER_SECRET]) {
+    const result = assessProductionReadiness({ ...readyEnv, VERCEL: '1', CRON_SECRET: secret })
+    expect(result.checks.find((check) => check.key === 'notification-cron-secret')?.ok).toBe(false)
+    if (secret) expect(JSON.stringify(result)).not.toContain(secret)
+  }
+  const result = assessProductionReadiness({ ...readyEnv, VERCEL: '1', CRON_SECRET: 'independent-cron-secret-at-least-32-characters' })
+  expect(result.checks.find((check) => check.key === 'notification-cron-secret')?.ok).toBe(true)
+})

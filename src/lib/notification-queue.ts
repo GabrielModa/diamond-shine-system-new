@@ -1,3 +1,4 @@
+import { sanitizeDeliveryError } from './delivery-error'
 import type { Prisma } from '@prisma/client'
 import {
   sendClientNotification,
@@ -50,7 +51,7 @@ export async function enqueueNotification(input: EnqueueInput) {
         try {
           await processNotificationJob(job.id, job.organizationId)
         } catch (error) {
-          console.error('[NOTIFICATION] post-response delivery attempt failed', { id: job.id, kind: job.kind }, error)
+          console.error('[NOTIFICATION] post-response delivery attempt failed', { id: job.id, kind: job.kind }, sanitizeDeliveryError(error))
         }
       })
     } catch {
@@ -125,7 +126,9 @@ export async function processNotificationJob(id: string, organizationId?: string
   if (!claimed.count) return null
 
   const job = await prisma.notificationJob.findUniqueOrThrow({ where: { id } })
-  const result = await deliver(job.kind, job.payload, job.organizationId)
+  const result = await deliver(job.kind, job.payload, job.organizationId).catch((error: unknown) => ({
+    ok: false, error: sanitizeDeliveryError(error),
+  }))
   if (result.ok) {
     const sentAt = new Date()
     await prisma.$transaction([
@@ -145,7 +148,7 @@ export async function processNotificationJob(id: string, organizationId?: string
     where: { id },
     data: {
       status: exhausted ? 'exhausted' : 'failed',
-      lastError: ('error' in result ? result.error : undefined) ?? 'Delivery failed',
+      lastError: sanitizeDeliveryError('error' in result ? result.error : undefined),
       nextAttemptAt: retryAt(job.attempts),
     },
   })
