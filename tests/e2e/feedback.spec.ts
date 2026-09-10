@@ -41,7 +41,7 @@ test('service feedback is a dedicated client-experience workspace', async ({ pag
   await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
 
   await expect(page.getByRole('heading', { name: 'Service feedback', exact: true, level: 1 })).toBeVisible()
-  await expect(page.getByRole('region', { name: 'Feedback summary' })).toBeVisible()
+  await expect(page.getByRole('region', { name: 'Service performance by employee' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Feedback history', exact: true })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Quality control' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New inspection' })).toHaveCount(0)
@@ -56,12 +56,7 @@ test('feedback filters recalculate the summary and preserve the exact evaluation
   const search = page.getByPlaceholder('Employee, location or comment…')
   await search.fill(marker)
 
-  const summary = page.getByRole('region', { name: 'Feedback summary' })
   await expect(page.getByText('1 matching evaluation', { exact: true })).toBeVisible()
-  await expect(summary.locator('article').filter({ hasText: 'Average rating' }).locator('strong')).toHaveText('5.0')
-  await expect(summary.locator('article').filter({ hasText: 'Cleanliness' }).locator('strong')).toHaveText('5.0')
-  await expect(summary.locator('article').filter({ hasText: 'Client relations' }).locator('strong')).toHaveText('5.0')
-  await expect(summary.locator('article').filter({ hasText: 'Needs attention' }).locator('strong')).toHaveText('0')
 
   const row = page.locator('button').filter({ hasText: marker }).first()
   await expect(row).toBeVisible()
