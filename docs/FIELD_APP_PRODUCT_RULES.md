@@ -19,7 +19,7 @@ Schedule responses are an action flow, not a primary navigation destination.
 
 - **Schedule is planned work.** Scheduled duration never becomes worked time automatically.
 - **Time is recorded work.** Time entries are the source of truth for what the employee actually worked.
-- **Visit completion is separate from time.** Stopping a timer does not silently complete a visit.
+- **Visit completion is auditable separately from time.** The server keeps clock-out and completion as distinct records, while the employee experiences one guided Finish visit flow.
 - **Location is evidence.** GPS may inform Operations review but should not expose technical distance/risk messaging to the field employee.
 - **One employee, one active timer.** A worker cannot have two simultaneous active time entries.
 - **Crew time is individual.** One employee's timer state never makes another employee appear to be working.
@@ -36,9 +36,10 @@ A cleaner does not run a separate General / Office / Driving / Supplies clock fr
 3. **Pause** stops the Visit-work segment and starts a Visit break segment.
 4. **Resume** stops the break segment and starts a new Visit-work segment.
 5. **Finish work** stops this employee's active Visit segment and opens closeout.
-6. **Resume work** is allowed after Finish work if the employee tapped it by mistake and the Visit has not been submitted yet.
-7. **Closeout** happens after work time stops.
-8. **Submit & finish visit** marks delivery complete only after required closeout conditions are satisfied. After this step the field record is final unless Operations explicitly reopens it.
+6. **Resume work** is allowed after Finish work if the employee tapped it by mistake and the Visit has not been saved as finished yet.
+7. **Closeout** shows only required checklist/proof first.
+8. When required work is ready, the app opens a short guided finish: ask whether Operations needs an issue/supplies report, then ask whether to add a closeout photo when that photo is optional.
+9. **Save & finish** completes the Visit. There is no separate employee-facing “Submit” stage after closeout. The field record is final unless Operations explicitly reopens it.
 
 ### Supervisor
 
@@ -61,7 +62,7 @@ Use simple field language. Do not expose backend lifecycle names such as `acknow
 - **Confirmed** — assigned and ready; this employee is not currently timing the visit.
 - **In progress** — this employee has a running Visit timer.
 - **Paused** — this employee has a running break associated with the Visit.
-- **Finish visit** — this employee recorded Visit work, stopped the timer, and the Visit still needs closeout/submission.
+- **Finish visit** — this employee recorded Visit work, stopped the timer, and the Visit still needs closeout.
 - **Done** — Visit completed.
 - **Cancelled / Missed** — non-operational history states.
 
@@ -171,15 +172,15 @@ Geofence reminders/automation can be added later behind an explicit policy.
 ## Closeout and photos
 
 - Checklist/proof appears after Visit work stops.
-- Required checklist items may block `Submit & finish visit`.
-- A general closeout photo is **optional by default**. A specific configured service/task evidence rule may still require proof where the contract genuinely needs it.
+- Required checklist items and required proof block final save.
+- A general closeout photo is **optional by default**. If the service policy requires a finish/minimum photo, the guided finish removes the “No photo” option until the requirement is satisfied.
 - Camera UX is capture → preview → explicitly use/save or retake. Never disappear back to the Visit without making it clear whether the photo was accepted.
 - Multiple optional photos may be added.
 - `Report issue` and `Request supplies` are focused actions, not permanently expanded forms.
 - A field issue uses one focused screen: type, description, urgency, send; photos are optional and multiple photos may be attached after the issue exists.
 - Completing a Visit must never leave that employee's Visit timer running.
 - Stopping a timer must never imply that the Visit itself was delivered.
-- `Finish work` is reversible until final submit; `Submit & finish visit` is not an accidental timer button.
+- `Finish work` is reversible until final save; `Save & finish` is a deliberate confirmation inside the guided closeout, not a second “submit” workflow.
 
 ## Corrections and auditability
 
