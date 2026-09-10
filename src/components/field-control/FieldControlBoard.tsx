@@ -8,7 +8,7 @@ import FieldLocationReviewMap, { type ReviewLocationPoint, type ReviewSitePoint 
 import './FieldControlReview.css'
 
 type Person = { id: string; name: string | null; email: string }
-type LocationEvent = { id: string; kind: string; capturedAt: string; latitude: number; longitude: number; distanceM: number | null; accuracyM: number | null; classification: string | null }
+type LocationEvent = { id: string; kind: string; capturedAt: string; latitude: number | string; longitude: number | string; distanceM: number | null; accuracyM: number | null; classification: string | null }
 type TimeEntry = {
   id: string
   status: string
@@ -19,7 +19,7 @@ type TimeEntry = {
   startLocationClass: string | null
   reviewReason: string | null
   user: Person
-  visit: { id: string; site: { name: string; addressLine1: string; city: string; postalCode: string; latitude: number | null; longitude: number | null; geofenceVerifiedM: number; client: { displayName: string } } } | null
+  visit: { id: string; site: { name: string; addressLine1: string; city: string; postalCode: string; latitude: number | string | null; longitude: number | string | null; geofenceVerifiedM: number; client: { displayName: string } } } | null
   locationEvents: LocationEvent[]
   disputes?: Array<{ id: string; reason: string; createdAt: string }>
 }
@@ -469,17 +469,17 @@ function TimeReviewDetail({
     name: entry.visit.site.name,
     clientName: entry.visit.site.client.displayName,
     address: [entry.visit.site.addressLine1, entry.visit.site.city, entry.visit.site.postalCode].filter(Boolean).join(', '),
-    latitude: entry.visit.site.latitude,
-    longitude: entry.visit.site.longitude,
+    latitude: entry.visit.site.latitude == null ? null : Number(entry.visit.site.latitude),
+    longitude: entry.visit.site.longitude == null ? null : Number(entry.visit.site.longitude),
     geofenceVerifiedM: entry.visit.site.geofenceVerifiedM,
   } : null
   const mapPoints: ReviewLocationPoint[] = entry.locationEvents
-    .filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude))
+    .filter((event) => Number.isFinite(Number(event.latitude)) && Number.isFinite(Number(event.longitude)))
     .map((event) => ({
       id: event.id,
       kind: event.kind,
-      latitude: event.latitude,
-      longitude: event.longitude,
+      latitude: Number(event.latitude),
+      longitude: Number(event.longitude),
       accuracyM: event.accuracyM,
       distanceM: event.distanceM,
       classification: event.classification,
