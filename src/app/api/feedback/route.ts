@@ -4,7 +4,7 @@ import { z } from 'zod'
 import { CLIENT_LOCATIONS } from '../../../lib/constants'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth } from '../../../lib/auth'
-import { calculateOverall, getCategoryLabel, isValidRating } from '../../../lib/business-logic'
+import { calculateFeedbackTrend, calculateOverall, getCategoryLabel, isValidRating } from '../../../lib/business-logic'
 import { enqueueNotification } from '../../../lib/notification-queue'
 import { dbCategoryToLabel, labelToDbCategory } from '../../../lib/mappers'
 import { logAudit } from '../../../lib/audit'
@@ -160,7 +160,8 @@ export async function GET(request: NextRequest) {
     ...(category ? { category: labelToDbCategory(category) } : {}),
     ...(searchFilters.length ? { OR: searchFilters } : {}),
   }
-  const [total, items, aggregate, attention, employeeRows] = await Promise.all([
+  const sixtyDaysAgo = new Date(Date.now() - 60 * 24 * 60 * 60 * 1000)
+  const [total, items, aggregate, attention, employeeRows, employeeAggregates, latestEmployeeRows, trendRows] = await Promise.all([
     prisma.feedbackEntry.count({ where }),
     prisma.feedbackEntry.findMany({
       where,
@@ -170,7 +171,7 @@ export async function GET(request: NextRequest) {
     }),
     prisma.feedbackEntry.aggregate({
       where,
-      _avg: { overall: true, cleanliness: true, clientRelations: true },
+      _avg: { overall: true, cleanliness: true, punctuality: true, equipment: true, clientRelations: true },
     }),
     prisma.feedbackEntry.count({ where: { ...where, overall: { lt: 4 } } }),
     prisma.feedbackEntry.groupBy({
@@ -178,12 +179,48 @@ export async function GET(request: NextRequest) {
       where: baseWhere,
       orderBy: { employeeName: 'asc' },
     }),
+    prisma.feedbackEntry.groupBy({
+      by: ['employeeName'],
+      where: baseWhere,
+      _avg: { overall: true, cleanliness: true, punctuality: true, equipment: true, clientRelations: true },
+      _count: { _all: true },
+      orderBy: { employeeName: 'asc' },
+    }),
+    prisma.feedbackEntry.findMany({
+      where: baseWhere,
+      distinct: ['employeeName'],
+      orderBy: [{ employeeName: 'asc' }, { createdAt: 'desc' }],
+      select: { employeeName: true, clientLocation: true, createdAt: true },
+    }),
+    prisma.feedbackEntry.findMany({
+      where: { ...baseWhere, createdAt: { gte: sixtyDaysAgo } },
+      select: { overall: true, createdAt: true },
+      orderBy: { createdAt: 'asc' },
+    }),
   ])
 
   const mapped = items.map((item) => ({
     ...item,
     category: dbCategoryToLabel(item.category as 'Excellent' | 'VeryGood' | 'Good' | 'Fair' | 'Poor'),
   }))
+  const latestByEmployee = new Map(latestEmployeeRows.map((item) => [item.employeeName, item]))
+  const employeeSummaries = employeeAggregates.map((item) => {
+    const overall = item._avg.overall ?? 0
+    const latest = latestByEmployee.get(item.employeeName)
+    return {
+      name: item.employeeName,
+      evaluations: item._count._all,
+      overall,
+      category: getCategoryLabel(overall),
+      cleanliness: item._avg.cleanliness ?? 0,
+      punctuality: item._avg.punctuality ?? 0,
+      equipment: item._avg.equipment ?? 0,
+      clientRelations: item._avg.clientRelations ?? 0,
+      latestLocation: latest?.clientLocation ?? null,
+      latestAt: latest?.createdAt ?? null,
+    }
+  }).sort((a, b) => b.overall - a.overall || a.name.localeCompare(b.name))
+  const trend = calculateFeedbackTrend(trendRows)
 
   return NextResponse.json({
     ok: true,
@@ -194,9 +231,13 @@ export async function GET(request: NextRequest) {
       metrics: {
         overall: aggregate._avg.overall ?? 0,
         cleanliness: aggregate._avg.cleanliness ?? 0,
+        punctuality: aggregate._avg.punctuality ?? 0,
+        equipment: aggregate._avg.equipment ?? 0,
         clientRelations: aggregate._avg.clientRelations ?? 0,
         attention,
       },
+      employeeSummaries,
+      trend,
       pagination: {
         page,
         pageSize,
