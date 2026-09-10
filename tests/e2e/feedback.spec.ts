@@ -42,7 +42,9 @@ test('service feedback is a dedicated client-experience workspace', async ({ pag
 
   await expect(page.getByRole('heading', { name: 'Service feedback', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByRole('region', { name: 'Service performance by employee' })).toBeVisible()
-  await expect(page.getByRole('heading', { name: 'Feedback history', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'Feedback history', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: /Feedback history/ }).click()
+  await expect(page.getByRole('dialog', { name: 'Feedback history' })).toBeVisible()
   await expect(page.getByRole('heading', { name: 'Quality control' })).toHaveCount(0)
   await expect(page.getByRole('button', { name: 'New inspection' })).toHaveCount(0)
 })
@@ -53,12 +55,14 @@ test('feedback filters recalculate the summary and preserve the exact evaluation
   await createFeedback(page, marker, 5)
 
   await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
-  const search = page.getByPlaceholder('Employee, location or comment…')
+  await page.getByRole('button', { name: /Feedback history/ }).click()
+  const history = page.getByRole('dialog', { name: 'Feedback history' })
+  const search = history.getByPlaceholder('Employee, location or comment…')
   await search.fill(marker)
 
-  await expect(page.getByText('1 matching evaluation', { exact: true })).toBeVisible()
+  await expect(history.getByText('1 evaluation', { exact: true })).toBeVisible()
 
-  const row = page.locator('button').filter({ hasText: marker }).first()
+  const row = history.locator('button').filter({ hasText: marker }).first()
   await expect(row).toBeVisible()
   await row.click()
 
@@ -69,8 +73,21 @@ test('feedback filters recalculate the summary and preserve the exact evaluation
   await detail.getByRole('button', { name: 'Close' }).click()
   await expect(detail).toHaveCount(0)
 
-  await page.getByRole('button', { name: 'Clear filters' }).click()
+  await history.getByRole('button', { name: 'Clear filters' }).click()
   await expect(search).toHaveValue('')
+})
+
+test('needs attention filters the employee performance list without opening history', async ({ page }) => {
+  await login(page, 'super@ds.ie')
+  const marker = `attention-e2e-${Date.now()}`
+  await createFeedback(page, marker, 3)
+
+  await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
+  const attention = page.getByRole('button', { name: /Needs attention/ })
+  await expect(attention).toBeVisible()
+  await attention.click()
+  await expect(attention).toHaveAttribute('aria-pressed', 'true')
+  await expect(page.getByRole('dialog', { name: /Feedback history/ })).toHaveCount(0)
 })
 
 test('employees cannot open the manager feedback workspace', async ({ page }) => {
