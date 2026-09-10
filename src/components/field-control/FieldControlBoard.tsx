@@ -4,10 +4,11 @@ import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import OpsIcon from '../ui/OpsIcon'
+import FieldLocationReviewMap, { type ReviewLocationPoint, type ReviewSitePoint } from './FieldLocationReviewMap'
 import './FieldControlReview.css'
 
 type Person = { id: string; name: string | null; email: string }
-type LocationEvent = { id: string; kind: string; capturedAt: string; distanceM: number | null; accuracyM: number | null; classification: string | null }
+type LocationEvent = { id: string; kind: string; capturedAt: string; latitude: number; longitude: number; distanceM: number | null; accuracyM: number | null; classification: string | null }
 type TimeEntry = {
   id: string
   status: string
@@ -18,7 +19,7 @@ type TimeEntry = {
   startLocationClass: string | null
   reviewReason: string | null
   user: Person
-  visit: { id: string; site: { name: string; client: { displayName: string } } } | null
+  visit: { id: string; site: { name: string; addressLine1: string; city: string; postalCode: string; latitude: number | null; longitude: number | null; geofenceVerifiedM: number; client: { displayName: string } } } | null
   locationEvents: LocationEvent[]
   disputes?: Array<{ id: string; reason: string; createdAt: string }>
 }
@@ -137,6 +138,14 @@ function locationLabel(point: LocationEvent | undefined) {
   if (point.classification === 'near') return 'Watch'
   if (point.classification === 'suspicious') return 'Review'
   return 'GPS unavailable'
+}
+
+function locationEventLabel(kind: string) {
+  if (kind === 'clock_in') return 'Clock in'
+  if (kind === 'clock_out') return 'Clock out'
+  if (kind === 'heartbeat') return 'Presence check'
+  if (kind === 'manual_correction') return 'Manual correction'
+  return kind.replaceAll('_', ' ')
 }
 
 function locationMeta(point: LocationEvent | undefined) {
@@ -455,6 +464,27 @@ function TimeReviewDetail({
   const clockIn = entry.locationEvents.find((event) => event.kind === 'clock_in')
   const clockOut = [...entry.locationEvents].reverse().find((event) => event.kind === 'clock_out')
   const openChallenge = entry.disputes?.[0]
+  const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
+  const sitePoint: ReviewSitePoint | null = entry.visit ? {
+    name: entry.visit.site.name,
+    clientName: entry.visit.site.client.displayName,
+    address: [entry.visit.site.addressLine1, entry.visit.site.city, entry.visit.site.postalCode].filter(Boolean).join(', '),
+    latitude: entry.visit.site.latitude,
+    longitude: entry.visit.site.longitude,
+    geofenceVerifiedM: entry.visit.site.geofenceVerifiedM,
+  } : null
+  const mapPoints: ReviewLocationPoint[] = entry.locationEvents
+    .filter((event) => Number.isFinite(event.latitude) && Number.isFinite(event.longitude))
+    .map((event) => ({
+      id: event.id,
+      kind: event.kind,
+      latitude: event.latitude,
+      longitude: event.longitude,
+      accuracyM: event.accuracyM,
+      distanceM: event.distanceM,
+      classification: event.classification,
+      capturedAt: event.capturedAt,
+    }))
 
   return <article className="field-v2-review-detail">
     <header className="field-v2-detail-head"><button className="field-v2-back" onClick={onBack}>← Review queue</button><a className="field-v2-secondary" href={`/timesheets?entry=${encodeURIComponent(entry.id)}`}><OpsIcon name="clock" size={16} />Open timesheet</a></header>
@@ -464,7 +494,8 @@ function TimeReviewDetail({
       <LocationCheck title="Clock in" point={clockIn} />
       <LocationCheck title="Clock out" point={clockOut} />
     </section>
-    {entry.locationEvents.length ? <section className="field-v2-timeline"><h3>Location timeline</h3>{entry.locationEvents.map((point) => <div key={point.id}><span className={`field-v2-timeline-dot ${locationTone(point)}`} /><div><strong>{point.kind.replaceAll('_', ' ')}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></div>)}</section> : null}
+    {entry.visit ? <FieldLocationReviewMap site={sitePoint} points={mapPoints} selectedPointId={selectedPointId} onSelectPoint={setSelectedPointId} /> : null}
+    {entry.locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check = a periodic GPS point captured while the visit timer is running.</p></div><span>Click a point to focus it on the map</span></div>{entry.locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-dot ${locationTone(point)}`} /><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
     {openChallenge ? <section className="field-v2-worker-request"><div><OpsIcon name="user" /><strong>Worker correction request</strong></div><p>{openChallenge.reason}</p><label className="field-v2-note"><span>Response to worker</span><input value={notes[openChallenge.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [openChallenge.id]: event.target.value }))} placeholder="Explain the decision" /></label><div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'declined')}>Keep original</button><button className="field-v2-primary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'accepted')}>Accept correction</button></div></section> : null}
     <section className="field-v2-decision"><label className="field-v2-note"><span>Manager decision note</span><input value={notes[entry.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [entry.id]: event.target.value }))} placeholder="Optional when approving; explain when returning" /></label><div className="field-v2-actions"><button className="field-v2-secondary danger" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'rejected')}>Return for correction</button><button className="field-v2-primary" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'approved')}>Approve execution record</button></div></section>
   </article>
