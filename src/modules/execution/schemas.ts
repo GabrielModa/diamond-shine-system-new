@@ -85,10 +85,14 @@ export const incidentCreateSchema = z.object({
 
 export const timeEntryReviewSchema = z.object({
   decision: z.enum(['approved', 'rejected']),
+  payableSeconds: z.number().int().min(0).optional(),
   note: z.string().trim().max(2000).optional().nullable(),
 }).superRefine((value, context) => {
   if (value.decision === 'rejected' && !value.note) {
     context.addIssue({ code: z.ZodIssueCode.custom, path: ['note'], message: 'A rejection reason is required.' })
+  }
+  if (value.decision === 'rejected' && value.payableSeconds != null && value.payableSeconds !== 0) {
+    context.addIssue({ code: z.ZodIssueCode.custom, path: ['payableSeconds'], message: 'Rejected time cannot be payable.' })
   }
 })
 
