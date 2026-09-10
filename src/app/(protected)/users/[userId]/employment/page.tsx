@@ -138,8 +138,8 @@ export default function EmployeeSettingsPage() {
       })
       const body = await response.json()
       if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not save employment settings.')
-      setData(body.data)
       setMessage({ type: 'success', text: 'Company-owned employment settings saved.' })
+      await load()
     } catch (error) {
       setMessage({ type: 'error', text: error instanceof Error ? error.message : 'Could not save employment settings.' })
     } finally {
