@@ -1,10 +1,10 @@
 export type HealthInputs = {
-  completionRate: number
+  completionRate: number | null
   qualityScore: number | null
-  timeAnomalyRate: number
-  stockRiskRate: number
-  acknowledgementGapRate: number
-  criticalIssueRate: number
+  timeAnomalyRate: number | null
+  stockRiskRate: number | null
+  acknowledgementGapRate: number | null
+  criticalIssueRate: number | null
 }
 
 export function clampPercent(value: number) {
@@ -12,17 +12,27 @@ export function clampPercent(value: number) {
 }
 
 export function operationalHealth(input: HealthInputs) {
-  const score = Math.round(
-    clampPercent(input.completionRate) * 0.3 +
-    clampPercent(input.qualityScore ?? 100) * 0.25 +
-    (100 - clampPercent(input.timeAnomalyRate)) * 0.15 +
-    (100 - clampPercent(input.stockRiskRate)) * 0.15 +
-    (100 - clampPercent(input.acknowledgementGapRate)) * 0.1 +
-    (100 - clampPercent(input.criticalIssueRate)) * 0.05
-  )
+  const components = [
+    { value: input.completionRate, weight: 0.30, invert: false },
+    { value: input.qualityScore, weight: 0.25, invert: false },
+    { value: input.timeAnomalyRate, weight: 0.15, invert: true },
+    { value: input.stockRiskRate, weight: 0.15, invert: true },
+    { value: input.acknowledgementGapRate, weight: 0.10, invert: true },
+    { value: input.criticalIssueRate, weight: 0.05, invert: true },
+  ].filter((component) => component.value != null)
+
+  const availableWeight = components.reduce((sum, component) => sum + component.weight, 0)
+  if (!availableWeight) return { score: null, grade: 'no_data', confidence: 0 } as const
+
+  const weighted = components.reduce((sum, component) => {
+    const value = clampPercent(component.value as number)
+    return sum + (component.invert ? 100 - value : value) * component.weight
+  }, 0)
+  const score = Math.round(weighted / availableWeight)
   return {
     score,
     grade: score >= 90 ? 'excellent' : score >= 78 ? 'healthy' : score >= 65 ? 'watch' : 'critical',
+    confidence: Math.round(availableWeight * 100),
   } as const
 }
 
@@ -35,7 +45,6 @@ export type SiteRiskSignals = {
   outOfStock: number
   needsReorder: number
   unacknowledged: number
-  unassignedUpcoming: number
   latestQualityScore: number | null
 }
 
@@ -55,7 +64,6 @@ export function siteRisk(signals: SiteRiskSignals) {
   add(18, 'material out of stock', signals.outOfStock)
   add(7, 'material near reorder', signals.needsReorder)
   add(8, 'message awaiting acknowledgement', signals.unacknowledged)
-  add(18, 'upcoming visit without a team', signals.unassignedUpcoming)
   if (signals.latestQualityScore != null && signals.latestQualityScore < 85) {
     score += Math.min(30, Math.ceil((85 - signals.latestQualityScore) * 1.5))
     reasons.push(`quality score ${signals.latestQualityScore}`)
