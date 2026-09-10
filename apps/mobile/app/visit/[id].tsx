@@ -682,7 +682,7 @@ export default function VisitScreen() {
   const address = [visit.site.addressLine1, visit.site.addressLine2, visit.site.city, visit.site.postalCode].filter(Boolean).join(', ');
   const timerStepState = visitSubmitted || closeoutReady ? 'done' : 'current';
   const checklistStepState = visitSubmitted || requiredDone ? 'done' : closeoutReady ? 'current' : 'next';
-  const submitStepState = visitSubmitted ? 'done' : closeoutBaseReady ? 'current' : 'next';
+  const doneStepState = visitSubmitted ? 'done' : closeoutBaseReady ? 'current' : 'next';
   const timerToneLabel = paused ? 'Paused' : timerTone === 'over' ? 'Over planned time' : timerTone === 'warning' ? 'Approaching planned time' : 'On track';
   const remainingLabel = remainingSeconds >= 0 ? `${formatDuration(remainingSeconds)} planned remaining` : `${formatDuration(Math.abs(remainingSeconds))} over planned time`;
   const scheduleResponseNeeded = Boolean(ownAssignment && PENDING_ASSIGNMENTS.has(ownAssignment.status) && !visitExecutionOpen && !visitSubmitted);
@@ -751,7 +751,7 @@ export default function VisitScreen() {
         <View style={styles.flowLine} />
         <FlowStep number="2" label="Closeout" state={checklistStepState} />
         <View style={styles.flowLine} />
-        <FlowStep number="3" label="Done" state={submitStepState} />
+        <FlowStep number="3" label="Done" state={doneStepState} />
       </View>
 
       {visitSubmitted ? <View style={styles.executionCopy}>
