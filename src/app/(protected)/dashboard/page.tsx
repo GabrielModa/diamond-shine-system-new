@@ -76,7 +76,7 @@ export default function DashboardPage() {
         fetchJson<DashboardResponse>('/api/dashboard'),
         fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200'),
         fetchJson<{ items: FeedbackEntry[] }>('/api/feedback'),
-        fetchJson<Assignee[]>('/api/users'),
+        fetchJson<Assignee[]>('/api/supplies/assignees'),
       ])
 
       if (dashboardRes.status === 'fulfilled') {
@@ -101,7 +101,7 @@ export default function DashboardPage() {
         setFeedback(fallback)
       }
       if (usersRes.status === 'fulfilled') {
-        setAssignees(usersRes.value.filter((user) => user.status === 'active' && (user.role === 'admin' || user.role === 'supervisor')))
+        setAssignees(usersRes.value.filter((user) => user.status === 'active'))
       }
     } catch {
       setToast({ type: 'error', message: 'Failed to load dashboard data.' })
@@ -200,8 +200,8 @@ export default function DashboardPage() {
         <main className="dashboard">
           <div className="top-bar dashboard-header">
             <div className="header-left">
-              <div className="muted">Management overview</div>
-              <div className="header-title">Management dashboard</div>
+              <div className="muted">Field requests & employee feedback</div>
+              <div className="header-title">Operations desk</div>
               <div className="header-meta">
                 {syncing ? (
                   <span className="syncing">
