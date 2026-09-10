@@ -139,10 +139,16 @@ describe('GET /api/feedback', () => {
     expect(res.body.data.metrics).toEqual({
       overall: 4,
       cleanliness: 4,
+      punctuality: 4,
+      equipment: 4,
       clientRelations: 4,
       attention: 1,
     })
     expect(res.body.data.employees).toEqual(['A', 'B'])
+    expect(res.body.data.employeeSummaries).toEqual(expect.arrayContaining([
+      expect.objectContaining({ name: 'A', overall: 5, category: 'Excellent', evaluations: 1 }),
+      expect.objectContaining({ name: 'B', overall: 3, category: 'Good', evaluations: 1 }),
+    ]))
   })
 
   it('filters feedback on the server without losing global employee options', async () => {
