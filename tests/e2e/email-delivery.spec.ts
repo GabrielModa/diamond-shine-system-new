@@ -20,7 +20,7 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
   await expect(page.getByText('Queued 2', { exact: false })).toContainText('Exhausted 3')
   await expect(page.getByText('Latest failure:', { exact: false })).toContainText('SMTP 535')
   await page.getByRole('button', { name: 'Test email delivery', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('EAUTH')
+  await expect(page.getByRole('alert').filter({ hasText: 'EAUTH' })).toContainText('EAUTH')
   await page.route('**/api/notifications/test', (route) => route.fulfill({ json: { ok: true, data: { message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.' } } }))
   await page.getByRole('button', { name: 'Test email delivery', exact: true }).click()
   await expect(page.getByText('SMTP verified and test email accepted', { exact: false })).toBeVisible()
