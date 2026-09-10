@@ -1,6 +1,6 @@
 import { expect, test } from '@playwright/test'
 
-test('admin can inspect delivery failures and run the email diagnostic', async ({ page }) => {
+test('admin can inspect delivery failures and run the email diagnostic', async ({ page }, testInfo) => {
   await page.goto('/login')
   await page.fill('input[type="email"]', 'admin@ds.ie')
   await page.fill('input[type="password"]', 'password123')
@@ -24,5 +24,6 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
   await page.route('**/api/notifications/test', (route) => route.fulfill({ json: { ok: true, data: { message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.' } } }))
   await page.getByRole('button', { name: 'Test email delivery', exact: true }).click()
   await expect(page.getByText('SMTP verified and test email accepted', { exact: false })).toBeVisible()
+  await page.screenshot({ path: testInfo.outputPath('delivery-settings.png'), fullPage: true })
   expect(await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth)).toBeLessThanOrEqual(1)
 })

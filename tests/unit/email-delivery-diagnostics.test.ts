@@ -42,6 +42,13 @@ describe('safe SMTP diagnostics and queue persistence', () => {
     const safe = sanitizeDeliveryError(smtpError)
     expect(safe).toBe('EAUTH: Invalid login or SMTP authentication rejected (SMTP 535)')
     expect(sanitizeDeliveryError(safe)).toBe(safe)
+    const policy = sanitizeDeliveryError({ code: 'EAUTH', message: 'SmtpClientAuthentication is disabled; AUTH private-token', responseCode: 535 })
+    expect(policy).toBe('EAUTH: SMTP AUTH is disabled for this account or tenant (SMTP 535)')
+    expect(sanitizeDeliveryError(policy)).toBe(policy)
+    const unknown = sanitizeDeliveryError({ message: 'private server response', responseCode: 554 })
+    expect(sanitizeDeliveryError(unknown)).toBe(unknown)
+    expect(unknown).toContain('SMTP 554')
+    expect(sanitizeDeliveryError('Maximum delivery attempts reached.')).toBe('Maximum delivery attempts reached.')
     expect(sanitizeDeliveryError({ code: 'SECRET', message: 'smtp://user:password@host token=hidden' })).not.toMatch(/password|hidden|SECRET/)
   })
   it('returns useful sanitized failures from supplies, feedback and operational mailers', async () => {
