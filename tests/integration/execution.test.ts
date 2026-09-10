@@ -364,7 +364,7 @@ describe('field execution', () => {
     const forbidden = await request(app).post(`/api/visits/${unassigned.visit.id}/start`).set('Cookie', employeeCookie).send({})
     expect(forbidden.status).toBe(404)
 
-    const { visit } = await executionVisit()
+    const { visit, employee } = await executionVisit()
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
     expect(started.status).toBe(201)
     expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
