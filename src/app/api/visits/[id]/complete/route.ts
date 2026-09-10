@@ -35,9 +35,9 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     return NextResponse.json({ ok: false, error: 'This visit cannot be completed.', code: 'VISIT_NOT_COMPLETABLE' }, { status: 409 })
   }
 
-  // Clock-out and visit submission are intentionally separate product actions.
-  // A cleaner records their end location by stopping the timer first. Only when
-  // every work/break timer linked to this visit is closed can it be submitted.
+  // Clock-out and visit completion remain separate server records for auditability,
+  // but the field app presents them as one guided Finish visit flow. Every
+  // work/break timer must still be closed before the final save can complete.
   const [runningTimers, ownRecordedTimer] = await Promise.all([
     prisma.timeEntry.findMany({
       where: {
