@@ -9,6 +9,7 @@ import SupplyOperationsOverview from './SupplyOperationsOverview'
 import { SupplyDetailSheet } from '../dashboard/SupplyDetailSheet'
 import { EmailModal } from '../dashboard/EmailModal'
 import { ConfirmModal } from '../dashboard/ConfirmModal'
+import OpsIcon from '../ui/OpsIcon'
 
 type Tab = 'overview' | 'count' | 'request' | 'history'
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -143,7 +144,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
   }
 
   return <main className="page-shell materials-shell">
-    <header className="page-header materials-header"><div><span className="eyebrow">Requests, procurement & stock</span><h1>Supplies</h1><p className="muted">Process requests from the field, keep stock reality current and see shortages before they disrupt service.</p></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button></header>
+    <header className="page-header materials-header"><div><span className="eyebrow">Requests, procurement & stock</span><h1>Supplies</h1><p className="muted">Process requests from the field, keep stock reality current and see shortages before they disrupt service.</p></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={busy}><OpsIcon name="refresh" size={16} /> Refresh</button></header>
     {message ? <div className={`inline-message ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}<button type="button" className="notice-close" onClick={() => setMessage(null)} aria-label="Dismiss message">×</button></div> : null}
     <nav className="materials-tabs" aria-label="Supplies views">{canManage ? <button type="button" className={tab === 'overview' ? 'active' : ''} onClick={() => setTab('overview')}>Requests & stock</button> : null}<button type="button" className={tab === 'count' ? 'active' : ''} onClick={() => setTab('count')}>Count stock</button><button type="button" className={tab === 'request' ? 'active' : ''} onClick={() => setTab('request')}>New request</button><button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>{canManage ? 'Request history' : 'My requests'}</button></nav>
     {busy ? <section className="card empty-state">Loading material intelligence…</section> : null}
