@@ -1,3 +1,8 @@
+/* Coverage map presentation fixes kept local to the workforce planning surface. */
+.wf-map-legend span:last-child .site {
+  background: #778091 !important;
+}
+
 /* Keep the complete coverage legend inside narrow viewports. The fifth site state (no upcoming visits) must wrap instead of enlarging the document. */
 @media (max-width: 740px) {
   .coverage-layout:not(:fullscreen) .wf-map-legend {
