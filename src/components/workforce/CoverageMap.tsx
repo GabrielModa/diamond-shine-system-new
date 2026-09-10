@@ -76,6 +76,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       marker.on('click',()=>{onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Service site ${site.client.displayName} · ${site.name}`)
       marker.getElement()?.setAttribute('data-workforce-site-marker',site.id)
+      marker.getElement()?.setAttribute('data-coverage-state',site.coverageState)
     })
     if(showEmployees)employees.filter(e=>['home','school'].includes(e.context.state)&&e.context.origin?.latitude!=null&&e.context.origin.longitude!=null).forEach(e=>{
       const o=e.id===selectedEmployee?.id?(routeOrigin ?? e.context.origin):e.context.origin!;if(o?.latitude==null||o.longitude==null)return;const lat=o.latitude,lng=o.longitude;bounds.push([lat,lng])
@@ -102,7 +103,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
-    <div className="wf-map-legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
+    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span><span><i className="site" style={{background:'#7b8494'}}><b>–</b></i>No upcoming visits</span></div>
     {selectedSite&&dismissedSiteId!==selectedSite.id?<aside className="wf-map-site-card" data-testid="map-site-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>{setDismissedSiteId(selectedSite.id);onCloseSite?.()}}>×</button>
       <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
