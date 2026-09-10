@@ -1,0 +1,15 @@
+/* Keep the complete coverage legend inside narrow viewports. The fifth site state (no upcoming visits) must wrap instead of enlarging the document. */
+@media (max-width: 740px) {
+  .coverage-layout:not(:fullscreen) .wf-map-legend {
+    left: 10px;
+    right: 10px;
+    max-width: calc(100% - 20px);
+    flex-wrap: wrap;
+    gap: 6px 10px;
+    box-sizing: border-box;
+  }
+
+  .coverage-layout:not(:fullscreen) .wf-map-legend span {
+    white-space: nowrap;
+  }
+}
