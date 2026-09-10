@@ -6,6 +6,7 @@ import OpsIcon from '../ui/OpsIcon'
 
 type Preset = 'all' | 'overdue' | 'unassigned' | 'month'
 type SupplyFilter = { status?: SupplyStatus; priority?: SupplyPriority; preset?: Preset }
+type SupplyStatusIcon = 'review' | 'search' | 'check' | 'box' | 'truck' | 'alert'
 
 function thisMonthCount(requests: SupplyRequest[]) {
   const now = new Date()
@@ -25,9 +26,9 @@ function mostRequested(requests: SupplyRequest[]) {
   return [...counts.entries()].sort((a, b) => b[1] - a[1] || a[0].localeCompare(b[0]))[0]?.[0] ?? '—'
 }
 
-const STATUS: Array<{ value: SupplyStatus; label: string; icon: 'review' | 'check' | 'box' | 'truck' | 'alert' }> = [
+const STATUS: Array<{ value: SupplyStatus; label: string; icon: SupplyStatusIcon }> = [
   { value: 'Requested', label: 'Requested', icon: 'review' },
-  { value: 'Triaged', label: 'Triaged', icon: 'search' as never },
+  { value: 'Triaged', label: 'Triaged', icon: 'search' },
   { value: 'Approved', label: 'Approved', icon: 'check' },
   { value: 'Ordered', label: 'Ordered', icon: 'box' },
   { value: 'In transit', label: 'In transit', icon: 'truck' },
