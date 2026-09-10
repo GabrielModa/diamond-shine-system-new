@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import StandardSelect from '../ui/StandardSelect'
 
-type Person = { id: string; name?: string | null; email: string }
+type Person = { id: string; name?: string | null; email: string; role?: string }
 type Site = { id: string; name: string; client: { displayName: string } }
 type Receipt = { id: string; seenAt?: string | null; acknowledgedAt?: string | null; acknowledgement?: string | null; user: Person }
 type Notice = {
@@ -51,6 +51,17 @@ const PRIORITIES = [
   { value: 'critical', label: 'Critical' },
 ]
 
+const ROLE_LABELS: Record<string, string> = {
+  employee: 'Cleaners',
+  field_supervisor: 'Supervisors',
+  scheduler: 'Schedulers',
+  organization_admin: 'Admins',
+  stock_controller: 'Stock controllers',
+  quality_inspector: 'Quality inspectors',
+  finance: 'Finance',
+  viewer: 'Viewers',
+}
+
 export default function OperationalInbox({ canManage, canConfigure }: { canManage: boolean; canConfigure: boolean }) {
   const [tab, setTab] = useState<'inbox' | 'broadcast' | 'tracking' | 'delivery'>('inbox')
   const [mine, setMine] = useState<NoticeData>({ items: [], summary: {} })
@@ -77,7 +88,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       if (canManage) {
         const [allData, employeeData, siteData] = await Promise.all([
           api<NoticeData>('/api/operational-notices?scope=all'),
-          api<Person[]>('/api/employees'),
+          api<Person[]>('/api/operational-notices/recipients'),
           api<Site[]>('/api/sites'),
         ])
         setAll(allData)
@@ -104,14 +115,35 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   useEffect(() => { void refresh() }, [refresh])
 
+  useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 3600)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
   const unacknowledged = useMemo(
     () => mine.items.filter((item) => item.requiresAcknowledgement && !item.recipients[0]?.acknowledgedAt),
     [mine.items],
   )
   const recipientPeople = useMemo(() => {
     const needle = recipientQuery.trim().toLowerCase()
-    return people.filter((person) => !needle || `${person.name ?? ''} ${person.email}`.toLowerCase().includes(needle))
+    return people.filter((person) => !needle || `${person.name ?? ''} ${person.email} ${ROLE_LABELS[person.role ?? ''] ?? person.role ?? ''}`.toLowerCase().includes(needle))
   }, [people, recipientQuery])
+  const recipientGroups = useMemo(() => {
+    const roles = [...new Set(people.map((person) => person.role).filter((role): role is string => Boolean(role)))]
+    return roles.map((role) => ({
+      role,
+      label: ROLE_LABELS[role] ?? role.replaceAll('_', ' '),
+      ids: people.filter((person) => person.role === role).map((person) => person.id),
+    }))
+  }, [people])
+
+  function toggleRecipientIds(ids: string[]) {
+    if (!ids.length) return
+    setSelectedUsers((current) => ids.every((id) => current.includes(id))
+      ? current.filter((id) => !ids.includes(id))
+      : Array.from(new Set([...current, ...ids])))
+  }
 
   async function receipt(item: Notice, action: 'seen' | 'acknowledged') {
     const acknowledgement = action === 'acknowledged' ? acknowledgementNotes[item.id]?.trim() || null : null
@@ -205,7 +237,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       <div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div>
       <button className="secondary" type="button" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button>
     </section>
-    {notice ? <div className="inline-message success" role="status">{notice}</div> : null}
+    {notice ? <div className="transient-notice success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
     {error ? <div className="inline-message error" role="alert">{error}</div> : null}
     <nav className="materials-tabs" aria-label="Inbox views">
       {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
@@ -249,11 +281,16 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <div><strong>Recipients</strong><button type="button" className="text-button" onClick={() => {
           const shown = recipientPeople.map((person) => person.id)
           const allShown = shown.length > 0 && shown.every((id) => selectedUsers.includes(id))
-          setSelectedUsers((current) => allShown ? current.filter((id) => !shown.includes(id)) : Array.from(new Set([...current, ...shown])))
+          toggleRecipientIds(shown)
+          if (!allShown && !shown.length) return
         }}>{recipientPeople.length > 0 && recipientPeople.every((person) => selectedUsers.includes(person.id)) ? 'Clear shown' : 'Select shown'}</button></div>
-        <label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name or email…" /></label>
+        <div className="recipient-groups" role="group" aria-label="Select recipients by role">
+          <button type="button" className={people.length > 0 && people.every((person) => selectedUsers.includes(person.id)) ? 'selected' : ''} onClick={() => toggleRecipientIds(people.map((person) => person.id))}>Everyone <b>{people.length}</b></button>
+          {recipientGroups.map((group) => <button type="button" key={group.role} className={group.ids.every((id) => selectedUsers.includes(id)) ? 'selected' : ''} onClick={() => toggleRecipientIds(group.ids)}>{group.label} <b>{group.ids.length}</b></button>)}
+        </div>
+        <label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, email or role…" /></label>
         <span className="recipient-result-count">{recipientPeople.length} shown · {selectedUsers.length} selected</span>
-        {recipientPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => setSelectedUsers((current) => current.includes(person.id) ? current.filter((id) => id !== person.id) : [...current, person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{person.email}</small></span></label>)}
+        {recipientPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => toggleRecipientIds([person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{ROLE_LABELS[person.role ?? ''] ?? person.role?.replaceAll('_', ' ') ?? 'Team member'} · {person.email}</small></span></label>)}
       </div>
       <button type="button" onClick={() => void publish()} disabled={busy || !draft.title.trim() || !draft.body.trim() || !selectedUsers.length}>Publish & track acknowledgement</button>
     </article></section> : null}
