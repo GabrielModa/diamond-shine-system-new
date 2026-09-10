@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../../../lib/prisma'
-import { requireCapability } from '../../../../../lib/auth'
+import { requireCapabilities } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { enqueueNotification } from '../../../../../lib/notification-queue'
 import { asInputJson } from '../../../../../modules/operations/json'
@@ -31,17 +31,13 @@ function isManualExtraRecurrence(value: unknown) {
 }
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const clientAuth = await requireCapability(request, 'clients.manage')
-  if ('response' in clientAuth) return clientAuth.response
-  const serviceAuth = await requireCapability(request, 'service_plans.manage')
-  if ('response' in serviceAuth) return serviceAuth.response
-  const scheduleAuth = await requireCapability(request, 'schedule.manage')
-  if ('response' in scheduleAuth) return scheduleAuth.response
+  const auth = await requireCapabilities(request, ['clients.manage', 'service_plans.manage', 'schedule.manage'])
+  if ('response' in auth) return auth.response
 
   const parsed = changeSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid service change', details: parsed.error.flatten() }, { status: 400 })
   const { id: clientId } = await params
-  const organizationId = clientAuth.user.organizationId
+  const organizationId = auth.user.organizationId
   const now = new Date()
   if (parsed.data.effectiveFrom.getTime() < now.getTime() - 5 * 60_000) {
     return NextResponse.json({ ok: false, error: 'Effective date cannot be in the past.' }, { status: 400 })
@@ -163,7 +159,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         data: {
           organizationId, servicePlanId: refreshed.id, versionNumber: (latest._max.versionNumber ?? 0) + 1,
           expectedDurationMinutes: refreshed.expectedDurationMinutes, requiredWorkers: refreshed.requiredWorkers,
-          snapshot: asInputJson(snapshot)!, contentHash, publishedBy: clientAuth.user.email,
+          snapshot: asInputJson(snapshot)!, contentHash, publishedBy: auth.user.email,
           tasks: { create: taskSnapshot.map((task) => ({
             organizationId, ...task, options: asInputJson(task.options), conditionalRules: asInputJson(task.conditionalRules),
           })) },
@@ -206,25 +202,41 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         defaultAssignees: defaultAssigneeIds.length ? { create: defaultAssigneeIds.map((userId, priority) => ({ organizationId, userId, priority })) } : undefined,
       },
     })
+
     const assignedUserIds = new Set<string>()
-    const visitIds: string[] = []
-    for (let index = 0; index < occurrences.length; index += 1) {
-      const start = occurrences[index]
+    const plannedVisits = occurrences.map((start, index) => {
       const end = new Date(start.getTime() + parsed.data.expectedDurationMinutes * 60_000)
       const assigneeIds = allocator.select(start, end, parsed.data.requiredWorkers)
       assigneeIds.forEach((userId) => assignedUserIds.add(userId))
-      const visit = await tx.visit.create({
+      return {
+        generationKey: generationKey(start),
+        assigneeIds,
         data: {
           organizationId, jobId: job.id, siteId: refreshed.siteId, servicePlanVersionId: version.id,
           scheduledStart: start, scheduledEnd: end, timezone: refreshed.site.timezone,
           sequenceNumber: index + 1, generationKey: generationKey(start), requiredWorkers: parsed.data.requiredWorkers,
-          status: assigneeIds.length ? 'dispatched' : 'scheduled',
-          assignments: { create: assigneeIds.map((userId) => ({ organizationId, userId, status: 'assigned' })) },
+          status: assigneeIds.length ? 'dispatched' as const : 'scheduled' as const,
         },
-        select: { id: true },
-      })
-      visitIds.push(visit.id)
-    }
+      }
+    })
+
+    const createdVisits = await tx.visit.createManyAndReturn({
+      data: plannedVisits.map((visit) => visit.data),
+      select: { id: true, generationKey: true },
+    })
+    const visitIdByGenerationKey = new Map(createdVisits.map((visit) => [visit.generationKey, visit.id]))
+    const assignments = plannedVisits.flatMap((visit) => {
+      const visitId = visitIdByGenerationKey.get(visit.generationKey)
+      if (!visitId) throw new Error(`Created visit missing for ${visit.generationKey}`)
+      return visit.assigneeIds.map((userId) => ({ organizationId, visitId, userId, status: 'assigned' as const }))
+    })
+    if (assignments.length) await tx.visitAssignment.createMany({ data: assignments })
+    const visitIds = plannedVisits.map((visit) => {
+      const visitId = visitIdByGenerationKey.get(visit.generationKey)
+      if (!visitId) throw new Error(`Created visit missing for ${visit.generationKey}`)
+      return visitId
+    })
+
     return { version, job, visitIds, assignedUserIds: [...assignedUserIds], replacedVisits: replacedVisits.count }
   })
 
@@ -235,18 +247,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         organizationId, siteId: current.siteId, visitId: result.visitIds[0], type: 'schedule_change', priority: 'high',
         title: 'Cleaning service schedule updated',
         body: `${current.site.client.displayName} · ${current.site.name} has a new service pattern effective ${first.toLocaleString('en-IE', { timeZone: current.site.timezone })}. Open Schedule for your updated visits.`,
-        requiresAcknowledgement: true, createdById: clientAuth.user.id,
+        requiresAcknowledgement: true, createdById: auth.user.id,
         recipients: { create: result.assignedUserIds.map((userId) => ({ organizationId, userId })) },
       },
     })
     await enqueueNotification({
-      organizationId, kind: 'operational_notice_push', createdBy: clientAuth.user.email,
+      organizationId, kind: 'operational_notice_push', createdBy: auth.user.email,
       entityType: 'operational_notice', entityId: notice.id,
       payload: { userIds: result.assignedUserIds, title: notice.title, body: notice.body, noticeId: notice.id, priority: notice.priority },
     })
   }
 
-  await logAudit(clientAuth.user.email, 'change_client_service', 'service_plan', current.id, {
+  await logAudit(auth.user.email, 'change_client_service', 'service_plan', current.id, {
     clientId, effectiveFrom: parsed.data.effectiveFrom.toISOString(), serviceVersion: result.version.versionNumber,
     replacedFutureVisits: result.replacedVisits, generatedVisits: result.visitIds.length,
     preservedManualExtraJobs: manualExtraJobs.length,
