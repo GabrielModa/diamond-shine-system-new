@@ -27,6 +27,16 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const visit = await prisma.visit.findFirst({ where: { id, organizationId: auth.user.organizationId, ...assignedVisitFilter(auth.user) }, select: { id: true } })
   if (!visit) return NextResponse.json({ ok: false, error: 'Visit not found' }, { status: 404 })
 
+  if (phase.startsWith('incident:')) {
+    const incidentId = phase.slice('incident:'.length).trim()
+    if (!incidentId) return NextResponse.json({ ok: false, error: 'Incident photo is missing its incident reference.' }, { status: 400 })
+    const incident = await prisma.incident.findFirst({
+      where: { id: incidentId, visitId: id, organizationId: auth.user.organizationId },
+      select: { id: true },
+    })
+    if (!incident) return NextResponse.json({ ok: false, error: 'Incident not found for this visit.' }, { status: 404 })
+  }
+
   let taskResultId = requestedTaskResultId
   if (!taskResultId && versionTaskId) {
     const task = await prisma.visitTaskResult.findFirst({
