@@ -7,6 +7,7 @@ import { prisma } from '../../src/lib/prisma'
 import { seedUsers, getAuthCookie, cleanSupplies } from './setup'
 import { processNotificationJob } from '../../src/lib/notification-queue'
 import { createSessionToken } from '../../src/lib/session'
+import { sendClientNotification } from '../../src/lib/email'
 
 vi.mock('../../src/lib/email', () => ({
   sendSuppliesNotification: vi.fn().mockResolvedValue({ ok: true }),
@@ -290,6 +291,29 @@ describe('POST /api/supplies/:id/notify', () => {
       .send({ clientEmail: 'client@example.com', subject: 'Test', htmlBody: '<p>hi</p>' })
     const updated = await prisma.supplyRequest.findUnique({ where: { id: 'notify2' } })
     expect(updated?.status).toBe('Requested')
+  })
+
+  it('persists sanitized SMTP failure and retries the durable job successfully', async () => {
+    const job = await prisma.notificationJob.create({ data: {
+      kind: 'client_supply', payload: { to: 'client@example.com', subject: 'Retry', htmlBody: '<p>retry</p>' },
+      createdBy: 'admin@ds.ie',
+      nextAttemptAt: new Date(0),
+    } })
+    vi.mocked(sendClientNotification).mockResolvedValueOnce({ ok: false, error: 'EAUTH: Invalid login password=private-token' })
+    await processNotificationJob(job.id)
+    const failed = await prisma.notificationJob.findUniqueOrThrow({ where: { id: job.id } })
+    expect(failed.status).toBe('failed')
+    expect(failed.lastError).toBe('EAUTH: Invalid login or SMTP authentication rejected')
+    expect(failed.sentAt).toBeNull()
+    expect(failed.attempts).toBe(1)
+    expect(failed.nextAttemptAt.getTime()).toBeGreaterThan(Date.now())
+    await prisma.notificationJob.update({ where: { id: job.id }, data: { nextAttemptAt: new Date(0) } })
+    await processNotificationJob(job.id)
+    const sent = await prisma.notificationJob.findUniqueOrThrow({ where: { id: job.id } })
+    expect(sent.status).toBe('sent')
+    expect(sent.sentAt).toBeTruthy()
+    expect(sent.lastError).toBeNull()
+    expect(sent.attempts).toBe(2)
   })
 
   it('reclaims a stale processing notification after a worker crash', async () => {

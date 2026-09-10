@@ -1,3 +1,4 @@
+import { sanitizeDeliveryError } from './delivery-error'
 import nodemailer from 'nodemailer'
 import { SMTP_FROM } from './constants'
 import { prisma } from './prisma'
@@ -167,7 +168,7 @@ async function operationalRecipientOverride(organizationId: string) {
     })
     return uniqueEmails(setting?.recipients?.split(',') ?? [])
   } catch (error) {
-    console.error('[EMAIL] failed to resolve operational recipient override', error)
+    console.error('[EMAIL] failed to resolve operational recipient override', sanitizeDeliveryError(error))
     return []
   }
 }
@@ -214,7 +215,7 @@ export async function sendOperationalEmail(
     }
     return { ok: true, delivered: recipients.length }
   } catch (error) {
-    console.error('[EMAIL] failed operational notification', error)
-    return { ok: false, error: error instanceof Error ? error.message : 'SMTP error' }
+    console.error('[EMAIL] failed operational notification', sanitizeDeliveryError(error))
+    return { ok: false, error: sanitizeDeliveryError(error) }
   }
 }
