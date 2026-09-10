@@ -14,6 +14,7 @@ type Entry = {
   startedAt: string
   endedAt?: string | null
   durationSeconds?: number | null
+  payableSeconds?: number | null
   reviewReason?: string | null
   user: { id: string; name?: string | null; email: string }
   visit?: {
@@ -31,7 +32,35 @@ type ExportLayout = 'summary' | 'detailed'
 
 function entryDurationMs(entry: Entry) {
   if (!entry.endedAt) return 0
+  if (entry.durationSeconds != null) return Math.max(0, entry.durationSeconds * 1000)
   return Math.max(0, new Date(entry.endedAt).getTime() - new Date(entry.startedAt).getTime())
+}
+
+function payableDurationMs(entry: Entry) {
+  if (entry.status !== 'approved') return 0
+  const recorded = entryDurationMs(entry)
+  return entry.payableSeconds == null ? recorded : Math.min(recorded, Math.max(0, entry.payableSeconds * 1000))
+}
+
+function excludedDurationMs(entry: Entry) {
+  const recorded = entryDurationMs(entry)
+  if (!recorded) return 0
+  if (entry.status === 'rejected') return recorded
+  if (entry.status === 'approved') return Math.max(0, recorded - payableDurationMs(entry))
+  return 0
+}
+
+function humanReviewReason(reason?: string | null) {
+  if (!reason) return null
+  const technical = reason.split(' | ')[0]
+  if (technical.includes('PRESENCE_LOCATION_ANOMALY') && technical.includes('LOCATION_FAR_FROM_SITE')) return 'A presence check was captured far from the expected work site.'
+  if (technical.includes('PRESENCE_LOCATION_ANOMALY')) return 'A presence check during the visit was outside the expected site area.'
+  if (technical.includes('LOCATION_FAR_FROM_SITE')) return 'A GPS check was captured far from the expected work site.'
+  if (technical.includes('LOCATION_OUTSIDE_GEOFENCE')) return 'A GPS check was outside the verified site area.'
+  if (technical.includes('GPS_UNAVAILABLE')) return 'GPS evidence was unavailable for a required location check.'
+  if (technical.includes('GPS_UNCERTAIN')) return 'GPS accuracy was too weak to verify the location confidently.'
+  if (technical.includes('REPEATED_LOCATION_PATTERN')) return 'A repeated location pattern needs manager review.'
+  return technical.replaceAll('_', ' ').replaceAll(':', ' · ').toLowerCase()
 }
 
 function humanDuration(value: number) {
@@ -119,6 +148,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   const [exportOpen, setExportOpen] = useState(false)
   const [exportScope, setExportScope] = useState<ExportScope>('filtered')
   const [exportLayout, setExportLayout] = useState<ExportLayout>('summary')
+  const [reviewingEntry, setReviewingEntry] = useState<Entry | null>(null)
+  const [reviewMode, setReviewMode] = useState<'full' | 'adjusted' | 'reject'>('full')
+  const [payableHours, setPayableHours] = useState('0')
+  const [payableMinutes, setPayableMinutes] = useState('0')
+  const [reviewNote, setReviewNote] = useState('')
 
   const refresh = useCallback(async () => {
     setLoading(true)
@@ -143,6 +177,12 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   }, [refresh])
 
   useEffect(() => {
+    if (!notice || notice.kind === 'error') return
+    const timer = window.setTimeout(() => setNotice(null), 3600)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+
+  useEffect(() => {
     if (!focusedEntryId) return
     setTab('review')
     setEmployeeFilter('all')
@@ -152,21 +192,28 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     setQuery('')
   }, [focusedEntryId])
 
-  const reviewEntry = useCallback(async (entry: Entry, decision: 'approved' | 'rejected') => {
+  const reviewEntry = useCallback(async (entry: Entry, decision: 'approved' | 'rejected', payableSeconds: number, note: string) => {
     setBusyId(entry.id)
     try {
       const response = await fetch(`/api/time-entries/${entry.id}/review`, {
         method: 'PATCH',
         credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          decision,
-          note: decision === 'approved' ? 'Approved for payroll from Timesheets.' : 'Rejected from Timesheets payroll review.',
-        }),
+        body: JSON.stringify({ decision, payableSeconds, note: note.trim() || null }),
       })
       const body = await response.json()
       if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not review this entry.')
-      setNotice({ kind: 'success', text: decision === 'approved' ? 'Time approved and payroll-ready.' : 'Time entry rejected.' })
+      const recordedSeconds = Math.round(entryDurationMs(entry) / 1000)
+      const excludedSeconds = Math.max(0, recordedSeconds - payableSeconds)
+      setNotice({
+        kind: 'success',
+        text: decision === 'rejected'
+          ? `Payroll decision saved · ${humanDuration(recordedSeconds * 1000)} excluded.`
+          : excludedSeconds
+            ? `Payroll decision saved · ${humanDuration(payableSeconds * 1000)} payable, ${humanDuration(excludedSeconds * 1000)} excluded.`
+            : 'Payroll decision saved · full recorded time is payable.',
+      })
+      setReviewingEntry(null)
       await refresh()
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not review this entry.' })
@@ -174,6 +221,30 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       setBusyId(null)
     }
   }, [refresh])
+
+  function openPayrollReview(entry: Entry) {
+    const recordedMinutes = Math.round(entryDurationMs(entry) / 60_000)
+    const currentPayableMinutes = entry.status === 'approved'
+      ? Math.round(payableDurationMs(entry) / 60_000)
+      : recordedMinutes
+    setReviewingEntry(entry)
+    setReviewMode(currentPayableMinutes === recordedMinutes ? 'full' : 'adjusted')
+    setPayableHours(String(Math.floor(currentPayableMinutes / 60)))
+    setPayableMinutes(String(currentPayableMinutes % 60))
+    setReviewNote('')
+  }
+
+  function submitPayrollReview() {
+    if (!reviewingEntry) return
+    const recordedSeconds = Math.round(entryDurationMs(reviewingEntry) / 1000)
+    const requestedMinutes = Math.max(0, Number.parseInt(payableHours || '0', 10) * 60 + Number.parseInt(payableMinutes || '0', 10))
+    const requestedSeconds = reviewMode === 'full' ? recordedSeconds : reviewMode === 'reject' ? 0 : Math.min(recordedSeconds, requestedMinutes * 60)
+    if ((reviewMode === 'adjusted' || reviewMode === 'reject') && !reviewNote.trim()) {
+      setNotice({ kind: 'error', text: 'Add a reason for a payroll adjustment or rejection.' })
+      return
+    }
+    void reviewEntry(reviewingEntry, reviewMode === 'reject' ? 'rejected' : 'approved', requestedSeconds, reviewNote)
+  }
 
   const employeeOptions = useMemo(() => {
     const map = new Map<string, string>()
@@ -221,7 +292,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     const reviewRequired = filtered.filter(hasOperationalException)
     return {
       recordedMs,
-      approvedMs: approved.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
+      approvedMs: approved.reduce((sum, entry) => sum + payableDurationMs(entry), 0),
+      excludedMs: ended.reduce((sum, entry) => sum + excludedDurationMs(entry), 0),
       pendingMs: pending.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
       pendingCount: pending.length,
       blockedCount: filtered.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
@@ -242,6 +314,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       entries: number
       recordedMs: number
       approvedMs: number
+      excludedMs: number
       pendingMs: number
       challenges: number
       needsReview: number
@@ -254,6 +327,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         entries: 0,
         recordedMs: 0,
         approvedMs: 0,
+        excludedMs: 0,
         pendingMs: 0,
         challenges: 0,
         needsReview: 0,
@@ -263,7 +337,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       group.entries += 1
       const ms = entryDurationMs(entry)
       if (entry.endedAt) group.recordedMs += ms
-      if (entry.status === 'approved') group.approvedMs += ms
+      if (entry.status === 'approved') group.approvedMs += payableDurationMs(entry)
+      group.excludedMs += excludedDurationMs(entry)
       if (entry.status === 'completed' || entry.status === 'needs_review') group.pendingMs += ms
       if (hasOpenChallenge(entry)) group.challenges += 1
       if (entry.status === 'needs_review') group.needsReview += 1
@@ -298,7 +373,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     if (exportLayout === 'detailed') {
       const rows: unknown[][] = [[
         'Date', 'Employee', 'Email', 'Work type', 'Client', 'Site', 'Start', 'End', 'Duration hours',
-        'Review status', 'Open challenge', 'Location signal', 'Maximum distance (m)',
+        'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
       ]]
       for (const entry of source) {
         const maxDistance = entry.locationEvents.reduce<number | null>((max, event) => {
@@ -316,6 +391,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           entry.endedAt ?? '',
           entry.endedAt ? decimalHours(entryDurationMs(entry)) : '',
           statusLabel(entry),
+          decimalHours(payableDurationMs(entry)),
+          decimalHours(excludedDurationMs(entry)),
           hasOpenChallenge(entry) ? 'Yes' : 'No',
           hasLocationReview(entry) ? 'Review' : entry.locationEvents.length ? 'OK / watch' : 'No location evidence',
           maxDistance ?? '',
@@ -328,6 +405,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         entries: number
         recordedMs: number
         approvedMs: number
+        excludedMs: number
         pendingMs: number
         challengeCount: number
         reviewCount: number
@@ -340,6 +418,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           entries: 0,
           recordedMs: 0,
           approvedMs: 0,
+          excludedMs: 0,
           pendingMs: 0,
           challengeCount: 0,
           reviewCount: 0,
@@ -349,7 +428,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         current.entries += 1
         const ms = entryDurationMs(entry)
         if (entry.endedAt) current.recordedMs += ms
-        if (entry.status === 'approved') current.approvedMs += ms
+        if (entry.status === 'approved') current.approvedMs += payableDurationMs(entry)
+        current.excludedMs += excludedDurationMs(entry)
         if (entry.status === 'completed' || entry.status === 'needs_review') current.pendingMs += ms
         if (hasOpenChallenge(entry)) current.challengeCount += 1
         if (entry.status === 'needs_review') current.reviewCount += 1
@@ -358,7 +438,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         groups.set(entry.user.id, current)
       }
       const rows: unknown[][] = [[
-        'Employee', 'Email', 'Recorded hours', 'Approved / payroll-ready hours', 'Pending hours',
+        'Employee', 'Email', 'Recorded hours', 'Payable hours', 'Excluded hours', 'Pending hours',
         'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
       ]]
       for (const group of [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))) {
@@ -367,6 +447,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           group.user.email,
           decimalHours(group.recordedMs),
           decimalHours(group.approvedMs),
+          decimalHours(group.excludedMs),
           decimalHours(group.pendingMs),
           group.exceptionCount,
           group.challengeCount,
@@ -419,7 +500,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <article className="ts-metric pending"><span className="ts-metric-icon"><OpsIcon name="review" /></span><span>Awaiting approval</span><strong>{humanDuration(metrics.pendingMs)}</strong><small>{metrics.pendingCount} entries</small></article>
       <article className="ts-metric challenge"><span className="ts-metric-icon"><OpsIcon name="alert" /></span><span>Challenges</span><strong>{metrics.challengeCount}</strong><small>{metrics.reviewCount} unique operational exceptions</small></article>
       <article className="ts-metric running"><span className="ts-metric-icon"><OpsIcon name="activity" /></span><span>Running timers</span><strong>{metrics.runningCount}</strong><small>Not payroll-ready yet</small></article>
-      <article className="ts-metric ready"><span className="ts-metric-icon"><OpsIcon name="payroll" /></span><span>Payroll ready</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Approved time only</small></article>
+      <article className="ts-metric excluded"><span className="ts-metric-icon"><OpsIcon name="filter" /></span><span>Excluded</span><strong>{humanDuration(metrics.excludedMs)}</strong><small>Final payroll deductions</small></article>
+      <article className="ts-metric ready"><span className="ts-metric-icon"><OpsIcon name="payroll" /></span><span>Payroll ready</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Approved payable time only</small></article>
     </section>
 
     <section className="ts-filterbar" aria-label="Timesheet filters">
@@ -447,14 +529,15 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           const operationalException = hasOperationalException(entry)
           return <div className={`ts-row ${focusedEntryId === entry.id ? 'is-focused' : ''}`} key={entry.id}>
             <span className="ts-person"><strong>{entry.user.name || entry.user.email}</strong><small>{entry.user.email}</small></span>
-            <span className="ts-work"><strong>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General / non-visit time'}</strong><small>{entry.reviewReason ? entry.reviewReason.split(' | ')[0] : entry.visit ? 'Visit work' : 'Non-visit work'}</small></span>
+            <span className="ts-work"><strong>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General / non-visit time'}</strong><small>{humanReviewReason(entry.reviewReason) ?? (entry.visit ? 'Visit work' : 'Non-visit work')}</small></span>
             <span className="ts-kind">{entry.kind.replaceAll('_', ' ')}</span>
             <span>{formatOperationalDateTime(entry.startedAt)}</span>
             <span>{entry.endedAt ? humanDuration(entryDurationMs(entry)) : 'Running'}</span>
             <span className="ts-actions">
               <span className={`ts-status ${statusClass(entry)}`}>{statusLabel(entry)}</span>
-              {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}>Open field context</a> : null}
-              {canManage && entry.status === 'completed' && !operationalException ? <><button disabled={busyId === entry.id} className="ts-text-action" onClick={() => void reviewEntry(entry, 'approved')}>Approve</button><button disabled={busyId === entry.id} className="ts-text-action danger" onClick={() => void reviewEntry(entry, 'rejected')}>Reject</button></> : null}
+              {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}><OpsIcon name="field" size={14} /> Field context</a> : null}
+              {canManage && entry.status === 'completed' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="payroll" size={14} /> Review payroll</button> : null}
+              {canManage && entry.status === 'approved' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Adjust payroll</button> : null}
             </span>
           </div>
         })}
@@ -465,15 +548,42 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     {tab === 'payroll' && canManage ? <section className="ts-payroll-grid">
       <div className="ts-payroll-summary">
         <article className="ts-payroll-card"><span>Employees in view</span><strong>{payrollRows.length}</strong><small>The table below follows the active filters.</small></article>
-        <article className="ts-payroll-card"><span>Payroll-ready hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Only approved time is included.</small></article>
-        <article className="ts-payroll-card"><span>Still blocked</span><strong>{metrics.blockedCount}</strong><small>Unique entries awaiting approval or operational resolution.</small></article>
+        <article className="ts-payroll-card"><span>Payroll-ready hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Only approved payable time is included.</small></article>
+        <article className="ts-payroll-card"><span>Excluded from payroll</span><strong>{humanDuration(metrics.excludedMs)}</strong><small>Rejected time plus approved adjustments.</small></article>
+        <article className="ts-payroll-card"><span>Still blocked</span><strong>{metrics.blockedCount}</strong><small>Entries awaiting approval or operational resolution.</small></article>
       </div>
       <div className="ts-payroll-list">
-        <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Approved</span><span>Pending</span><span>Exceptions</span><span>Running</span></div>
-        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
+        <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Payable</span><span>Excluded</span><span>Pending</span><span>Exceptions</span><span>Running</span></div>
+        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.excludedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
         {!payrollRows.length ? <div className="ts-empty">No payroll rows match this filter.</div> : null}
       </div>
     </section> : null}
+
+    {reviewingEntry ? <div className="ts-review-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !busyId) setReviewingEntry(null) }}>
+      <section className="ts-review-dialog" role="dialog" aria-modal="true" aria-labelledby="payroll-review-title">
+        <header className="ts-review-head">
+          <div><span className="ts-eyebrow">Payroll decision</span><h2 id="payroll-review-title">{reviewingEntry.user.name || reviewingEntry.user.email}</h2><p>{reviewingEntry.visit ? `${reviewingEntry.visit.site.client.displayName} · ${reviewingEntry.visit.site.name}` : 'General / non-visit time'}</p></div>
+          <button type="button" className="ts-close" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)} aria-label="Close payroll review">×</button>
+        </header>
+        <div className="ts-review-facts">
+          <article><span>Recorded</span><strong>{humanDuration(entryDurationMs(reviewingEntry))}</strong><small>Original clock record · never overwritten</small></article>
+          <article><span>Current payable</span><strong>{reviewingEntry.status === 'approved' ? humanDuration(payableDurationMs(reviewingEntry)) : 'Not approved'}</strong><small>{reviewingEntry.status === 'approved' ? 'Already payroll-ready' : '0h enters payroll until reviewed'}</small></article>
+        </div>
+        <div className="ts-review-modes" role="group" aria-label="Payroll decision">
+          <button type="button" className={reviewMode === 'full' ? 'selected' : ''} onClick={() => setReviewMode('full')}><OpsIcon name="check" /><strong>Approve full</strong><small>Pay the full recorded duration.</small></button>
+          <button type="button" className={reviewMode === 'adjusted' ? 'selected' : ''} onClick={() => setReviewMode('adjusted')}><OpsIcon name="review" /><strong>Adjust & approve</strong><small>Choose the time that should be paid.</small></button>
+          <button type="button" className={reviewMode === 'reject' ? 'selected danger' : 'danger'} onClick={() => setReviewMode('reject')}><OpsIcon name="alert" /><strong>Reject all</strong><small>None of this entry enters payroll.</small></button>
+        </div>
+        {reviewMode === 'adjusted' ? <fieldset className="ts-payable-editor"><legend>Payable time</legend><label><span>Hours</span><input type="number" min="0" max="24" value={payableHours} onChange={(event) => setPayableHours(event.target.value)} /></label><label><span>Minutes</span><input type="number" min="0" max="59" value={payableMinutes} onChange={(event) => setPayableMinutes(event.target.value)} /></label><small>Cannot exceed {humanDuration(entryDurationMs(reviewingEntry))} recorded.</small></fieldset> : null}
+        <label className="ts-review-note"><span>{reviewMode === 'full' ? 'Decision note (optional)' : 'Reason (required)'}</span><textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder={reviewMode === 'adjusted' ? 'Explain why part of the recorded time is excluded…' : reviewMode === 'reject' ? 'Explain why this entire entry is excluded from payroll…' : 'Optional payroll note…'} /></label>
+        <div className="ts-review-preview">
+          <span>Payroll effect</span>
+          <strong>{reviewMode === 'reject' ? '0h payable' : reviewMode === 'full' ? `${humanDuration(entryDurationMs(reviewingEntry))} payable` : `${humanDuration(Math.min(entryDurationMs(reviewingEntry), Math.max(0, (Number.parseInt(payableHours || '0', 10) * 60 + Number.parseInt(payableMinutes || '0', 10)) * 60_000)))} payable`}</strong>
+          <small>Recorded time stays unchanged for audit.</small>
+        </div>
+        <footer className="ts-review-actions"><button type="button" className="ts-button-secondary" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)}>Cancel</button><button type="button" className="ts-button" onClick={submitPayrollReview} disabled={Boolean(busyId)}>{busyId ? 'Saving…' : 'Save payroll decision'}</button></footer>
+      </section>
+    </div> : null}
 
     {exportOpen ? <div className="ts-export-backdrop" role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setExportOpen(false) }}>
       <section className="ts-export-dialog" role="dialog" aria-modal="true" aria-labelledby="timesheet-export-title">
