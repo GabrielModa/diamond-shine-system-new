@@ -85,7 +85,18 @@ export async function GET(request: NextRequest) {
       where: { organizationId, status: { notIn: ['resolved', 'closed'] } },
       include: {
         reporter: { select: { id: true, name: true, email: true } },
-        visit: { select: { id: true, scheduledStart: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
+        visit: {
+          select: {
+            id: true,
+            scheduledStart: true,
+            site: { select: { name: true, client: { select: { displayName: true } } } },
+            evidenceAssets: {
+              where: { kind: 'photo' },
+              select: { id: true, fileName: true, mimeType: true, capturedAt: true, metadata: true },
+              orderBy: { capturedAt: 'asc' },
+            },
+          },
+        },
       },
       orderBy: [{ severity: 'desc' }, { createdAt: 'desc' }],
       take: 100,
