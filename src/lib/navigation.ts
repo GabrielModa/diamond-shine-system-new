@@ -22,15 +22,15 @@ export const pageMeta: Record<string, PageMeta> = {
   people: { label: 'Plan coverage', href: '/people', section: 'control', order: 30, any: ['schedule.manage'] },
   'live-operations': { label: 'Live workforce', href: '/live-operations', section: 'control', order: 40, any: ['schedule.manage'] },
   'field-control': { label: 'Field control', href: '/field-control', section: 'control', order: 50, any: ['visits.review'] },
-  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'] },
-  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 70, any: ['time.own.manage', 'time.team.review'] },
+  dashboard: { label: 'Operations desk', href: '/dashboard', section: 'control', order: 60, roles: ['organization_admin', 'field_supervisor'] },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 70, any: ['supplies.request'] },
+  timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 80, any: ['time.own.manage', 'time.team.review'] },
 
   // Quality and management views explain outcomes without replacing the operational workspaces that produce them.
-  insights: { label: 'Operations intelligence', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
+  insights: { label: 'Operational insights', href: '/insights', section: 'analytics', order: 10, any: ['visits.review'] },
   'team-performance': { label: 'Team performance', href: '/team-performance', section: 'analytics', order: 20, any: ['schedule.manage'] },
   quality: { label: 'Quality control', href: '/quality', section: 'analytics', order: 30, any: ['quality.inspect'] },
   feedback: { label: 'Service feedback', href: '/feedback', section: 'analytics', order: 40, roles: ['organization_admin', 'field_supervisor'] },
-  dashboard: { label: 'Management dashboard', href: '/dashboard', section: 'analytics', order: 50, roles: ['organization_admin', 'field_supervisor'] },
 
   clients: { label: 'Clients', href: '/clients', section: 'admin', order: 10, any: ['clients.read'], excludedRoles: ['employee'] },
   users: { label: 'People & access', href: '/users', section: 'admin', order: 20, any: ['memberships.manage'], excludedRoles: ['employee'] },
