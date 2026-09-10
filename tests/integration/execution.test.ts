@@ -377,6 +377,28 @@ describe('field execution', () => {
       description: 'The alarm panel reports a persistent fault.',
     })
     expect(incident.status).toBe(201)
+    const incidentPhoto = await prisma.evidenceAsset.create({
+      data: {
+        organizationId: visit.organizationId,
+        visitId: visit.id,
+        uploadedBy: employee.id,
+        kind: 'photo',
+        storageKey: `evidence/${visit.organizationId}/${visit.id}/incident-photo.jpg`,
+        fileName: 'incident-photo.jpg',
+        mimeType: 'image/jpeg',
+        sizeBytes: 2048,
+        visibility: 'client_safe',
+        metadata: { phase: `incident:${incident.body.data.id}`, source: 'field_mobile' },
+      },
+    })
+    const fieldControl = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
+    expect(fieldControl.status).toBe(200)
+    const adminIncident = fieldControl.body.data.incidents.find((item: { id: string }) => item.id === incident.body.data.id)
+    expect(adminIncident.visit.evidenceAssets).toContainEqual(expect.objectContaining({
+      id: incidentPhoto.id,
+      fileName: 'incident-photo.jpg',
+      metadata: expect.objectContaining({ phase: `incident:${incident.body.data.id}` }),
+    }))
     const blocked = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
     expect(blocked.status).toBe(409)
     expect(blocked.body.blockers).toContainEqual(expect.objectContaining({ code: 'CRITICAL_INCIDENT_OPEN' }))
