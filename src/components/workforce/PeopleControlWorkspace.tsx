@@ -3,6 +3,7 @@
 import WorkforceLiveNow from './WorkforceLiveNow'
 import WorkforceWorkspace from './WorkforceWorkspace'
 import styles from './WorkforceLiveNow.module.css'
+import './CoverageMapResponsive.css'
 
 type Mode = 'live' | 'plan'
 
