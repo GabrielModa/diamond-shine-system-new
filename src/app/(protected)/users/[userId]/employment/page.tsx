@@ -161,7 +161,7 @@ export default function EmployeeSettingsPage() {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           school: schoolEnabled && schoolPlace ? {
-            name: schoolPlace.displayName ?? schoolQuery.trim() || 'School',
+            name: (schoolPlace.displayName ?? schoolQuery.trim()) || 'School',
             address: schoolPlace.formattedAddress,
           } : null,
           studySchedule: schoolEnabled ? studyRules.map(({ dayOfWeek, startsMinute, endsMinute }) => ({ dayOfWeek, startsMinute, endsMinute })) : [],
