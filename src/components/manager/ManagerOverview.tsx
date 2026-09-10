@@ -4,32 +4,128 @@ import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { operationalDayRange, operationalGreeting } from '../../lib/operational-time'
 
-type Visit = { id: string; status: string; scheduledStart: string; scheduledEnd: string; site: { name: string; city: string; client: { displayName: string } }; assignments: Array<{ status: string; user: { id: string; name?: string | null; email: string } }> }
-type Client = { id: string; displayName: string; status: string; _count: { sites: number } }
+type Visit = { id: string; status: string }
 type TimeEntry = { id: string; status: string; disputes: Array<{ status: string }> }
-type SupplyResponse = { total: number; items: Array<{ id: string; status: string; priority: string; dueAt?: string | null }> }
+type SupplyResponse = { items: Array<{ id: string; status: string; priority: string }> }
 type FieldSummary = { summary: { openIncidents: number; criticalIncidents: number; needsReview: number; blocked: number } }
 type QualitySummary = { summary: { openActions: number; overdueActions: number; criticalActions: number } }
-type ScheduleHealth = { summary: { visits: number; attention: number } }
+type ScheduleHealth = { summary: { attention: number } }
 
-async function read<T>(url: string): Promise<T | null> { const response = await fetch(url, { credentials: 'include', cache: 'no-store' }); const body = await response.json().catch(() => null); return response.ok && body?.ok ? body.data as T : null }
+async function read<T>(url: string): Promise<T | null> {
+  const response = await fetch(url, { credentials: 'include', cache: 'no-store' })
+  const body = await response.json().catch(() => null)
+  return response.ok && body?.ok ? body.data as T : null
+}
 
 export default function ManagerOverview({ timezone }: { timezone: string }) {
-  const [visits, setVisits] = useState<Visit[]>([]); const [clients, setClients] = useState<Client[]>([]); const [entries, setEntries] = useState<TimeEntry[]>([]); const [supplies, setSupplies] = useState<SupplyResponse | null>(null); const [field, setField] = useState<FieldSummary | null>(null); const [quality, setQuality] = useState<QualitySummary | null>(null); const [loading, setLoading] = useState(true)
+  const [visits, setVisits] = useState<Visit[]>([])
+  const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [supplies, setSupplies] = useState<SupplyResponse | null>(null)
+  const [field, setField] = useState<FieldSummary | null>(null)
+  const [quality, setQuality] = useState<QualitySummary | null>(null)
   const [health, setHealth] = useState<ScheduleHealth | null>(null)
+  const [loading, setLoading] = useState(true)
   const range = useMemo(() => operationalDayRange(new Date(), timezone), [timezone])
-  const refresh = useCallback(async () => { setLoading(true); const [visitData, clientData, entryData, supplyData, fieldData, qualityData, healthData] = await Promise.all([read<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`), read<Client[]>('/api/clients'), read<TimeEntry[]>('/api/time-entries'), read<SupplyResponse>('/api/supplies?limit=200'), read<FieldSummary>('/api/field-control'), read<QualitySummary>('/api/quality/control'), read<ScheduleHealth>(`/api/schedule-health?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)]); setVisits(visitData ?? []); setClients(clientData ?? []); setEntries(entryData ?? []); setSupplies(supplyData); setField(fieldData); setQuality(qualityData); setHealth(healthData); setLoading(false) }, [range])
+
+  const refresh = useCallback(async () => {
+    setLoading(true)
+    const [visitData, entryData, supplyData, fieldData, qualityData, healthData] = await Promise.all([
+      read<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
+      read<TimeEntry[]>('/api/time-entries'),
+      read<SupplyResponse>('/api/supplies?limit=200'),
+      read<FieldSummary>('/api/field-control'),
+      read<QualitySummary>('/api/quality/control'),
+      read<ScheduleHealth>(`/api/schedule-health?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
+    ])
+    setVisits(visitData ?? [])
+    setEntries(entryData ?? [])
+    setSupplies(supplyData)
+    setField(fieldData)
+    setQuality(qualityData)
+    setHealth(healthData)
+    setLoading(false)
+  }, [range])
+
   useEffect(() => { void refresh() }, [refresh])
-  const schedulingIssues = health?.summary.attention ?? 0
+
   const active = visits.filter((visit) => visit.status === 'in_progress').length
-  const review = entries.filter((entry) => entry.status === 'needs_review' || entry.disputes.some((dispute) => dispute.status === 'open')).length
+  const completed = visits.filter((visit) => visit.status === 'completed').length
+  const schedulingIssues = health?.summary.attention ?? 0
+  const timeReview = entries.filter((entry) => entry.status === 'needs_review' || entry.disputes.some((dispute) => dispute.status === 'open')).length
+  const openSupplies = supplies?.items.filter((item) => !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)) ?? []
+  const awaitingTriage = openSupplies.filter((item) => item.status === 'Requested').length
+  const urgentSupplies = openSupplies.filter((item) => item.priority === 'urgent').length
+  const openIncidents = field?.summary.openIncidents ?? 0
+  const criticalIncidents = field?.summary.criticalIncidents ?? 0
+  const blockedVisits = field?.summary.blocked ?? 0
+  const qualityAttention = Math.max(quality?.summary.overdueActions ?? 0, quality?.summary.criticalActions ?? 0)
+  const attentionTotal = schedulingIssues + openIncidents + timeReview + qualityAttention + awaitingTriage
   const now = new Date()
 
+  const attention = [
+    schedulingIssues ? {
+      href: '/schedule',
+      title: 'Schedule needs attention',
+      detail: `${schedulingIssues} coverage or continuity issue${schedulingIssues === 1 ? '' : 's'} · resolve in Schedule`,
+    } : null,
+    openIncidents ? {
+      href: '/field-control',
+      title: 'Field incidents are open',
+      detail: `${openIncidents} open · ${criticalIncidents} critical · ${blockedVisits} blocked visit${blockedVisits === 1 ? '' : 's'}`,
+    } : null,
+    awaitingTriage ? {
+      href: '/dashboard',
+      title: 'Supply requests are waiting',
+      detail: `${awaitingTriage} waiting for triage · ${urgentSupplies} urgent · process in Operations desk`,
+    } : null,
+    qualityAttention ? {
+      href: '/quality',
+      title: 'Quality needs a decision',
+      detail: `${quality?.summary.overdueActions ?? 0} overdue · ${quality?.summary.criticalActions ?? 0} critical corrective actions`,
+    } : null,
+    timeReview ? {
+      href: '/timesheets',
+      title: 'Time exceptions need review',
+      detail: `${timeReview} time record${timeReview === 1 ? '' : 's'} need a manager decision`,
+    } : null,
+  ].filter((item): item is { href: string; title: string; detail: string } => Boolean(item))
+
   return <main className="page-shell manager-overview">
-    <header className="manager-home-hero"><div><span className="eyebrow">Operations command centre</span><h1>{operationalGreeting(now, timezone)}</h1><p>See what needs a decision, dispatch work quickly, and keep service delivery moving.</p></div><div className="manager-home-actions"><Link href="/schedule" className="btn-primary">Open schedule</Link><Link href="/clients" className="btn-secondary">Set up client service</Link></div></header>
-    <section className="command-metrics" aria-label="Today's operations"><Link href="/schedule"><span>Visits today</span><strong>{loading ? '—' : visits.length}</strong><small>{active} in progress</small></Link><Link href="/schedule"><span>Scheduling issues</span><strong>{loading ? '—' : schedulingIssues}</strong><small>{schedulingIssues ? 'Coverage or continuity needs attention' : 'Schedule health is clear'}</small></Link><Link href="/timesheets"><span>Time to review</span><strong>{loading ? '—' : review}</strong><small>{review ? 'Needs a manager decision' : 'No time exceptions'}</small></Link><Link href="/clients"><span>Active clients</span><strong>{loading ? '—' : clients.filter((client) => client.status === 'active').length}</strong><small>{clients.reduce((sum, client) => sum + client._count.sites, 0)} sites on record</small></Link></section>
-    <section className="command-grid"><section className="card command-today"><header><div><span className="eyebrow">Today</span><h2>Dispatch board</h2></div><Link href="/schedule">View full schedule →</Link></header>{visits.length ? <div className="command-visit-list">{visits.slice(0, 6).map((visit) => <Link href="/schedule" key={visit.id}><time>{new Date(visit.scheduledStart).toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit', timeZone: timezone })}</time><div><b>{visit.site.client.displayName}</b><span>{visit.site.name} · {visit.site.city}</span></div><span className={`status-badge ${visit.status === 'completed' ? 'Completed' : 'Pending'}`}>{visit.status.replace('_', ' ')}</span></Link>)}</div> : <div className="empty-state">No visits scheduled for today.</div>}</section><aside className="card command-actions"><span className="eyebrow">Manager actions</span><h2>Keep the operation ahead</h2><Link href="/schedule"><b>Schedule work</b><span>Assign the next visit or resolve an unassigned item.</span>→</Link><Link href="/clients"><b>Open client record</b><span>Review sites, service configuration and contacts.</span>→</Link><Link href="/timesheets"><b>Review hours</b><span>Handle location flags or employee time challenges.</span>→</Link><Link href="/supplies"><b>Material control</b><span>Act on low stock before it stops a service.</span>→</Link></aside></section>
-    <section className="command-bottom"><article className="card"><span className="eyebrow">Live portfolio</span><h2>{clients.length} client record{clients.length === 1 ? '' : 's'}</h2><p className="muted">Clients, locations and service design stay connected to every visit, stock count and quality record.</p><Link className="btn-secondary" href="/clients">Manage clients</Link></article><article className="card"><span className="eyebrow">Operational guardrails</span><h2>Every schedule change is visible</h2><p className="muted">Availability conflicts, assignment changes, evidence review and time disputes all retain their decision history.</p><Link className="btn-secondary" href="/field-control">Open field control</Link></article><article className="card command-date"><span>{now.toLocaleDateString('en-IE', { weekday: 'long', timeZone: timezone })}</span><strong>{now.getDate()}</strong><small>{now.toLocaleDateString('en-IE', { month: 'long', year: 'numeric', timeZone: timezone })}</small></article></section>
-    <section className="command-risk-grid" aria-label="Operational attention queue"><Link className={field?.summary.criticalIncidents ? 'critical' : ''} href="/field-control"><span>Field exceptions</span><strong>{loading ? '—' : field?.summary.openIncidents ?? 0}</strong><small>{field?.summary.criticalIncidents ?? 0} critical · {field?.summary.needsReview ?? 0} time reviews</small></Link><Link className={quality?.summary.overdueActions ? 'attention' : ''} href="/quality"><span>Quality actions</span><strong>{loading ? '—' : quality?.summary.openActions ?? 0}</strong><small>{quality?.summary.overdueActions ?? 0} overdue · {quality?.summary.criticalActions ?? 0} critical</small></Link><Link className={supplies?.items.some((item) => item.priority === 'urgent' && !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)) ? 'attention' : ''} href="/supplies"><span>Material requests</span><strong>{loading ? '—' : supplies?.items.filter((item) => !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)).length ?? 0}</strong><small>{supplies?.items.filter((item) => item.priority === 'urgent' && !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)).length ?? 0} urgent · open replenishment work</small></Link></section>
+    <header className="manager-home-hero">
+      <div>
+        <span className="eyebrow">Operations command centre</span>
+        <h1>{operationalGreeting(now, timezone)}</h1>
+        <p>See what needs attention now, then jump to the workspace that owns the decision.</p>
+      </div>
+      <div className="manager-home-actions">
+        <Link href="/dashboard" className="btn-primary">Open Operations desk</Link>
+        <Link href="/schedule" className="btn-secondary">Open schedule</Link>
+      </div>
+    </header>
+
+    <section className="command-metrics" aria-label="Today's operations">
+      <Link href="/schedule"><span>Visits today</span><strong>{loading ? '—' : visits.length}</strong><small>Schedule owns the daily plan</small></Link>
+      <Link href="/live-operations"><span>In progress</span><strong>{loading ? '—' : active}</strong><small>Live workforce right now</small></Link>
+      <Link href="/field-control"><span>Completed</span><strong>{loading ? '—' : completed}</strong><small>Delivered visits today</small></Link>
+      <Link href="#attention"><span>Needs attention</span><strong>{loading ? '—' : attentionTotal}</strong><small>{attentionTotal ? 'Exceptions only' : 'No active exception queue'}</small></Link>
+    </section>
+
+    <section className="command-grid" id="attention">
+      <section className="card command-actions">
+        <span className="eyebrow">Needs attention</span>
+        <h2>{loading ? 'Checking the operation…' : attention.length ? 'Decisions waiting now' : 'Everything looks clear'}</h2>
+        {!loading && attention.map((item) => <Link href={item.href} key={item.title}><b>{item.title}</b><span>{item.detail}</span>→</Link>)}
+        {!loading && !attention.length ? <p className="muted">There are no scheduling, field, supply, quality or time exceptions waiting for action.</p> : null}
+      </section>
+
+      <aside className="card command-actions">
+        <span className="eyebrow">Workspaces</span>
+        <h2>Go where the work belongs</h2>
+        <Link href="/schedule"><b>Schedule</b><span>Plan visits, coverage, assignments and conflicts.</span>→</Link>
+        <Link href="/dashboard"><b>Operations desk</b><span>Triage field supply requests and review employee feedback.</span>→</Link>
+        <Link href="/field-control"><b>Field control</b><span>Handle live visit incidents, evidence and blockers.</span>→</Link>
+        <Link href="/insights"><b>Operational insights</b><span>Review longer-term delivery, quality and risk patterns.</span>→</Link>
+      </aside>
+    </section>
   </main>
 }
