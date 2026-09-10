@@ -91,7 +91,16 @@ export default function VisitScreen() {
   const [taskNotes, setTaskNotes] = useState<Record<string, string>>({});
   const [incidentOpen, setIncidentOpen] = useState(false);
   const [incident, setIncident] = useState({ title: '', description: '', severity: 'medium', category: 'other' });
+  const [finishFlowOpen, setFinishFlowOpen] = useState(false);
+  const [finishStep, setFinishStep] = useState<'report' | 'report_actions' | 'photo' | 'confirm'>('report');
+  const [finishFlowOffered, setFinishFlowOffered] = useState(false);
   const [clockNow, setClockNow] = useState(Date.now());
+
+  useEffect(() => {
+    setFinishFlowOpen(false);
+    setFinishFlowOffered(false);
+    setFinishStep('report');
+  }, [id]);
 
   const load = useCallback(async () => {
     if (!session || !id) return;
@@ -157,7 +166,9 @@ export default function VisitScreen() {
   const timezone = visit?.timezone ?? visit?.site.timezone ?? session?.timezone ?? 'Europe/Dublin';
   const expectedTasks = visit?.servicePlanVersion?.tasks.length ?? visit?.taskResults?.length ?? 0;
   const tasksHydrated = (visit?.taskResults?.length ?? 0) >= expectedTasks;
-  const requiredDone = tasksHydrated && (visit?.taskResults?.filter((task) => task.versionTask.required).every((task) => task.status !== 'pending') ?? expectedTasks === 0);
+  const requiredTasksDone = tasksHydrated && (visit?.taskResults?.filter((task) => task.versionTask.required).every((task) => task.status !== 'pending') ?? expectedTasks === 0);
+  const requiredTaskPhotosDone = tasksHydrated && (visit?.taskResults?.filter((task) => task.versionTask.evidenceRequired).every((task) => (task.evidence?.length ?? 0) > 0) ?? true);
+  const requiredDone = requiredTasksDone && requiredTaskPhotosDone;
   const ownTimerFinished = Boolean(lastOwnCompletedEntry?.endedAt);
   const visitSubmitted = visit?.status === 'completed';
   const completedWorkSeconds = ownVisitEntries.filter((entry) => Boolean(entry.endedAt)).reduce((sum, entry) => sum + recordedSeconds(entry), 0);
@@ -172,7 +183,14 @@ export default function VisitScreen() {
   const pausedElapsedSeconds = pausedSince ? Math.max(0, Math.floor((clockNow - new Date(pausedSince).getTime()) / 1000)) : 0;
   const closeoutReady = Boolean(canExecute && visitExecutionOpen && ownTimerFinished && !runningVisitSince && !pausedSince);
   const canWorkChecklist = Boolean(closeoutReady && !visitSubmitted);
-  const finishPhotoCount = (visit?.evidenceAssets ?? []).filter((asset) => evidencePhase(asset.metadata) === 'finish').length;
+  const photos = (visit?.evidenceAssets ?? []).filter((asset) => asset.kind === 'photo');
+  const finishPhotoCount = photos.filter((asset) => evidencePhase(asset.metadata) === 'finish').length;
+  const evidencePolicy = visit?.job?.servicePlan?.evidencePolicy ?? null;
+  const minimumPhotoCount = evidencePolicy?.minimumPhotoCount ?? 0;
+  const finishPhotoMissing = Boolean(evidencePolicy?.requireFinishPhoto && finishPhotoCount === 0);
+  const minimumPhotoMissing = photos.length < minimumPhotoCount;
+  const visitPhotoMissing = finishPhotoMissing || minimumPhotoMissing;
+  const closeoutBaseReady = Boolean(closeoutReady && otherRunningEntries.length === 0 && requiredDone);
 
   useEffect(() => {
     if (!anyRunningSince) return;
@@ -181,28 +199,26 @@ export default function VisitScreen() {
     return () => clearInterval(timer);
   }, [anyRunningSince]);
 
-  const canSubmitVisit = Boolean(
-    closeoutReady
-      && otherRunningEntries.length === 0
-      && requiredDone
-      && !completionPending,
-  );
+  const canSubmitVisit = Boolean(closeoutBaseReady && !visitPhotoMissing && !completionPending);
 
-  const submitHint = visitSubmitted
-    ? 'This visit has been sent to Operations for review.'
-    : completionPending
-      ? 'Submission is saved offline and will be sent when the device reconnects.'
-      : runningVisitSince
-        ? 'Finish your work timer before the closeout checklist becomes available.'
-        : pausedSince
-          ? 'Resume or finish paused work before closing the visit.'
-          : otherRunningEntries.length
-            ? `${otherRunningEntries.length} teammate${otherRunningEntries.length === 1 ? '' : 's'} still ${otherRunningEntries.length === 1 ? 'has' : 'have'} an active timer.`
-            : !ownTimerFinished
-              ? 'Record your work time before submitting the visit.'
-              : !requiredDone
-                ? 'Complete every required closeout item before submitting.'
-                : 'Everything required is recorded. Submit once to finish the visit.';
+  useEffect(() => {
+    if (!visitSubmitted && closeoutBaseReady && !completionPending && !finishFlowOffered) {
+      setFinishFlowOpen(true);
+      setFinishFlowOffered(true);
+    }
+  }, [closeoutBaseReady, completionPending, finishFlowOffered, visitSubmitted]);
+
+  const finishHint = completionPending
+    ? 'Finish is saved offline and will be sent to Operations when the device reconnects.'
+    : otherRunningEntries.length
+      ? `${otherRunningEntries.length} teammate${otherRunningEntries.length === 1 ? '' : 's'} still ${otherRunningEntries.length === 1 ? 'has' : 'have'} an active timer.`
+      : !requiredTasksDone
+        ? 'Complete every required closeout item first.'
+        : !requiredTaskPhotosDone
+          ? 'A required checklist photo is still missing.'
+          : visitPhotoMissing
+            ? 'This service still needs its required visit photo.'
+            : 'Required work is recorded. Answer two quick questions, then save the visit.';
 
   async function withAction(action: () => Promise<void>) {
     setBusy(true);
@@ -634,13 +650,15 @@ export default function VisitScreen() {
       const saveOffline = async () => {
         await enqueue({ clientMutationId, type: 'visit.complete', entityId: visit.id, clientCreatedAt: completedAt, payload });
         setCompletionPending(true);
-        setMessage('Visit submission saved offline. It will be sent to Operations when the device reconnects.');
+        setFinishFlowOpen(false);
+        setMessage('Visit finish saved offline. It will be sent to Operations when the device reconnects.');
       };
 
       if (!(await networkConnected())) return saveOffline();
       try {
         await apiFetch(session, `/api/visits/${visit.id}/complete`, { method: 'POST', body: JSON.stringify(payload) });
-        setMessage('Visit finished and submitted to Operations.');
+        setFinishFlowOpen(false);
+        setMessage('Visit finished and sent to Operations.');
         await load();
       } catch (cause) {
         if (!isNetworkApiError(cause)) throw cause;
@@ -664,7 +682,7 @@ export default function VisitScreen() {
   const address = [visit.site.addressLine1, visit.site.addressLine2, visit.site.city, visit.site.postalCode].filter(Boolean).join(', ');
   const timerStepState = visitSubmitted || closeoutReady ? 'done' : 'current';
   const checklistStepState = visitSubmitted || requiredDone ? 'done' : closeoutReady ? 'current' : 'next';
-  const submitStepState = visitSubmitted ? 'done' : closeoutReady && requiredDone ? 'current' : 'next';
+  const submitStepState = visitSubmitted ? 'done' : closeoutBaseReady ? 'current' : 'next';
   const timerToneLabel = paused ? 'Paused' : timerTone === 'over' ? 'Over planned time' : timerTone === 'warning' ? 'Approaching planned time' : 'On track';
   const remainingLabel = remainingSeconds >= 0 ? `${formatDuration(remainingSeconds)} planned remaining` : `${formatDuration(Math.abs(remainingSeconds))} over planned time`;
   const scheduleResponseNeeded = Boolean(ownAssignment && PENDING_ASSIGNMENTS.has(ownAssignment.status) && !visitExecutionOpen && !visitSubmitted);
@@ -733,7 +751,7 @@ export default function VisitScreen() {
         <View style={styles.flowLine} />
         <FlowStep number="2" label="Closeout" state={checklistStepState} />
         <View style={styles.flowLine} />
-        <FlowStep number="3" label="Submit" state={submitStepState} />
+        <FlowStep number="3" label="Done" state={submitStepState} />
       </View>
 
       {visitSubmitted ? <View style={styles.executionCopy}>
@@ -760,11 +778,11 @@ export default function VisitScreen() {
           <View style={styles.timerAction}><Button title="Pause" variant="secondary" loading={busy} onPress={() => void pauseVisit()} /></View>
           <View style={styles.timerAction}><Button title="Finish work" loading={busy} onPress={() => void finishWork()} /></View>
         </View>}
-        <Text style={styles.timerHint}>Pause time is excluded from worked hours. Finish work opens the closeout checklist.</Text>
+        <Text style={styles.timerHint}>Pause time is excluded from worked hours. Finish work stops your timer and starts the short closeout flow.</Text>
       </View> : closeoutReady ? <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>WORK FINISHED</Text>
         <Text style={styles.executionValue}>{formatDuration(workedSeconds)} recorded</Text>
-        <Text style={styles.executionDetail}>Clock-out is recorded. If Finish work was a mistake, resume now. Once you submit the visit, the field record is final.</Text>
+        <Text style={styles.executionDetail}>Clock-out is recorded. If Finish work was a mistake, resume now. After the required closeout items, the app will guide you through two quick finish questions.</Text>
         {!completionPending ? <Button title="Resume work" variant="secondary" loading={busy} onPress={() => void startVisit()} /> : null}
       </View> : <View style={styles.executionCopy}>
         <Text style={styles.executionEyebrow}>READY TO WORK</Text>
@@ -816,19 +834,90 @@ export default function VisitScreen() {
         </> : null}
       </Card>)}
 
-      {canWorkChecklist ? <Card style={styles.optionalPhotoCard}>
-        <View><Text style={styles.sectionTitle}>Closeout photos</Text><Text style={styles.sectionSub}>Optional unless a checklist item above specifically says a photo is required.</Text></View>
-        {finishPhotoCount ? <Text style={styles.optionalPhotoCount}>{finishPhotoCount} optional closeout photo{finishPhotoCount === 1 ? '' : 's'} saved</Text> : null}
-        <Button title={finishPhotoCount ? 'Add another optional photo' : 'Add optional closeout photo'} variant="secondary" onPress={() => router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } })} />
-      </Card> : null}
     </> : null}
 
-    {canExecute && (closeoutReady || visitSubmitted || completionPending) ? <Card style={[styles.submitCard, canSubmitVisit && styles.submitCardReady, visitSubmitted && styles.submitCardDone]}>
-      <Text style={styles.executionEyebrow}>{visitSubmitted ? 'DONE' : 'FINAL STEP'}</Text>
-      <Text style={styles.sectionTitle}>{visitSubmitted ? 'Visit finished' : 'Finish visit'}</Text>
-      <Text style={styles.sectionSub}>{submitHint}</Text>
-      {!visitSubmitted ? <Button title={completionPending ? 'Waiting to sync' : 'Submit & finish visit'} disabled={!canSubmitVisit} loading={busy} onPress={() => void completeVisit()} /> : null}
+    {canExecute && !visitSubmitted && (closeoutBaseReady || completionPending) ? <Card style={[styles.finishCard, closeoutBaseReady && styles.finishCardReady]}>
+      <Text style={styles.executionEyebrow}>{completionPending ? 'SAVED' : 'READY TO FINISH'}</Text>
+      <Text style={styles.sectionTitle}>{completionPending ? 'Waiting to sync' : 'Finish visit'}</Text>
+      <Text style={styles.sectionSub}>{finishHint}</Text>
+      {!completionPending ? <Button title="Review & finish" loading={busy} onPress={() => { setFinishStep('report'); setFinishFlowOpen(true); }} /> : null}
     </Card> : null}
+
+    <Modal visible={finishFlowOpen && !visitSubmitted} transparent animationType="slide" onRequestClose={() => setFinishFlowOpen(false)}>
+      <View style={styles.modalBackdrop}>
+        <View style={styles.modalSheet}>
+          <View style={styles.modalHandle} />
+          <View style={styles.modalHead}>
+            <View style={styles.modalHeadCopy}>
+              <Text style={styles.executionEyebrow}>FINISH VISIT</Text>
+              <Text style={styles.sectionTitle}>
+                {finishStep === 'report' ? 'Anything Operations should know?' : finishStep === 'report_actions' ? 'What do you need to send?' : finishStep === 'photo' ? (visitPhotoMissing ? 'Closeout photo required' : 'Add a closeout photo?') : 'Ready to finish'}
+              </Text>
+              <Text style={styles.sectionSub}>
+                {finishStep === 'report'
+                  ? 'Only add something when it helps Operations act. Otherwise continue.'
+                  : finishStep === 'report_actions'
+                    ? 'Use the focused issue or supplies flow, then come back here automatically.'
+                    : finishStep === 'photo'
+                      ? visitPhotoMissing
+                        ? 'This service requires photo evidence before the visit can be saved.'
+                        : 'A general closeout photo is optional. Add one only when it helps show the finished area.'
+                      : 'This saves the visit and sends the completed record to Operations.'}
+              </Text>
+            </View>
+            <Pressable accessibilityRole="button" onPress={() => setFinishFlowOpen(false)} style={styles.modalClose}><Text style={styles.modalCloseText}>Close</Text></Pressable>
+          </View>
+
+          {finishStep === 'report' ? <View style={styles.finishFlowBody}>
+            <View style={styles.finishQuestionCount}><Text>1 of 2</Text></View>
+            <Button title="No, nothing to report" onPress={() => setFinishStep('photo')} />
+            <Button title="Yes, I need to report something" variant="secondary" onPress={() => setFinishStep('report_actions')} />
+          </View> : null}
+
+          {finishStep === 'report_actions' ? <View style={styles.finishFlowBody}>
+            <Button title="Report an issue" onPress={() => {
+              setFinishStep('photo');
+              setFinishFlowOpen(false);
+              setFinishFlowOffered(false);
+              router.push(`/incident/${visit.id}`);
+            }} />
+            <Button title="Request supplies" variant="secondary" onPress={() => {
+              setFinishStep('photo');
+              setFinishFlowOpen(false);
+              setFinishFlowOffered(false);
+              router.push({ pathname: '/stock/[siteId]', params: { siteId: visit.site.id, visitId: visit.id, mode: 'request' } });
+            }} />
+            <Button title="Nothing after all" variant="ghost" onPress={() => setFinishStep('photo')} />
+          </View> : null}
+
+          {finishStep === 'photo' ? <View style={styles.finishFlowBody}>
+            <View style={styles.finishQuestionCount}><Text>2 of 2</Text></View>
+            {finishPhotoCount ? <Text style={styles.finishEvidenceStatus}>{finishPhotoCount} closeout photo{finishPhotoCount === 1 ? '' : 's'} saved</Text> : null}
+            <Button title={finishPhotoCount ? 'Add another photo' : 'Yes, take a photo'} onPress={() => {
+              setFinishStep('confirm');
+              setFinishFlowOpen(false);
+              setFinishFlowOffered(false);
+              router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } });
+            }} />
+            {!visitPhotoMissing ? <Button title={finishPhotoCount ? 'Continue' : 'No photo'} variant="secondary" onPress={() => setFinishStep('confirm')} /> : null}
+          </View> : null}
+
+          {finishStep === 'confirm' ? <View style={styles.finishFlowBody}>
+            <View style={styles.finishSummary}>
+              <Text style={styles.finishSummaryTitle}>Closeout ready</Text>
+              <Text style={styles.finishSummaryText}>{visitPhotoMissing ? 'Required photo evidence is still missing.' : finishPhotoCount ? `${finishPhotoCount} closeout photo${finishPhotoCount === 1 ? '' : 's'} attached.` : 'No optional closeout photo attached.'}</Text>
+            </View>
+            {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+            {visitPhotoMissing ? <Button title="Add required photo" onPress={() => {
+              setFinishFlowOpen(false);
+              setFinishFlowOffered(false);
+              router.push({ pathname: '/camera/[visitId]', params: { visitId: visit.id, phase: 'finish' } });
+            }} /> : <Button title="Save & finish" loading={busy} disabled={!canSubmitVisit} onPress={() => void completeVisit()} />}
+            <Button title="Back" variant="ghost" disabled={busy} onPress={() => setFinishStep('photo')} />
+          </View> : null}
+        </View>
+      </View>
+    </Modal>
 
     <Modal visible={incidentOpen} transparent animationType="slide" onRequestClose={() => setIncidentOpen(false)}>
       <View style={styles.modalBackdrop}>
@@ -943,8 +1032,6 @@ const styles = StyleSheet.create({
   pillText: { color: colors.muted, fontWeight: '800' },
   pillDoneText: { color: colors.success, fontWeight: '800' },
   pillProblemText: { color: colors.danger, fontWeight: '800' },
-  optionalPhotoCard: { gap: 10, borderColor: '#C9D8E2', backgroundColor: '#FBFCFD' },
-  optionalPhotoCount: { color: colors.success, fontSize: 11, fontWeight: '900' },
   severity: { flexDirection: 'row', gap: 6 },
   categoryChoices: { flexDirection: 'row', flexWrap: 'wrap', gap: 7 },
   categoryChoice: { minWidth: '22%', flexGrow: 1, paddingHorizontal: 10, paddingVertical: 9, alignItems: 'center', borderRadius: 9, backgroundColor: '#EEF2F5' },
@@ -952,9 +1039,14 @@ const styles = StyleSheet.create({
   choiceActive: { backgroundColor: colors.ink },
   choiceText: { color: colors.muted, fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
   choiceTextActive: { color: '#fff', fontSize: 10, fontWeight: '800', textTransform: 'capitalize' },
-  submitCard: { borderColor: '#C7D5DF', backgroundColor: '#FBFCFD' },
-  submitCardReady: { borderColor: '#8DCDB5', backgroundColor: '#F4FCF7' },
-  submitCardDone: { borderColor: '#A9DEC3', backgroundColor: '#F4FCF7' },
+  finishCard: { borderColor: '#C7D5DF', backgroundColor: '#FBFCFD' },
+  finishCardReady: { borderColor: '#8DCDB5', backgroundColor: '#F4FCF7' },
+  finishFlowBody: { gap: 10 },
+  finishQuestionCount: { alignSelf: 'flex-start', paddingHorizontal: 9, paddingVertical: 5, borderRadius: 999, backgroundColor: '#EEF2F5' },
+  finishEvidenceStatus: { color: colors.success, fontSize: 11, fontWeight: '900' },
+  finishSummary: { gap: 4, padding: 12, borderRadius: 12, backgroundColor: '#F4F7F8' },
+  finishSummaryTitle: { color: colors.ink, fontSize: 13, fontWeight: '900' },
+  finishSummaryText: { color: colors.muted, fontSize: 11, lineHeight: 16 },
   timerLabel: { color: colors.muted, fontSize: 12, fontWeight: '700' },
   modalBackdrop: { flex: 1, justifyContent: 'flex-end', backgroundColor: 'rgba(9, 29, 43, 0.42)' },
   modalSheet: { maxHeight: '88%', borderTopLeftRadius: 24, borderTopRightRadius: 24, backgroundColor: '#fff', paddingHorizontal: 18, paddingTop: 10, paddingBottom: 24, gap: 14 },
