@@ -2,7 +2,7 @@ import { createHash } from 'crypto'
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { prisma } from '../../../../../lib/prisma'
-import { requireCapability } from '../../../../../lib/auth'
+import { requireCapabilities } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { enqueueNotification } from '../../../../../lib/notification-queue'
 import { asInputJson } from '../../../../../modules/operations/json'
@@ -27,17 +27,13 @@ const schema = z.object({
 const EXECUTABLE_ROLES = ['employee', 'field_supervisor'] as const
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
-  const clientAuth = await requireCapability(request, 'clients.manage')
-  if ('response' in clientAuth) return clientAuth.response
-  const serviceAuth = await requireCapability(request, 'service_plans.manage')
-  if ('response' in serviceAuth) return serviceAuth.response
-  const scheduleAuth = await requireCapability(request, 'schedule.manage')
-  if ('response' in scheduleAuth) return scheduleAuth.response
+  const auth = await requireCapabilities(request, ['clients.manage', 'service_plans.manage', 'schedule.manage'])
+  if ('response' in auth) return auth.response
 
   const parsed = schema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid service setup', details: parsed.error.flatten() }, { status: 400 })
   const { id: clientId } = await params
-  const organizationId = clientAuth.user.organizationId
+  const organizationId = auth.user.organizationId
 
   const site = await prisma.site.findFirst({
     where: { id: parsed.data.siteId, clientId, organizationId, archivedAt: null },
@@ -49,6 +45,11 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     },
   })
   if (!site) return NextResponse.json({ ok: false, error: 'Service location not found for this client.' }, { status: 404 })
+
+  const now = new Date()
+  if (parsed.data.startAt.getTime() < now.getTime() - 5 * 60_000) {
+    return NextResponse.json({ ok: false, error: 'Service start time cannot be in the past.' }, { status: 400 })
+  }
 
   const duplicate = await prisma.servicePlan.findFirst({
     where: {
@@ -132,7 +133,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       data: {
         organizationId, servicePlanId: plan.id, versionNumber: 1,
         expectedDurationMinutes: plan.expectedDurationMinutes, requiredWorkers: plan.requiredWorkers,
-        snapshot: asInputJson(snapshot)!, contentHash, publishedBy: clientAuth.user.email,
+        snapshot: asInputJson(snapshot)!, contentHash, publishedBy: auth.user.email,
         tasks: { create: taskSnapshot.map((task) => ({
           organizationId, ...task, options: asInputJson(task.options), conditionalRules: asInputJson(task.conditionalRules),
         })) },
@@ -154,25 +155,41 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         defaultAssignees: defaultAssigneeIds.length ? { create: defaultAssigneeIds.map((userId, priority) => ({ organizationId, userId, priority })) } : undefined,
       },
     })
-    const visitIds: string[] = []
+
     const assignedUserIds = new Set<string>()
-    for (let index = 0; index < occurrences.length; index += 1) {
-      const start = occurrences[index]
+    const plannedVisits = occurrences.map((start, index) => {
       const end = new Date(start.getTime() + parsed.data.expectedDurationMinutes * 60_000)
       const assigneeIds = allocator.select(start, end, parsed.data.requiredWorkers)
       assigneeIds.forEach((userId) => assignedUserIds.add(userId))
-      const visit = await tx.visit.create({
+      return {
+        generationKey: generationKey(start),
+        assigneeIds,
         data: {
           organizationId, jobId: job.id, siteId: site.id, servicePlanVersionId: version.id,
           scheduledStart: start, scheduledEnd: end, timezone: site.timezone,
           sequenceNumber: index + 1, generationKey: generationKey(start), requiredWorkers: parsed.data.requiredWorkers,
-          status: assigneeIds.length ? 'dispatched' : 'scheduled',
-          assignments: { create: assigneeIds.map((userId) => ({ organizationId, userId, status: 'assigned' })) },
+          status: assigneeIds.length ? 'dispatched' as const : 'scheduled' as const,
         },
-        select: { id: true },
-      })
-      visitIds.push(visit.id)
-    }
+      }
+    })
+
+    const createdVisits = await tx.visit.createManyAndReturn({
+      data: plannedVisits.map((visit) => visit.data),
+      select: { id: true, generationKey: true },
+    })
+    const visitIdByGenerationKey = new Map(createdVisits.map((visit) => [visit.generationKey, visit.id]))
+    const assignments = plannedVisits.flatMap((visit) => {
+      const visitId = visitIdByGenerationKey.get(visit.generationKey)
+      if (!visitId) throw new Error(`Created visit missing for ${visit.generationKey}`)
+      return visit.assigneeIds.map((userId) => ({ organizationId, visitId, userId, status: 'assigned' as const }))
+    })
+    if (assignments.length) await tx.visitAssignment.createMany({ data: assignments })
+    const visitIds = plannedVisits.map((visit) => {
+      const visitId = visitIdByGenerationKey.get(visit.generationKey)
+      if (!visitId) throw new Error(`Created visit missing for ${visit.generationKey}`)
+      return visitId
+    })
+
     return { contract, plan, version, job, visitIds, assignedUserIds: [...assignedUserIds] }
   })
 
@@ -182,18 +199,18 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         organizationId, siteId: site.id, visitId: result.visitIds[0], type: 'schedule_change', priority: 'high',
         title: 'New cleaning service assigned',
         body: `${site.client.displayName} · ${site.name} has new recurring cleaning work. Open Schedule for your assigned visits.`,
-        requiresAcknowledgement: true, createdById: clientAuth.user.id,
+        requiresAcknowledgement: true, createdById: auth.user.id,
         recipients: { create: result.assignedUserIds.map((userId) => ({ organizationId, userId })) },
       },
     })
     await enqueueNotification({
-      organizationId, kind: 'operational_notice_push', createdBy: clientAuth.user.email,
+      organizationId, kind: 'operational_notice_push', createdBy: auth.user.email,
       entityType: 'operational_notice', entityId: notice.id,
       payload: { userIds: result.assignedUserIds, title: notice.title, body: notice.body, noticeId: notice.id, priority: notice.priority },
     })
   }
 
-  await logAudit(clientAuth.user.email, 'create_client_service', 'service_plan', result.plan.id, {
+  await logAudit(auth.user.email, 'create_client_service', 'service_plan', result.plan.id, {
     clientId, siteId: site.id, contractId: result.contract.id, jobId: result.job.id, generatedVisits: result.visitIds.length,
   }, organizationId)
 

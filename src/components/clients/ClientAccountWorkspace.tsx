@@ -89,6 +89,7 @@ type ClientPlaceSelection = PlaceSelection & {
   postalCode: string | null
   countryCode: string | null
 }
+type CreatedSite = Omit<Site, 'servicePlans'> & { servicePlans?: ServicePlan[] }
 
 const WEEKDAYS = [
   { value: 1, short: 'Mon' }, { value: 2, short: 'Tue' }, { value: 3, short: 'Wed' },
@@ -205,6 +206,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
+  const [serviceError, setServiceError] = useState('')
   const [locationOpen, setLocationOpen] = useState(false)
   const [serviceOpen, setServiceOpen] = useState(false)
   const [profileOpen, setProfileOpen] = useState(false)
@@ -218,8 +220,8 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   const [serviceDraft, setServiceDraft] = useState<ServiceDraft>(() => newServiceDraft())
   const [changeDraft, setChangeDraft] = useState<ServiceDraft>(() => ({ ...newServiceDraft(), startDate: localDateInput(1) }))
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refresh = useCallback(async (showLoading = true) => {
+    if (showLoading) setLoading(true)
     try {
       const account = await api<AccountData>(`/api/client-accounts/${params.id}`)
       setData(account)
@@ -233,7 +235,9 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       setServiceDraft((current) => ({ ...current, siteId: current.siteId || account.client.sites[0]?.id || '' }))
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load this client.' })
-    } finally { setLoading(false) }
+    } finally {
+      if (showLoading) setLoading(false)
+    }
   }, [params.id])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -242,9 +246,11 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     setSetupHandled(true)
     if (data.client.sites.length && canConfigureService) {
       setServiceDraft(newServiceDraft(data.client.sites[0].id))
+      setServiceError('')
       setServiceOpen(true)
     } else if (canManageClients) setLocationOpen(true)
   }, [canConfigureService, canManageClients, data, searchParams, setupHandled])
+  useEffect(() => { if (!serviceOpen) setServiceError('') }, [serviceOpen])
 
   const client = data?.client
   const primaryContact = client?.contacts.find((contact) => contact.isPrimary) ?? client?.contacts[0]
@@ -286,7 +292,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     }
     setBusy(true)
     try {
-      const site = await api<{ id: string }>('/api/sites', {
+      const createdSite = await api<CreatedSite>('/api/sites', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           clientId: client.id,
           name: client.type === 'residential' ? 'Home' : locationDraft.name.trim() || client.displayName,
@@ -305,14 +311,20 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
           preferredAssigneeIds: [], contractIds: [],
         }),
       })
+      const site: Site = { ...createdSite, servicePlans: createdSite.servicePlans ?? [] }
+      setData((current) => current ? {
+        ...current,
+        client: { ...current.client, sites: [...current.client.sites.filter((item) => item.id !== site.id), site] },
+      } : current)
       setLocationOpen(false)
       setLocationDraft(emptyLocationDraft())
       setAddressQuery('')
       setSelectedPlace(null)
       setServiceDraft(newServiceDraft(site.id))
+      setServiceError('')
       setNotice({ kind: 'success', text: 'Verified location added. The account is ready for service setup.' })
-      await refresh()
       if (canConfigureService) setServiceOpen(true)
+      void refresh(false)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not add this location.' })
     } finally { setBusy(false) }
@@ -345,15 +357,19 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     event.preventDefault()
     if (!client) return
     const site = client.sites.find((item) => item.id === serviceDraft.siteId)
-    if (!site) return setNotice({ kind: 'error', text: 'Choose a service location first.' })
+    if (!site) return setServiceError('Choose a service location first.')
     const tasks = serviceDraft.instructions.split('\n').map((line) => line.trim()).filter(Boolean)
-    if (!tasks.length) return setNotice({ kind: 'error', text: 'Add at least one cleaning instruction.' })
+    if (!tasks.length) return setServiceError('Add at least one cleaning instruction.')
     if ((serviceDraft.frequency === 'weekly' || serviceDraft.frequency === 'fortnightly') && !serviceDraft.weekdays.length) {
-      return setNotice({ kind: 'error', text: 'Choose at least one service day.' })
+      return setServiceError('Choose at least one service day.')
     }
+    const startAt = localStart(serviceDraft.startDate, serviceDraft.time, site.timezone || 'Europe/Dublin')
+    if (startAt.getTime() < Date.now() - 5 * 60_000) {
+      return setServiceError('The service start time is in the past. Choose a current or future date/time.')
+    }
+    setServiceError('')
     setBusy(true)
     try {
-      const startAt = localStart(serviceDraft.startDate, serviceDraft.time, site.timezone || 'Europe/Dublin')
       const result = await api<{ versionNumber: number; generatedVisits: number }>(`/api/client-accounts/${client.id}/service`, {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
           siteId: site.id,
@@ -370,9 +386,9 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       setServiceOpen(false)
       setServiceDraft(newServiceDraft(site.id))
       setNotice({ kind: 'success', text: `Service activated as version ${result.versionNumber}. ${result.generatedVisits} future visit${result.generatedVisits === 1 ? '' : 's'} generated; staffing stays visible in Schedule.` })
-      await refresh()
+      void refresh(false)
     } catch (error) {
-      setNotice({ kind: 'error', text: `${error instanceof Error ? error.message : 'Could not activate this service.'} Nothing was partially created.` })
+      setServiceError(`${error instanceof Error ? error.message : 'Could not activate this service.'} Nothing was partially created.`)
     } finally { setBusy(false) }
   }
 
@@ -422,7 +438,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       setChangeOpen(false)
       setChangeTarget(null)
       setNotice({ kind: 'success', text: `Future service updated. ${result.replacedFutureVisits} planned visit${result.replacedFutureVisits === 1 ? '' : 's'} replaced and ${result.generatedVisits} regenerated. Past work and manually-added extra visits were preserved.` })
-      await refresh()
+      void refresh(false)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not apply this future service change.' })
     } finally { setBusy(false) }
@@ -442,7 +458,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <div className="client-hero-actions">
         {canManageClients ? <button className="client-button-secondary" onClick={() => setProfileOpen(true)}><OpsIcon name="user" />Edit profile</button> : null}
         {canManageClients ? <button className="client-button-secondary" onClick={() => setLocationOpen(true)}><OpsIcon name="field" />Add location</button> : null}
-        {canConfigureService ? <button className="client-button" onClick={() => client.sites.length ? (setServiceDraft(newServiceDraft(client.sites[0].id)), setServiceOpen(true)) : setLocationOpen(true)}><OpsIcon name="calendar" />Set up service</button> : null}
+        {canConfigureService ? <button className="client-button" onClick={() => client.sites.length ? (setServiceDraft(newServiceDraft(client.sites[0].id)), setServiceError(''), setServiceOpen(true)) : setLocationOpen(true)}><OpsIcon name="calendar" />Set up service</button> : null}
       </div>
     </header>
 
@@ -464,13 +480,13 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       </section>
 
       <section className="client-section client-services-section">
-        <div className="client-section-head"><div><span className="client-eyebrow">Service</span><h2>What we agreed to deliver</h2></div>{canConfigureService && client.sites.length ? <button className="client-text-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceOpen(true) }}>Set up another service</button> : null}</div>
+        <div className="client-section-head"><div><span className="client-eyebrow">Service</span><h2>What we agreed to deliver</h2></div>{canConfigureService && client.sites.length ? <button className="client-text-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up another service</button> : null}</div>
         <div className="client-service-list">
           {client.sites.flatMap((site) => site.servicePlans.map((plan) => {
             const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
             return <article className="client-service-card" key={plan.id}><div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'active' ? 'active' : plan.status}`}>{job?.status === 'active' ? 'active' : plan.status}</span></div><div className="client-service-summary"><div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div><div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div><div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div><div><span>Contract</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div></div><div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div><div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && plan.versions[0] ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div></article>
           }))}
-          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
+          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
         </div>
       </section>
 
@@ -497,6 +513,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     <DetailDialog open={serviceOpen} title="Set up cleaning service" eyebrow="Simple service setup" onClose={() => setServiceOpen(false)}>
       <form className="client-dialog-form service-setup-form" onSubmit={activateService}>
         <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Define the service once</strong><span>Diamond creates the contract, protected service version and future Visits behind the scenes.</span></div></div>
+        {serviceError ? <div className="client-notice error" role="alert"><span>{serviceError}</span></div> : null}
         {client.sites.length > 1 ? <div className="client-form-field"><span>Location</span><StandardSelect searchable={client.sites.length > 8} value={serviceDraft.siteId} onChange={(value) => setServiceDraft({ ...serviceDraft, siteId: value })} ariaLabel="Service location" placeholder="Select location" searchPlaceholder="Search location…" options={client.sites.map((site) => ({ value: site.id, label: site.name, description: `${site.city} · ${site.postalCode}` }))} /></div> : client.sites[0] ? <div className="client-setup-note"><OpsIcon name="map" /><div><strong>Service location · {client.sites[0].name}</strong><span>{serviceLocationLabel(client.sites[0])}</span></div></div> : null}
         <label>Service name<input required value={serviceDraft.serviceName} onChange={(event) => setServiceDraft({ ...serviceDraft, serviceName: event.target.value })} /></label>
         <div className="client-form-pair"><label>Service starts<input required type="date" value={serviceDraft.startDate} onChange={(event) => setServiceDraft({ ...serviceDraft, startDate: event.target.value })} /></label><label>Contract ends <small>Optional</small><input type="date" min={serviceDraft.startDate} value={serviceDraft.endDate} onChange={(event) => setServiceDraft({ ...serviceDraft, endDate: event.target.value })} /></label></div>
@@ -504,7 +521,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
         {(serviceDraft.frequency === 'weekly' || serviceDraft.frequency === 'fortnightly') ? <fieldset className="client-weekdays"><legend>Service days</legend><div>{WEEKDAYS.map((day) => <button type="button" key={day.value} className={serviceDraft.weekdays.includes(day.value) ? 'selected' : ''} onClick={() => toggleWeekday(day.value, 'new')}>{day.short}</button>)}</div></fieldset> : null}
         <div className="client-form-pair"><label>People required<input required type="number" min={1} max={100} value={serviceDraft.requiredWorkers} onChange={(event) => setServiceDraft({ ...serviceDraft, requiredWorkers: Number(event.target.value) })} /></label><label>Expected duration <span className="client-inline-duration">minutes</span><input required type="number" min={15} max={1440} step={15} value={serviceDraft.durationMinutes} onChange={(event) => setServiceDraft({ ...serviceDraft, durationMinutes: Number(event.target.value) })} /></label></div>
         <label>Cleaning instructions <small>One task per line. Keep this practical for the cleaner.</small><textarea required rows={7} value={serviceDraft.instructions} onChange={(event) => setServiceDraft({ ...serviceDraft, instructions: event.target.value })} /></label>
-        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setServiceOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Activating…' : 'Activate service'}</button></div>
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setServiceOpen(false)}>Cancel</button><button type="submit" className="client-button" disabled={busy}>{busy ? 'Activating…' : 'Activate service'}</button></div>
       </form>
     </DetailDialog>
 

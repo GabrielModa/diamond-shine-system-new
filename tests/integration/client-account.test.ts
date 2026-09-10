@@ -61,12 +61,23 @@ async function createSite(clientId: string, name = 'Verified service location') 
   return response.body.data as { id: string }
 }
 
+function futureServiceWindow() {
+  const start = new Date()
+  start.setUTCDate(start.getUTCDate() + 7)
+  start.setUTCHours(9, 0, 0, 0)
+  const untilTuesday = (2 - start.getUTCDay() + 7) % 7
+  start.setUTCDate(start.getUTCDate() + untilTuesday)
+  const end = new Date(start.getTime() + 91 * 86_400_000)
+  return { startAt: start.toISOString(), endDate: end.toISOString() }
+}
+
 function servicePayload(siteId: string, overrides: Record<string, unknown> = {}) {
+  const window = futureServiceWindow()
   return {
     siteId,
     serviceName: 'Regular cleaning',
-    startAt: '2026-09-08T09:00:00.000Z',
-    endDate: '2026-12-08T09:00:00.000Z',
+    startAt: window.startAt,
+    endDate: window.endDate,
     expectedDurationMinutes: 120,
     requiredWorkers: 2,
     tasks: ['Vacuum floors', 'Clean bathrooms'],
@@ -136,15 +147,34 @@ describe('client account product flow', () => {
     const client = await createClient()
     const site = await createSite(client.id)
 
+    const { startAt } = futureServiceWindow()
+    const invalidEnd = new Date(new Date(startAt).getTime() - 86_400_000).toISOString()
     const response = await request(app)
       .post(`/api/client-accounts/${client.id}/service`)
       .set('Cookie', adminCookie)
-      .send(servicePayload(site.id, { endDate: '2026-09-07T09:00:00.000Z' }))
+      .send(servicePayload(site.id, { startAt, endDate: invalidEnd }))
 
     expect(response.status).toBe(400)
     expect(await prisma.contract.count({ where: { clientId: client.id } })).toBe(0)
     expect(await prisma.servicePlan.count({ where: { siteId: site.id } })).toBe(0)
     expect(await prisma.job.count({ where: { siteId: site.id } })).toBe(0)
+  })
+
+  it('rejects a service start that is already in the past', async () => {
+    const client = await createClient()
+    const site = await createSite(client.id)
+    const pastStart = new Date(Date.now() - 24 * 60 * 60_000)
+    pastStart.setUTCSeconds(0, 0)
+    const endDate = new Date(pastStart.getTime() + 30 * 86_400_000)
+
+    const response = await request(app)
+      .post(`/api/client-accounts/${client.id}/service`)
+      .set('Cookie', adminCookie)
+      .send(servicePayload(site.id, { startAt: pastStart.toISOString(), endDate: endDate.toISOString() }))
+
+    expect(response.status).toBe(400)
+    expect(response.body.error).toMatch(/cannot be in the past/i)
+    expect(await prisma.contract.count({ where: { clientId: client.id } })).toBe(0)
   })
 
   it('rejects a service location that belongs to another client', async () => {
