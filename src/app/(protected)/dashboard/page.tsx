@@ -76,7 +76,7 @@ export default function DashboardPage() {
         fetchJson<DashboardResponse>('/api/dashboard'),
         fetchJson<{ items: SupplyRequest[] }>('/api/supplies?limit=200'),
         fetchJson<{ items: FeedbackEntry[] }>('/api/feedback'),
-        fetchJson<Assignee[]>('/api/users'),
+        fetchJson<Assignee[]>('/api/supplies/assignees'),
       ])
 
       if (dashboardRes.status === 'fulfilled') {
@@ -101,7 +101,7 @@ export default function DashboardPage() {
         setFeedback(fallback)
       }
       if (usersRes.status === 'fulfilled') {
-        setAssignees(usersRes.value.filter((user) => user.status === 'active' && (user.role === 'admin' || user.role === 'supervisor')))
+        setAssignees(usersRes.value.filter((user) => user.status === 'active'))
       }
     } catch {
       setToast({ type: 'error', message: 'Failed to load dashboard data.' })
