@@ -158,9 +158,10 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - Decisions remain auditable; original clock record is never destroyed.
 
 **UX/UI gate**
-- Explicit payroll period + approved/pending/rejected breakdown.
-- Group by employee when scale grows; exceptions should explain GPS/duration/dispute reason inline.
-- Approval/rejection needs clear irreversible/next-state feedback.
+- Explicit payroll period + recorded/payable/excluded/pending breakdown.
+- Recorded time is immutable evidence. Approval stores a separate payable duration; adjusted approval requires a reason and can never exceed recorded time; rejection means zero payable time.
+- Group by employee when scale grows; exceptions explain GPS/duration/dispute reasons in human language while technical codes remain available to audit/Field Control.
+- Payroll decisions use a focused review dialog; success confirmations are transient rather than permanent page banners.
 
 **Tests**
 - Unit payable-duration derivation.
@@ -222,7 +223,7 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - Recipient/ack counts must remain consistent with delivery state.
 
 **UX/UI gate**
-- Recipient picker needs search and practical targeting at scale (role/site/team).
+- Recipient picker needs search and practical targeting at scale (role/site/team). Role shortcuts resolve to the actual active members so acknowledgement remains person-level and auditable.
 - Critical/unacknowledged notices dominate inbox; old/expired content is secondary.
 - A manager should see “who has not acknowledged” without expanding every card.
 
@@ -272,8 +273,8 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 - Quality inspections/corrective actions remain in Quality control.
 
 **UX/UI gate**
-- One page combines employee rating overview, category filters and exact feedback history.
-- Clicking an employee should take the manager directly to that employee’s underlying evaluations.
+- The page leads with employee performance; exact evaluation history opens on demand in a focused drawer instead of creating a second long page below it.
+- Needs attention is an actionable employee filter. Clicking an employee opens that employee’s real evaluation history, and clicking an evaluation opens its detail without creating another source of truth.
 - Historical feedback records remain readable even while future work moves toward canonical Site/Visit relationships.
 
 **Tests**
@@ -394,6 +395,7 @@ This registry is the permanent Product Behavior Gate backlog. It records **what 
 **UX/UI gate**
 - Role selector should explain purpose/capabilities in plain operational language.
 - Changing role is a high-impact action and needs clear confirmation/feedback.
+- Organization admins may assist an employee with mapped school, study hours, recurring restrictions and temporary unavailability when the employee cannot self-serve. Assisted changes are audited and never silently move published visits.
 
 **Tests**
 - Integration every membership role and tenant isolation.
