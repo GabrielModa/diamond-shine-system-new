@@ -2,8 +2,8 @@
 
 import { useParams } from 'next/navigation'
 import { useCallback, useEffect, useState } from 'react'
-import GooglePlaceAutocomplete, { type PlaceSelection } from '../../../../components/workforce/GooglePlaceAutocomplete'
-import WeeklyWindowEditor, { type WeeklyRule } from '../../../../components/workforce/WeeklyWindowEditor'
+import GooglePlaceAutocomplete, { type PlaceSelection } from '../../../../../components/workforce/GooglePlaceAutocomplete'
+import WeeklyWindowEditor, { type WeeklyRule } from '../../../../../components/workforce/WeeklyWindowEditor'
 
 type StudyRule = { dayOfWeek: number; startsMinute: number; endsMinute: number }
 type RecurringRule = StudyRule & { reason: string | null }
