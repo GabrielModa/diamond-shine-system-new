@@ -73,7 +73,7 @@ export default function CommandActivityFeed({
       meta: entry.overall.toFixed(1) + ' · ' + entry.category,
       href: '/feedback',
     })),
-  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()).slice(0, 12), [feedback, incidents, supplies])
+  ].sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime()), [feedback, incidents, supplies])
 
   const visible = segment === 'all' ? items : items.filter((item) => item.type === segment)
 
