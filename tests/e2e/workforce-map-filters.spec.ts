@@ -19,22 +19,24 @@ test.beforeEach(async ({ page }) => {
   await expect(page.getByLabel('Workforce coverage map')).toBeVisible({ timeout: 15_000 })
 })
 
-test('coverage map starts clean and site filters are exclusive, truthful and reversible', async ({ page }) => {
+test('coverage map opens useful, keeps site filters truthful and excludes inactive sites', async ({ page }) => {
   const people = page.getByRole('button', { name: /People/ })
-  const allSites = page.getByRole('button', { name: /All sites/ })
+  const upcomingSites = page.getByRole('button', { name: /Upcoming sites/ })
   const needsStaff = page.getByRole('button', { name: /Needs staff/ })
   const covered = page.getByRole('button', { name: /Covered/ })
 
-  await expect(people).toHaveAttribute('aria-pressed', 'false')
-  await expect(allSites).toHaveAttribute('aria-pressed', 'false')
+  await expect(people).toHaveAttribute('aria-pressed', 'true')
+  await expect(upcomingSites).toHaveAttribute('aria-pressed', 'true')
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'false')
   await expect(covered).toHaveAttribute('aria-pressed', 'false')
-  await expect(page.locator('[data-workforce-site-marker]')).toHaveCount(0)
-  await expect(page.locator('[data-workforce-employee-marker]')).toHaveCount(0)
+  await expect(page.locator('[data-workforce-site-marker]').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('[data-workforce-site-marker][data-coverage-state="no_upcoming"]')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 
   await needsStaff.click()
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'true')
+  await expect(upcomingSites).toHaveAttribute('aria-pressed', 'false')
   const needsMarkers = page.locator('[data-workforce-site-marker]')
   await expect(needsMarkers.first()).toBeVisible({ timeout: 15_000 })
   const needsCount = await needsMarkers.count()
@@ -42,6 +44,7 @@ test('coverage map starts clean and site filters are exclusive, truthful and rev
   for (let index = 0; index < needsCount; index++) {
     await expect(needsMarkers.nth(index)).toHaveAttribute('data-coverage-state', 'needs_staff')
   }
+  await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible()
 
   await needsMarkers.first().dispatchEvent('click')
   await expect(page.getByTestId('map-site-card')).toBeVisible()
@@ -49,14 +52,16 @@ test('coverage map starts clean and site filters are exclusive, truthful and rev
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'false')
   await expect(page.locator('[data-workforce-site-marker]')).toHaveCount(0)
   await expect(page.getByTestId('map-site-card')).toHaveCount(0)
+  await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible()
 
-  await allSites.click()
-  await expect(allSites).toHaveAttribute('aria-pressed', 'true')
+  await upcomingSites.click()
+  await expect(upcomingSites).toHaveAttribute('aria-pressed', 'true')
   await expect(page.locator('[data-workforce-site-marker]').first()).toBeVisible({ timeout: 15_000 })
+  await expect(page.locator('[data-workforce-site-marker][data-coverage-state="no_upcoming"]')).toHaveCount(0)
   await expectNoHorizontalOverflow(page)
 
   const legend = page.getByLabel('Map legend')
   await expect(legend).toContainText('Needs staff')
   await expect(legend).toContainText('Covered')
-  await expect(legend).toContainText('No upcoming visits')
+  await expect(legend).not.toContainText('No upcoming visits')
 })
