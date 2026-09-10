@@ -148,6 +148,13 @@ function locationEventLabel(kind: string) {
   return kind.replaceAll('_', ' ')
 }
 
+function locationEventIcon(kind: string): 'clockIn' | 'clockOut' | 'presence' | 'map' {
+  if (kind === 'clock_in') return 'clockIn'
+  if (kind === 'clock_out') return 'clockOut'
+  if (kind === 'heartbeat') return 'presence'
+  return 'map'
+}
+
 function locationMeta(point: LocationEvent | undefined) {
   if (!point) return 'No location evidence'
   const distance = point.distanceM == null ? 'distance unavailable' : `${point.distanceM}m from site`
@@ -495,7 +502,7 @@ function TimeReviewDetail({
       <LocationCheck title="Clock out" point={clockOut} />
     </section>
     {entry.visit ? <FieldLocationReviewMap site={sitePoint} points={mapPoints} selectedPointId={selectedPointId} onSelectPoint={setSelectedPointId} /> : null}
-    {entry.locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check = a periodic GPS point captured while the visit timer is running.</p></div><span>Click a point to focus it on the map</span></div>{entry.locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-dot ${locationTone(point)}`} /><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
+    {entry.locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check is an automatic GPS waypoint captured periodically while the visit timer runs. It confirms location continuity; it is not health tracking and requires no employee action.</p></div><span>Click a point to focus it on the map</span></div>{entry.locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-event-icon ${locationTone(point)}`}><OpsIcon name={locationEventIcon(point.kind)} size={16} /></span><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
     {openChallenge ? <section className="field-v2-worker-request"><div><OpsIcon name="user" /><strong>Worker correction request</strong></div><p>{openChallenge.reason}</p><label className="field-v2-note"><span>Response to worker</span><input value={notes[openChallenge.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [openChallenge.id]: event.target.value }))} placeholder="Explain the decision" /></label><div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'declined')}>Keep original</button><button className="field-v2-primary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'accepted')}>Accept correction</button></div></section> : null}
     <section className="field-v2-decision"><label className="field-v2-note"><span>Manager decision note</span><input value={notes[entry.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [entry.id]: event.target.value }))} placeholder="Optional when approving; explain when returning" /></label><div className="field-v2-actions"><button className="field-v2-secondary danger" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'rejected')}>Return for correction</button><button className="field-v2-primary" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'approved')}>Approve execution record</button></div></section>
   </article>
