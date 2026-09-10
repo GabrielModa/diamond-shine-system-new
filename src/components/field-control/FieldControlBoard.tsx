@@ -1,5 +1,6 @@
 'use client'
 
+import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import OpsIcon from '../ui/OpsIcon'
@@ -30,7 +31,12 @@ type Incident = {
   status: string
   createdAt: string
   reporter: Person
-  visit: { id: string; scheduledStart: string; site: { name: string; client: { displayName: string } } }
+  visit: {
+    id: string
+    scheduledStart: string
+    site: { name: string; client: { displayName: string } }
+    evidenceAssets: Array<{ id: string; fileName: string; mimeType: string; capturedAt: string; metadata: unknown }>
+  }
 }
 type VisitReview = { id: string; decision: string; note: string | null; createdAt: string; reviewer: Person }
 type VisitReviewCandidate = {
@@ -94,6 +100,17 @@ function duration(seconds: number | null, startedAt?: string) {
 
 function personName(person: Person) {
   return person.name || person.email
+}
+
+function evidencePhase(metadata: unknown) {
+  if (!metadata || typeof metadata !== 'object' || Array.isArray(metadata)) return null
+  const phase = (metadata as Record<string, unknown>).phase
+  return typeof phase === 'string' ? phase : null
+}
+
+function incidentPhotos(incident: Incident) {
+  const phase = `incident:${incident.id}`
+  return incident.visit.evidenceAssets.filter((asset) => evidencePhase(asset.metadata) === phase)
 }
 
 function friendlyReviewReason(reason: string | null) {
@@ -395,13 +412,20 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
       {tab === 'incidents' ? <section className="field-v2-workspace">
         <div className="field-v2-section-head"><div><h2>Open incidents</h2><p>Safety, access, damage, equipment and client issues that are still operationally active.</p></div><span>{filteredIncidents.length}</span></div>
         <div className="field-v2-incident-list">
-          {filteredIncidents.map((incident) => <article className={`field-v2-incident ${incident.severity === 'critical' ? 'critical' : ''}`} key={incident.id} data-incident-id={incident.id}>
-            <div className="field-v2-incident-head"><span className={`field-v2-incident-icon ${incident.severity}`}><OpsIcon name="incident" /></span><div><strong>{incident.title}</strong><small>{incident.category} · {incident.severity}</small></div><span className="field-v2-status attention">{incident.status.replaceAll('_', ' ')}</span></div>
-            <p>{incident.description || 'No additional description.'}</p>
-            <div className="field-v2-incident-meta"><span>{incident.visit.site.client.displayName} · {incident.visit.site.name}</span><span>Reported by {personName(incident.reporter)} · {dateTime(incident.createdAt, timezone)}</span></div>
-            <label className="field-v2-note"><span>Manager note</span><input value={notes[incident.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [incident.id]: event.target.value }))} placeholder="Optional resolution or handoff note" /></label>
-            <div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'acknowledged')}>Acknowledge</button><button className="field-v2-secondary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'in_progress')}>Mark in progress</button><button className="field-v2-primary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'resolved')}>Resolve</button></div>
-          </article>)}
+          {filteredIncidents.map((incident) => {
+            const photos = incidentPhotos(incident)
+            return <article className={`field-v2-incident ${incident.severity === 'critical' ? 'critical' : ''}`} key={incident.id} data-incident-id={incident.id}>
+              <div className="field-v2-incident-head"><span className={`field-v2-incident-icon ${incident.severity}`}><OpsIcon name="incident" /></span><div><strong>{incident.title}</strong><small>{incident.category} · {incident.severity}</small></div><span className="field-v2-status attention">{incident.status.replaceAll('_', ' ')}</span></div>
+              <p>{incident.description || 'No additional description.'}</p>
+              <div className="field-v2-incident-meta"><span>{incident.visit.site.client.displayName} · {incident.visit.site.name}</span><span>Reported by {personName(incident.reporter)} · {dateTime(incident.createdAt, timezone)}</span></div>
+              <section className="field-v2-incident-evidence" aria-label={`Evidence for ${incident.title}`}>
+                <div className="field-v2-incident-evidence-head"><strong>Employee photo</strong><span>{photos.length ? `${photos.length} attached` : 'Optional · none attached'}</span></div>
+                {photos.length ? <div className="field-v2-incident-photos">{photos.map((photo, index) => <a key={photo.id} href={`/api/evidence/${photo.id}`} target="_blank" rel="noreferrer" title="Open full-size incident photo"><Image src={`/api/evidence/${photo.id}`} alt={`${incident.title} photo ${index + 1}`} width={320} height={190} unoptimized /></a>)}</div> : <div className="field-v2-incident-no-photo">No photo was attached to this report. Photos are optional, so the incident remains valid and actionable.</div>}
+              </section>
+              <label className="field-v2-note"><span>Manager note</span><input value={notes[incident.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [incident.id]: event.target.value }))} placeholder="Optional resolution or handoff note" /></label>
+              <div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'acknowledged')}>Acknowledge</button><button className="field-v2-secondary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'in_progress')}>Mark in progress</button><button className="field-v2-primary" disabled={busyId === incident.id} onClick={() => void updateIncident(incident.id, 'resolved')}>Resolve</button></div>
+            </article>
+          })}
           {!filteredIncidents.length ? <div className="field-v2-empty">No incidents match this filter.</div> : null}
         </div>
       </section> : null}
