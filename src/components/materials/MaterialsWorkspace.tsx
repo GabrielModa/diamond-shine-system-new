@@ -53,7 +53,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
       setSiteId((current) => current || bootstrap.sites[0]?.id || '')
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
     finally { setBusy(false) }
-  }, [canManage])
+  }, [])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { if (!siteId || tab !== 'count') return; void api<Material[]>(`/api/sites/${siteId}/stock`).then((data) => { setStock(data); setQuantities(Object.fromEntries(data.map((item) => [item.id, String(item.onHand ?? 0)]))) }).catch((error) => setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load site stock.' })) }, [siteId, tab])
 
