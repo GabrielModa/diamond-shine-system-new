@@ -1,4 +1,4 @@
-import { Prisma, type TimeEntry } from '@prisma/client'
+import { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../../../lib/prisma'
 import { requireCapability } from '../../../../../lib/auth'
@@ -9,6 +9,7 @@ import { repeatedLocationPattern } from '../../../../../modules/execution/locati
 import { startVisitSchema } from '../../../../../modules/execution/schemas'
 import { asInputJson } from '../../../../../modules/operations/json'
 import { lockUserTimerStart } from '../../../../../modules/execution/timer-lock'
+import { executionTimeEntrySelect, type ExecutionTimeEntry } from '../../../../../modules/execution/time-entry-select'
 
 class VisitStartConflict extends Error {}
 class ActiveTimerConflict extends Error {}
@@ -32,6 +33,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         userId: auth.user.id,
         visitId: id,
       },
+      select: executionTimeEntrySelect,
     })
     if (duplicate) {
       return NextResponse.json({ ok: true, duplicate: true, data: duplicate })
@@ -56,7 +58,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
 
   const active = await prisma.timeEntry.findFirst({
     where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-    include: { visit: { select: { id: true, scheduledStart: true } } },
+    select: {
+      ...executionTimeEntrySelect,
+      visit: { select: { id: true, scheduledStart: true } },
+    },
   })
   if (active) {
     return NextResponse.json({
@@ -82,7 +87,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
     ? 'REPEATED_LOCATION_PATTERN'
     : assessment.reviewRequired ? assessment.reason : null
 
-  let timeEntry: TimeEntry
+  let timeEntry: ExecutionTimeEntry
   try {
     timeEntry = await prisma.$transaction(async (tx) => {
       await lockUserTimerStart(tx, auth.user.organizationId, auth.user.id)
@@ -135,6 +140,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           clientMutationId: parsed.data.clientMutationId,
           reviewReason,
         },
+        select: executionTimeEntrySelect,
       })
       if (parsed.data.latitude != null && parsed.data.longitude != null) {
         await tx.locationEvent.create({
@@ -193,6 +199,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
             userId: auth.user.id,
             visitId: visit.id,
           },
+          select: executionTimeEntrySelect,
         })
         if (duplicate) {
           return NextResponse.json({ ok: true, duplicate: true, data: duplicate })
@@ -200,7 +207,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       }
       const current = await prisma.timeEntry.findFirst({
         where: { organizationId: auth.user.organizationId, userId: auth.user.id, status: 'running' },
-        include: { visit: { select: { id: true, scheduledStart: true } } },
+        select: {
+          ...executionTimeEntrySelect,
+          visit: { select: { id: true, scheduledStart: true } },
+        },
       })
       return NextResponse.json({
         ok: false,

@@ -7,6 +7,7 @@ import { prisma } from '../../../lib/prisma'
 import { assignedVisitFilter } from '../../../modules/execution/access'
 import { startTimeEntrySchema } from '../../../modules/execution/schemas'
 import { lockUserTimerStart } from '../../../modules/execution/timer-lock'
+import { executionTimeEntrySelect } from '../../../modules/execution/time-entry-select'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
@@ -24,8 +25,13 @@ export async function GET(request: NextRequest) {
   if (user.membershipRole !== 'employee' && !parsed.data.mine && !authUserHasCapability(user, 'time.team.review')) {
     return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
   }
+
   const from = parsed.data.from ?? new Date(Date.now() - 30 * 86_400_000)
   const to = parsed.data.to ?? new Date(Date.now() + 86_400_000)
+  if (to <= from || to.getTime() - from.getTime() > 366 * 86_400_000) {
+    return NextResponse.json({ ok: false, error: 'Time-entry range is too large.' }, { status: 400 })
+  }
+
   const entries = await prisma.timeEntry.findMany({
     where: {
       organizationId: user.organizationId,
@@ -33,7 +39,17 @@ export async function GET(request: NextRequest) {
       status: parsed.data.status,
       userId: user.membershipRole === 'employee' || parsed.data.mine ? user.id : parsed.data.userId,
     },
-    include: {
+    select: {
+      id: true,
+      kind: true,
+      status: true,
+      startedAt: true,
+      endedAt: true,
+      durationSeconds: true,
+      payableSeconds: true,
+      startLocationClass: true,
+      endLocationClass: true,
+      reviewReason: true,
       user: { select: { id: true, name: true, email: true } },
       visit: {
         select: {
@@ -44,10 +60,6 @@ export async function GET(request: NextRequest) {
           site: { select: { id: true, name: true, client: { select: { id: true, displayName: true } } } },
         },
       },
-      locationEvents: {
-        select: { id: true, kind: true, capturedAt: true, distanceM: true, accuracyM: true, classification: true, source: true },
-        orderBy: { capturedAt: 'asc' },
-      },
       disputes: {
         select: { id: true, reason: true, status: true, resolution: true, resolvedAt: true, createdAt: true },
         orderBy: { createdAt: 'desc' },
@@ -56,7 +68,54 @@ export async function GET(request: NextRequest) {
     orderBy: { startedAt: 'desc' },
     take: 500,
   })
-  return NextResponse.json({ ok: true, data: entries })
+
+  const ids = entries.map((entry) => entry.id)
+  const [locationStats, reviewStats] = ids.length ? await Promise.all([
+    prisma.locationEvent.groupBy({
+      by: ['timeEntryId'],
+      where: {
+        organizationId: user.organizationId,
+        timeEntryId: { in: ids },
+      },
+      _count: { _all: true },
+      _max: { distanceM: true },
+    }),
+    prisma.locationEvent.groupBy({
+      by: ['timeEntryId'],
+      where: {
+        organizationId: user.organizationId,
+        timeEntryId: { in: ids },
+        classification: { in: ['suspicious', 'unavailable'] },
+      },
+      _count: { _all: true },
+    }),
+  ]) : [[], []]
+
+  const reviewCountByEntry = new Map(
+    reviewStats
+      .filter((item) => item.timeEntryId)
+      .map((item) => [item.timeEntryId as string, item._count._all]),
+  )
+  const locationByEntry = new Map(
+    locationStats
+      .filter((item) => item.timeEntryId)
+      .map((item) => [item.timeEntryId as string, {
+        count: item._count._all,
+        maxDistanceM: item._max.distanceM,
+        needsReview: (reviewCountByEntry.get(item.timeEntryId as string) ?? 0) > 0,
+      }]),
+  )
+
+  return NextResponse.json({
+    ok: true,
+    data: entries.map((entry) => ({
+      ...entry,
+      locationSummary: locationByEntry.get(entry.id) ?? { count: 0, maxDistanceM: null, needsReview: false },
+      // Kept as an empty array for backwards-safe list rendering. Detailed event
+      // history is available from GET /api/time-entries/:id.
+      locationEvents: [],
+    })),
+  })
 }
 
 export async function POST(request: NextRequest) {
@@ -95,7 +154,7 @@ export async function POST(request: NextRequest) {
   if (parsed.data.clientMutationId) {
     const duplicate = await prisma.timeEntry.findFirst({
       where: { organizationId: auth.user.organizationId, clientMutationId: parsed.data.clientMutationId },
-      include: { locationEvents: true },
+      select: { ...executionTimeEntrySelect, locationEvents: true },
     })
     if (duplicate) {
       if (duplicate.userId !== auth.user.id || duplicate.kind !== parsed.data.kind || duplicate.visitId !== (parsed.data.visitId ?? null)) {
@@ -144,7 +203,7 @@ export async function POST(request: NextRequest) {
               source: parsed.data.source,
             } } : undefined,
           },
-          include: { locationEvents: true },
+          select: { ...executionTimeEntrySelect, locationEvents: true },
         })
         return { entry } as const
       })
@@ -159,7 +218,7 @@ export async function POST(request: NextRequest) {
             organizationId: auth.user.organizationId,
             clientMutationId: parsed.data.clientMutationId,
           },
-          include: { locationEvents: true },
+          select: { ...executionTimeEntrySelect, locationEvents: true },
         })
         if (duplicate && duplicate.userId === auth.user.id && duplicate.kind === parsed.data.kind && duplicate.visitId === (parsed.data.visitId ?? null)) {
           return { response: NextResponse.json({ ok: true, data: duplicate, duplicate: true }) } as const

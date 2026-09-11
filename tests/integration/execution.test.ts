@@ -277,9 +277,30 @@ describe('field execution', () => {
     expect(stopped.body.data.reviewReason).toContain('PRESENCE_LOCATION_ANOMALY')
     expect(stopped.body.data.reviewReason).toContain('LOCATION_FAR_FROM_SITE')
 
+    await prisma.locationEvent.createMany({
+      data: Array.from({ length: 1050 }, (_, index) => ({
+        organizationId: visit.organizationId,
+        visitId: visit.id,
+        timeEntryId: started.body.data.id,
+        kind: 'heartbeat' as const,
+        latitude: 53.3498,
+        longitude: -6.2603,
+        accuracyM: 10,
+        distanceM: 5,
+        classification: 'verified' as const,
+        capturedAt: new Date(Date.parse('2026-08-24T09:01:00.000Z') + index * 1000),
+        source: 'field-control-scale-test',
+      })),
+    })
+
     const queue = await request(app).get('/api/time-entries?status=needs_review').set('Cookie', adminCookie)
     expect(queue.status).toBe(200)
     expect(queue.body.data).toHaveLength(1)
+    expect(queue.body.data[0].locationEvents).toEqual([])
+    expect(queue.body.data[0].locationSummary).toEqual(expect.objectContaining({
+      count: 1053,
+      needsReview: true,
+    }))
 
     const control = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
@@ -288,11 +309,22 @@ describe('field execution', () => {
     expect(Number(reviewEntry.visit.site.latitude)).toBeCloseTo(53.3498, 4)
     expect(Number(reviewEntry.visit.site.longitude)).toBeCloseTo(-6.2603, 4)
     expect(reviewEntry.visit.site.geofenceVerifiedM).toBeGreaterThan(0)
-    expect(reviewEntry.locationEvents).toEqual(expect.arrayContaining([
+    expect(reviewEntry.locationEvents).toEqual([
+      expect.objectContaining({ kind: 'clock_in', classification: 'verified', latitude: expect.anything(), longitude: expect.anything() }),
+    ])
+
+    const locationReview = await request(app)
+      .get(`/api/field-control/time-entries/${started.body.data.id}`)
+      .set('Cookie', adminCookie)
+    expect(locationReview.status).toBe(200)
+    expect(locationReview.body.data.locationEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'clock_in', classification: 'verified', latitude: expect.anything(), longitude: expect.anything() }),
       expect.objectContaining({ kind: 'heartbeat', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
       expect.objectContaining({ kind: 'clock_out', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
     ]))
+    expect(locationReview.body.data.locationEvents).toHaveLength(1000)
+    expect(locationReview.body.data.locationEventsTruncated).toBe(true)
+    expect(locationReview.body.data.locationEventCount).toBe(1053)
 
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
@@ -325,7 +357,12 @@ describe('field execution', () => {
     await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ endedAt: '2026-08-24T07:15:00.000Z' })
     const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', supervisorCookie)
     expect(mine.status).toBe(200)
-    expect(mine.body.data[0].locationEvents[0]).not.toHaveProperty('latitude')
+    expect(mine.body.data[0].locationEvents).toEqual([])
+    expect(mine.body.data[0].locationSummary.count).toBeGreaterThan(0)
+    const ownDetail = await request(app).get(`/api/time-entries/${started.body.data.id}`).set('Cookie', supervisorCookie)
+    expect(ownDetail.status).toBe(200)
+    expect(ownDetail.body.data.locationEvents[0]).not.toHaveProperty('latitude')
+    expect(ownDetail.body.data.locationEvents[0]).not.toHaveProperty('longitude')
     const dispute = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', supervisorCookie).send({ reason: 'The reading was taken at the site entrance, not away from work.' })
     expect(dispute.status).toBe(201)
     expect(dispute.body.data.status).toBe('open')

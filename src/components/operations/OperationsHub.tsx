@@ -4,6 +4,7 @@ import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import DetailDialog from '../ui/DetailDialog'
 import DurationField from '../ui/DurationField'
 import { formatDuration } from '../../lib/duration'
+import { clientApi } from '../../lib/client-api'
 
 type Client = { id: string; displayName: string; legalName?: string | null; status: string; contacts: Array<{ name: string; email?: string | null }>; _count: { sites: number; contracts: number } }
 type Site = { id: string; clientId: string; name: string; addressLine1: string; city: string; postalCode: string; geofenceVerifiedM: number; geofenceNearM: number; geofenceSuspiciousM: number; version: number; client: { displayName: string }; access?: { entryInstructions?: string | null }; preferredAssignees?: Array<{ user: TeamMember }>; _count: { areas: number; servicePlans: number } }
@@ -15,12 +16,7 @@ type Plan = { id: string; name: string; status: string; expectedDurationMinutes:
 type OperationsBootstrap = { clients: Client[]; contracts: Contract[]; sites: Site[]; plans: Plan[]; team: TeamMember[] }
 type Tab = 'clients' | 'contracts' | 'sites' | 'plans'
 
-async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
-  const body = await response.json()
-  if (!response.ok || !body.ok) throw new Error(body.error ?? 'Request failed')
-  return body.data as T
-}
+const api = clientApi
 
 export default function OperationsHub({ canManage }: { canManage: boolean }) {
   const [tab, setTab] = useState<Tab>('clients')

@@ -4,6 +4,7 @@ import Image from 'next/image'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import OpsIcon from '../ui/OpsIcon'
+import { clientApi } from '../../lib/client-api'
 import FieldLocationReviewMap, { type ReviewLocationPoint, type ReviewSitePoint } from './FieldLocationReviewMap'
 import './FieldControlReview.css'
 
@@ -20,7 +21,9 @@ type TimeEntry = {
   reviewReason: string | null
   user: Person
   visit: { id: string; site: { name: string; addressLine1: string; city: string; postalCode: string; latitude: number | string | null; longitude: number | string | null; geofenceVerifiedM: number; client: { displayName: string } } } | null
-  locationEvents: LocationEvent[]
+  locationEvents?: LocationEvent[]
+  locationEventsTruncated?: boolean
+  locationEventCount?: number
   disputes?: Array<{ id: string; reason: string; createdAt: string }>
 }
 type Incident = {
@@ -77,12 +80,7 @@ type LiveFilter = 'all' | 'running' | 'attention' | 'completed' | 'no_timer'
 type ReviewFilter = 'all' | 'gps' | 'evidence' | 'challenge'
 type IncidentFilter = 'all' | 'critical' | 'active'
 
-async function api<T>(url: string, options?: RequestInit): Promise<T> {
-  const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options })
-  const body = await response.json()
-  if (!response.ok || !body.ok) throw new Error(body.error ?? 'Request failed')
-  return body.data as T
-}
+const api = clientApi
 
 function time(value: string, timezone = 'Europe/Dublin') {
   return new Date(value).toLocaleTimeString('en-IE', { hour: '2-digit', minute: '2-digit', timeZone: timezone })
@@ -184,6 +182,9 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
   const [incidentFilter, setIncidentFilter] = useState<IncidentFilter>('all')
   const [query, setQuery] = useState('')
   const [selectedReviewKey, setSelectedReviewKey] = useState<string | null>(null)
+  const [selectedTimeDetail, setSelectedTimeDetail] = useState<TimeEntry | null>(null)
+  const [detailLoading, setDetailLoading] = useState(false)
+  const [detailError, setDetailError] = useState('')
   const [loading, setLoading] = useState(true)
   const [busyId, setBusyId] = useState<string | null>(null)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
@@ -296,6 +297,32 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
   ] : [], [data])
 
   const selectedReview = useMemo(() => reviewCases.find((item) => item.key === selectedReviewKey) ?? null, [reviewCases, selectedReviewKey])
+  const selectedTimeEntryId = selectedReview?.kind === 'time' ? selectedReview.entry.id : null
+
+  useEffect(() => {
+    if (!selectedTimeEntryId) {
+      setSelectedTimeDetail(null)
+      setDetailLoading(false)
+      setDetailError('')
+      return
+    }
+    const controller = new AbortController()
+    setDetailLoading(true)
+    setDetailError('')
+    void api<TimeEntry>(`/api/field-control/time-entries/${encodeURIComponent(selectedTimeEntryId)}`, { signal: controller.signal }, 'Could not load GPS review')
+      .then((entry) => {
+        if (!controller.signal.aborted) setSelectedTimeDetail(entry)
+      })
+      .catch((error) => {
+        if (controller.signal.aborted) return
+        setSelectedTimeDetail(null)
+        setDetailError(error instanceof Error ? error.message : 'Could not load GPS review.')
+      })
+      .finally(() => {
+        if (!controller.signal.aborted) setDetailLoading(false)
+      })
+    return () => controller.abort()
+  }, [selectedTimeEntryId])
 
   const filteredVisits = useMemo(() => {
     if (!data) return []
@@ -417,12 +444,18 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
                 return <button className="field-v2-review-row" key={caseItem.key} onClick={() => setSelectedReviewKey(caseItem.key)}><span className="field-v2-review-icon evidence"><OpsIcon name="review" /></span><span className="field-v2-review-copy"><strong>{caseItem.visit.site.client.displayName}</strong><small>{caseItem.visit.site.name}</small><span>Completed visit proof needs an evidence decision.</span></span><span className="field-v2-review-meta"><strong>{caseItem.visit.evidenceAssets.length} proof</strong><small>{caseItem.visit.taskResults.filter((task) => task.status !== 'pending').length}/{caseItem.visit.taskResults.length} tasks</small></span><span className="field-v2-open">Review →</span></button>
               }
               const openChallenge = caseItem.entry.disputes?.[0]
-              const clockIn = caseItem.entry.locationEvents.find((event) => event.kind === 'clock_in')
+              const clockIn = (caseItem.entry.locationEvents ?? []).find((event) => event.kind === 'clock_in')
               return <button className="field-v2-review-row" key={caseItem.key} onClick={() => setSelectedReviewKey(caseItem.key)}><span className={`field-v2-review-icon ${openChallenge ? 'challenge' : locationTone(clockIn)}`}><OpsIcon name={openChallenge ? 'alert' : 'field'} /></span><span className="field-v2-review-copy"><strong>{personName(caseItem.entry.user)}</strong><small>{caseItem.entry.visit ? `${caseItem.entry.visit.site.client.displayName} · ${caseItem.entry.visit.site.name}` : 'Non-visit time'}</small><span>{openChallenge ? 'Worker correction request is open.' : friendlyReviewReason(caseItem.entry.reviewReason)}</span></span><span className="field-v2-review-meta"><strong>{duration(caseItem.entry.durationSeconds, caseItem.entry.startedAt)}</strong><small>{openChallenge ? 'Challenge' : locationLabel(clockIn)}</small></span><span className="field-v2-open">Review →</span></button>
             })}
             {!filteredReviewCases.length ? <div className="field-v2-empty">No operational reviews match this filter.</div> : null}
           </div>
-        </> : selectedReview.kind === 'time' ? <TimeReviewDetail entry={selectedReview.entry} timezone={timezone} notes={notes} setNotes={setNotes} busyId={busyId} onBack={() => setSelectedReviewKey(null)} onReview={review} onResolveDispute={resolveDispute} /> : <EvidenceReviewDetail visit={selectedReview.visit} notes={notes} setNotes={setNotes} busyId={busyId} onBack={() => setSelectedReviewKey(null)} onReview={reviewVisit} />}
+        </> : selectedReview.kind === 'time'
+          ? detailLoading
+            ? <div className="field-v2-loading">Loading GPS evidence…</div>
+            : detailError
+              ? <div className="field-v2-empty">{detailError}</div>
+              : <TimeReviewDetail entry={selectedTimeDetail ?? selectedReview.entry} timezone={timezone} notes={notes} setNotes={setNotes} busyId={busyId} onBack={() => setSelectedReviewKey(null)} onReview={review} onResolveDispute={resolveDispute} />
+          : <EvidenceReviewDetail visit={selectedReview.visit} notes={notes} setNotes={setNotes} busyId={busyId} onBack={() => setSelectedReviewKey(null)} onReview={reviewVisit} />}
       </section> : null}
 
       {tab === 'incidents' ? <section className="field-v2-workspace">
@@ -468,8 +501,9 @@ function TimeReviewDetail({
   onReview(entryId: string, decision: 'approved' | 'rejected'): Promise<void>
   onResolveDispute(disputeId: string, decision: 'accepted' | 'declined'): Promise<void>
 }) {
-  const clockIn = entry.locationEvents.find((event) => event.kind === 'clock_in')
-  const clockOut = [...entry.locationEvents].reverse().find((event) => event.kind === 'clock_out')
+  const locationEvents = entry.locationEvents ?? []
+  const clockIn = locationEvents.find((event) => event.kind === 'clock_in')
+  const clockOut = [...locationEvents].reverse().find((event) => event.kind === 'clock_out')
   const openChallenge = entry.disputes?.[0]
   const [selectedPointId, setSelectedPointId] = useState<string | null>(null)
   const sitePoint: ReviewSitePoint | null = entry.visit ? {
@@ -480,7 +514,7 @@ function TimeReviewDetail({
     longitude: entry.visit.site.longitude == null ? null : Number(entry.visit.site.longitude),
     geofenceVerifiedM: entry.visit.site.geofenceVerifiedM,
   } : null
-  const mapPoints: ReviewLocationPoint[] = entry.locationEvents
+  const mapPoints: ReviewLocationPoint[] = locationEvents
     .filter((event) => Number.isFinite(Number(event.latitude)) && Number.isFinite(Number(event.longitude)))
     .map((event) => ({
       id: event.id,
@@ -502,7 +536,7 @@ function TimeReviewDetail({
       <LocationCheck title="Clock out" point={clockOut} />
     </section>
     {entry.visit ? <FieldLocationReviewMap site={sitePoint} points={mapPoints} selectedPointId={selectedPointId} onSelectPoint={setSelectedPointId} /> : null}
-    {entry.locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check is an automatic GPS waypoint captured periodically while the visit timer runs. It confirms location continuity; it is not health tracking and requires no employee action.</p></div><span>Click a point to focus it on the map</span></div>{entry.locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-event-icon ${locationTone(point)}`}><OpsIcon name={locationEventIcon(point.kind)} size={16} /></span><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
+    {locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check is an automatic GPS waypoint captured periodically while the visit timer runs. It confirms location continuity; it is not health tracking and requires no employee action.</p></div><span>{entry.locationEventsTruncated ? `Showing the first ${locationEvents.length} of ${entry.locationEventCount ?? locationEvents.length} points` : 'Click a point to focus it on the map'}</span></div>{locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-event-icon ${locationTone(point)}`}><OpsIcon name={locationEventIcon(point.kind)} size={16} /></span><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
     {openChallenge ? <section className="field-v2-worker-request"><div><OpsIcon name="user" /><strong>Worker correction request</strong></div><p>{openChallenge.reason}</p><label className="field-v2-note"><span>Response to worker</span><input value={notes[openChallenge.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [openChallenge.id]: event.target.value }))} placeholder="Explain the decision" /></label><div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'declined')}>Keep original</button><button className="field-v2-primary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'accepted')}>Accept correction</button></div></section> : null}
     <section className="field-v2-decision"><label className="field-v2-note"><span>Manager decision note</span><input value={notes[entry.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [entry.id]: event.target.value }))} placeholder="Optional when approving; explain when returning" /></label><div className="field-v2-actions"><button className="field-v2-secondary danger" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'rejected')}>Return for correction</button><button className="field-v2-primary" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'approved')}>Approve execution record</button></div></section>
   </article>

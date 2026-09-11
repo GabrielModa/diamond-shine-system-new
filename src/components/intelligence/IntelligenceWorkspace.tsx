@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
+import { clientApi } from '../../lib/client-api'
 import ListControls from '../ui/ListControls'
 
 type SiteRisk = { id: string; name: string; city: string; client: { displayName: string }; score: number; level: 'critical' | 'high' | 'watch' | 'healthy'; reasons: string[] }
@@ -36,10 +37,7 @@ type Intelligence = {
 }
 
 async function loadIntelligence() {
-  const response = await fetch('/api/intelligence', { credentials: 'include', cache: 'no-store' })
-  const body = await response.json()
-  if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not load operational insights.')
-  return body.data as Intelligence
+  return clientApi<Intelligence>('/api/intelligence', undefined, 'Could not load operational insights')
 }
 
 function hours(minutes: number) {
