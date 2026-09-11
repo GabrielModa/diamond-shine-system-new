@@ -112,6 +112,11 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await expect(siteMarkers.first()).toBeVisible({ timeout: 15_000 })
   await siteMarkers.first().dispatchEvent('click')
   await expect(siteSelect).not.toContainText('Search service site…')
+  await expect(page.getByTestId('map-site-card')).toBeVisible()
+  await page.getByRole('button', { name: 'Close selected site' }).click()
+  await expect(page.getByTestId('map-site-card')).toHaveCount(0)
+  await expect(siteSelect).not.toContainText('Search service site…')
+  await expect(page.locator('.wf-site-pin.selected')).toBeVisible()
 
   await page.getByRole('button', { name: '🚶 Walk' }).click()
   await expect(page.locator('.wf-map-focus-card')).toBeVisible()
@@ -207,19 +212,30 @@ test('map employee card shows school schedule, owns route-origin overrides and c
 
   await page.keyboard.press('Escape')
   await expect(card).toBeHidden()
+  await expect(page.getByRole('combobox', { name: 'Choose team member' })).toContainText('Aisha Khan')
+  await expect(page.locator('.wf-person-pin.selected')).toBeVisible()
 })
 
-test('map employee card has an explicit close button', async ({ page }) => {
+test('closing an employee map card keeps the route selection until explicitly cleared', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aoife')
+  const teamPicker = page.getByRole('combobox', { name: 'Choose team member' })
   await page.getByRole('button', { name: 'Close selected employee' }).click()
   await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
+  await expect(teamPicker).toContainText('Aoife')
+  await expect(page.locator('.wf-person-pin.selected')).toBeVisible()
+
+  await page.getByRole('button', { name: 'Clear selection' }).click()
+  await expect(teamPicker).toContainText('Search team member…')
+  await expect(page.locator('.wf-person-pin.selected')).toHaveCount(0)
 })
 
-test('map employee card closes when clicking map background', async ({ page }) => {
+test('map background dismisses cards without losing route selection', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
   await expect(page.getByTestId('map-employee-card')).toBeVisible()
   await page.locator('.coverage-map').dispatchEvent('click', { clientX: 12, clientY: 12 })
   await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
+  await expect(page.getByRole('combobox', { name: 'Choose team member' })).toContainText('Aisha Khan')
+  await expect(page.locator('.wf-person-pin.selected')).toBeVisible()
 })
