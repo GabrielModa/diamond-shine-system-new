@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { useSearchParams } from 'next/navigation'
 import { formatOperationalDateTime } from '../../lib/operational-time'
+import { clientApi } from '../../lib/client-api'
 import OpsIcon from '../ui/OpsIcon'
 import StandardSelect from '../ui/StandardSelect'
 import './TimesheetsWorkspace.css'
@@ -22,7 +23,8 @@ type Entry = {
     status: string
     site: { id: string; name: string; client: { id: string; displayName: string } }
   } | null
-  locationEvents: Array<{ id: string; kind: string; classification?: string | null; distanceM?: number | null; accuracyM?: number | null }>
+  locationEvents?: Array<{ id: string; kind: string; classification?: string | null; distanceM?: number | null; accuracyM?: number | null }>
+  locationSummary?: { count: number; maxDistanceM: number | null; needsReview: boolean }
   disputes: Array<{ id: string; reason?: string; status: string; resolution?: string | null }>
 }
 
@@ -104,7 +106,8 @@ function hasOperationalException(entry: Entry) {
 }
 
 function hasLocationReview(entry: Entry) {
-  return entry.locationEvents.some((event) => ['suspicious', 'outside', 'unavailable'].includes(event.classification ?? ''))
+  if (entry.locationSummary) return entry.locationSummary.needsReview
+  return (entry.locationEvents ?? []).some((event) => ['suspicious', 'outside', 'unavailable'].includes(event.classification ?? ''))
 }
 
 function statusLabel(entry: Entry) {
@@ -160,10 +163,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       const params = new URLSearchParams()
       if (from) params.set('from', `${from}T00:00:00.000Z`)
       if (to) params.set('to', `${to}T23:59:59.999Z`)
-      const response = await fetch(`/api/time-entries?${params}`, { credentials: 'include', cache: 'no-store' })
-      const body = await response.json()
-      if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not load timesheets.')
-      setEntries(body.data as Entry[])
+      setEntries(await clientApi<Entry[]>(`/api/time-entries?${params}`, undefined, 'Could not load timesheets'))
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load timesheets.' })
     } finally {
@@ -195,14 +195,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   const reviewEntry = useCallback(async (entry: Entry, decision: 'approved' | 'rejected', payableSeconds: number, note: string) => {
     setBusyId(entry.id)
     try {
-      const response = await fetch(`/api/time-entries/${entry.id}/review`, {
+      await clientApi(`/api/time-entries/${entry.id}/review`, {
         method: 'PATCH',
-        credentials: 'include',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, payableSeconds, note: note.trim() || null }),
-      })
-      const body = await response.json()
-      if (!response.ok || !body.ok) throw new Error(body.error ?? 'Could not review this entry.')
+      }, 'Could not review this entry')
       const recordedSeconds = Math.round(entryDurationMs(entry) / 1000)
       const excludedSeconds = Math.max(0, recordedSeconds - payableSeconds)
       setNotice({
@@ -376,10 +373,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
       ]]
       for (const entry of source) {
-        const maxDistance = entry.locationEvents.reduce<number | null>((max, event) => {
-          if (event.distanceM == null) return max
-          return max == null ? event.distanceM : Math.max(max, event.distanceM)
-        }, null)
+        const maxDistance = entry.locationSummary?.maxDistanceM
+          ?? (entry.locationEvents ?? []).reduce<number | null>((max, event) => {
+            if (event.distanceM == null) return max
+            return max == null ? event.distanceM : Math.max(max, event.distanceM)
+          }, null)
         rows.push([
           entry.startedAt.slice(0, 10),
           entry.user.name || entry.user.email,
@@ -394,7 +392,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           decimalHours(payableDurationMs(entry)),
           decimalHours(excludedDurationMs(entry)),
           hasOpenChallenge(entry) ? 'Yes' : 'No',
-          hasLocationReview(entry) ? 'Review' : entry.locationEvents.length ? 'OK / watch' : 'No location evidence',
+          hasLocationReview(entry) ? 'Review' : (entry.locationSummary?.count ?? entry.locationEvents?.length ?? 0) ? 'OK / watch' : 'No location evidence',
           maxDistance ?? '',
         ])
       }
