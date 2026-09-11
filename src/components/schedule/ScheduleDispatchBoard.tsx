@@ -45,6 +45,7 @@ type Availability = { id: string; startsAt: string; endsAt: string; reason?: str
 type HealthFocus = 'scheduling' | 'conflicts' | 'confirmation' | null
 type AssignmentState = { kind: 'busy' | 'unavailable'; label: string; visitId?: string; clientName?: string; siteName?: string; startsAt?: string; endsAt?: string; overlapMinutes?: number }
 type ExactCapacityResponse = { windows: Array<{ availableUserIds: string[] }> }
+type ScheduleBootstrap = { visits: Visit[]; plans: Plan[]; team: Member[]; availability: Availability[] }
 type VisitReason = 'extra_cleaning' | 'client_request' | 'cover_visit' | 'deep_clean' | 'other'
 
 const REASONS: Array<{ value: VisitReason; label: string; description: string }> = [
@@ -115,17 +116,12 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [visitRows, planRows, teamRows, availabilityRows] = await Promise.all([
-        api<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}&mode=all`),
-        api<Plan[]>('/api/service-plans'),
-        api<Member[]>('/api/team'),
-        api<Availability[]>(`/api/availability?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
-      ])
-      const activePlans = planRows.filter((plan) => plan.status === 'published')
-      setVisits(visitRows)
+      const bootstrap = await api<ScheduleBootstrap>(`/api/schedule/bootstrap?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)
+      const activePlans = bootstrap.plans.filter((plan) => plan.status === 'published')
+      setVisits(bootstrap.visits)
       setPlans(activePlans)
-      setTeam(teamRows)
-      setAvailability(availabilityRows)
+      setTeam(bootstrap.team)
+      setAvailability(bootstrap.availability)
       setDraft((current) => {
         const selectedPlan = activePlans.find((plan) => plan.id === current.servicePlanId) ?? activePlans[0]
         if (!selectedPlan) return { ...current, servicePlanId: '' }
@@ -213,13 +209,42 @@ export default function ScheduleDispatchBoard({ canManage, timezone }: { canMana
     return start >= visibleWindow.from && start < visibleWindow.to
   }), [visibleWindow, visits])
   const focusedEmployeeId = teamFilter !== 'all' && teamFilter !== 'unassigned' ? teamFilter : null
-  const visitHasConflict = useCallback((visit: Visit, employeeId?: string | null) => {
-    if (!isOperationalVisitStatus(visit.status)) return false
-    const assigned = new Set(visit.assignments.filter((assignment) => isActiveAssignment(assignment.status) && (!employeeId || assignment.user.id === employeeId)).map((assignment) => assignment.user.id))
-    if (!assigned.size) return false
-    const start = new Date(visit.scheduledStart); const end = new Date(visit.scheduledEnd)
-    return visits.some((other) => other.id !== visit.id && isOperationalVisitStatus(other.status) && new Date(other.scheduledStart) < end && new Date(other.scheduledEnd) > start && other.assignments.some((assignment) => assigned.has(assignment.user.id) && isActiveAssignment(assignment.status)))
+  const conflictUsersByVisit = useMemo(() => {
+    const byUser = new Map<string, Visit[]>()
+    for (const visit of visits) {
+      if (!isOperationalVisitStatus(visit.status)) continue
+      for (const assignment of visit.assignments) {
+        if (!isActiveAssignment(assignment.status)) continue
+        const rows = byUser.get(assignment.user.id) ?? []
+        rows.push(visit)
+        byUser.set(assignment.user.id, rows)
+      }
+    }
+    const conflicts = new Map<string, Set<string>>()
+    for (const [userId, rows] of byUser) {
+      const sorted = [...rows].sort((a, b) => new Date(a.scheduledStart).getTime() - new Date(b.scheduledStart).getTime())
+      for (let left = 0; left < sorted.length; left += 1) {
+        const leftEnd = new Date(sorted[left].scheduledEnd).getTime()
+        for (let right = left + 1; right < sorted.length; right += 1) {
+          const rightStart = new Date(sorted[right].scheduledStart).getTime()
+          if (rightStart >= leftEnd) break
+          const rightEnd = new Date(sorted[right].scheduledEnd).getTime()
+          const leftStart = new Date(sorted[left].scheduledStart).getTime()
+          if (rightEnd <= leftStart) continue
+          for (const visitId of [sorted[left].id, sorted[right].id]) {
+            const users = conflicts.get(visitId) ?? new Set<string>()
+            users.add(userId)
+            conflicts.set(visitId, users)
+          }
+        }
+      }
+    }
+    return conflicts
   }, [visits])
+  const visitHasConflict = useCallback((visit: Visit, employeeId?: string | null) => {
+    const users = conflictUsersByVisit.get(visit.id)
+    return employeeId ? Boolean(users?.has(employeeId)) : Boolean(users?.size)
+  }, [conflictUsersByVisit])
   const visibleVisits = useMemo(() => visitsInVisibleRange.filter((visit) => {
     const activeAssignments = visit.assignments.filter((assignment) => isActiveAssignment(assignment.status))
     const attention = visitAttention(visit, visitHasConflict(visit, focusedEmployeeId), focusedEmployeeId)
