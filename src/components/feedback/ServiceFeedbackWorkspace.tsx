@@ -57,57 +57,106 @@ async function fetchFeedback(options: {
   return payload.data
 }
 
+const EMPTY_METRICS: FeedbackMetrics = {
+  overall: 0,
+  cleanliness: 0,
+  punctuality: 0,
+  equipment: 0,
+  clientRelations: 0,
+  attention: 0,
+}
+
+const EMPTY_TREND: FeedbackTrend = {
+  currentCount: 0,
+  previousCount: 0,
+  currentAverage: null,
+  previousAverage: null,
+  delta: null,
+}
+
 export default function ServiceFeedbackWorkspace() {
+  const [summary, setSummary] = useState<FeedbackPage | null>(null)
   const [items, setItems] = useState<FeedbackEntry[]>([])
   const [employees, setEmployees] = useState<string[]>([])
-  const [metrics, setMetrics] = useState<FeedbackMetrics>({
-    overall: 0,
-    cleanliness: 0,
-    punctuality: 0,
-    equipment: 0,
-    clientRelations: 0,
-    attention: 0,
-  })
-  const [employeeSummaries, setEmployeeSummaries] = useState<EmployeeFeedbackSummary[]>([])
-  const [trend, setTrend] = useState<FeedbackTrend>({ currentCount: 0, previousCount: 0, currentAverage: null, previousAverage: null, delta: null })
-  const [total, setTotal] = useState(0)
+  const [historyTotal, setHistoryTotal] = useState(0)
   const [page, setPage] = useState(1)
   const [totalPages, setTotalPages] = useState(0)
-  const [loading, setLoading] = useState(true)
+  const [summaryLoading, setSummaryLoading] = useState(true)
+  const [historyLoading, setHistoryLoading] = useState(false)
   const [error, setError] = useState('')
   const [query, setQuery] = useState('')
   const [employee, setEmployee] = useState('')
   const [category, setCategory] = useState('')
+  const [historyOpen, setHistoryOpen] = useState(false)
   const [selected, setSelected] = useState<FeedbackEntry | null>(null)
 
-  const refresh = useCallback(async () => {
-    setLoading(true)
+  const refreshSummary = useCallback(async () => {
+    setSummaryLoading(true)
+    setError('')
+    try {
+      const data = await fetchFeedback({ page: 1, query: '', employee: '', category: '' })
+      setSummary(data)
+      setEmployees(data.employees)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load service feedback.')
+    } finally {
+      setSummaryLoading(false)
+    }
+  }, [])
+
+  const refreshHistory = useCallback(async () => {
+    if (!historyOpen) return
+    setHistoryLoading(true)
     setError('')
     try {
       const data = await fetchFeedback({ page, query, employee, category })
       setItems(data.items)
       setEmployees(data.employees)
-      setMetrics(data.metrics)
-      setEmployeeSummaries(data.employeeSummaries)
-      setTrend(data.trend)
-      setTotal(data.total)
+      setHistoryTotal(data.total)
       setTotalPages(data.pagination.totalPages)
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Could not load service feedback.')
+      setError(cause instanceof Error ? cause.message : 'Could not load feedback history.')
     } finally {
-      setLoading(false)
+      setHistoryLoading(false)
     }
-  }, [category, employee, page, query])
+  }, [category, employee, historyOpen, page, query])
+
+  useEffect(() => { void refreshSummary() }, [refreshSummary])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => { void refresh() }, 250)
+    const timer = window.setTimeout(() => { void refreshHistory() }, 180)
     return () => window.clearTimeout(timer)
-  }, [refresh])
+  }, [refreshHistory])
 
-  const evaluationLabel = total === 1 ? 'evaluation' : 'evaluations'
-  const scopeLabel = employee || category || query.trim()
-    ? `${total} matching ${evaluationLabel}`
-    : `${total} ${evaluationLabel}`
+  useEffect(() => {
+    if (!historyOpen) return
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === 'Escape' && !selected) setHistoryOpen(false)
+    }
+    window.addEventListener('keydown', onKey)
+    return () => window.removeEventListener('keydown', onKey)
+  }, [historyOpen, selected])
+
+  const metrics = summary?.metrics ?? EMPTY_METRICS
+  const employeeSummaries = summary?.employeeSummaries ?? []
+  const trend = summary?.trend ?? EMPTY_TREND
+  const attentionEmployees = employeeSummaries.filter((item) => item.overall < 4).length
+  const historyLabel = historyTotal === 1 ? '1 evaluation' : `${historyTotal} evaluations`
+
+  function openHistoryFor(name = '') {
+    setEmployee(name)
+    setQuery('')
+    setCategory('')
+    setPage(1)
+    setHistoryOpen(true)
+  }
+
+  function clearHistoryFilters() {
+    setQuery('')
+    setEmployee('')
+    setCategory('')
+    setPage(1)
+  }
 
   return <main className={`page-shell ${styles.workspace}`}>
     <header className={styles.hero}>
@@ -116,47 +165,54 @@ export default function ServiceFeedbackWorkspace() {
         <h1>Service feedback</h1>
         <p className="muted">See how delivered cleaning is being rated, spot repeated concerns and open the exact evaluation behind the signal.</p>
       </div>
-      <button type="button" className="btn-secondary" onClick={() => void refresh()} disabled={loading}><OpsIcon name="refresh" size={16} /> Refresh</button>
+      <button type="button" className="btn-secondary" onClick={() => void refreshSummary()} disabled={summaryLoading}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </header>
 
     {error ? <div className="toast error" role="alert">{error}</div> : null}
 
-    {!loading ? <EmployeeFeedbackOverview
+    {!summaryLoading ? <EmployeeFeedbackOverview
       employees={employeeSummaries}
       totalEvaluations={employeeSummaries.reduce((sum, item) => sum + item.evaluations, 0)}
-      attention={metrics.attention}
+      attention={attentionEmployees}
       average={metrics.overall}
       trend={trend}
-      onEmployee={(name) => { setEmployee(name); setCategory(''); setQuery(''); setPage(1); document.getElementById('feedback-history')?.scrollIntoView({ behavior: 'smooth', block: 'start' }) }}
+      onEmployee={(name) => openHistoryFor(name)}
+      onHistory={() => openHistoryFor()}
     /> : <section className="card empty-state">Loading employee feedback performance…</section>}
 
-    <section id="feedback-history" className={`card ${styles.panel}`}>
-      <div className="section-heading">
-        <div><h2>Feedback history</h2><p className="muted">{scopeLabel}</p></div>
-      </div>
-      <div className={styles.filters}>
-        <label>Search<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Employee, location or comment…" /></label>
-        <div className={styles.selectField}><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={(value) => { setEmployee(value); setPage(1) }} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
-        <div className={styles.selectField}><span>Rating</span><StandardSelect value={category} onChange={(value) => { setCategory(value); setPage(1) }} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
-        {(query || employee || category) ? <button type="button" className="btn-secondary" onClick={() => { setQuery(''); setEmployee(''); setCategory(''); setPage(1) }}>Clear filters</button> : null}
-      </div>
+    {historyOpen ? <div className={styles.historyBackdrop} role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !selected) setHistoryOpen(false) }}>
+      <section className={styles.historyDrawer} role="dialog" aria-modal="true" aria-labelledby="feedback-history-title">
+        <header className={styles.historyDrawerHead}>
+          <div><span className="eyebrow">Evaluation evidence</span><h2 id="feedback-history-title">{employee ? `${employee} · feedback history` : 'Feedback history'}</h2><p>{historyLoading ? 'Refreshing…' : historyLabel}</p></div>
+          <button type="button" className={styles.drawerClose} onClick={() => setHistoryOpen(false)} aria-label="Close feedback history">×</button>
+        </header>
 
-      {loading ? <div className="empty-state">Loading service feedback…</div> : <div className={styles.history}>
-        {items.map((entry) => <button type="button" className={styles.row} key={entry.id} onClick={() => setSelected(entry)}>
-          <div><strong>{entry.employeeName}</strong><small>{entry.clientLocation} · {new Date(entry.createdAt).toLocaleDateString('en-IE')}</small></div>
-          <span className={`${styles.score} ${entry.overall < 4 ? styles.attention : ''}`}>{entry.overall.toFixed(1)}</span>
-          <div><strong>{entry.category}</strong><small>{entry.comments || 'No comment'}</small></div>
-          <span aria-hidden="true">→</span>
-        </button>)}
-        {items.length === 0 ? <div className="empty-state">No feedback matches the current filters.</div> : null}
-      </div>}
+        <div className={styles.drawerFilters}>
+          <label>Search<input type="search" value={query} onChange={(event) => { setQuery(event.target.value); setPage(1) }} placeholder="Employee, location or comment…" /></label>
+          <div className={styles.selectField}><span>Employee</span><StandardSelect searchable={employees.length > 8} value={employee} onChange={(value) => { setEmployee(value); setPage(1) }} ariaLabel="Employee" options={[{ value: '', label: 'All employees' }, ...employees.map((name) => ({ value: name, label: name }))]} /></div>
+          <div className={styles.selectField}><span>Rating</span><StandardSelect value={category} onChange={(value) => { setCategory(value); setPage(1) }} ariaLabel="Rating category" options={[{ value: '', label: 'All ratings' }, { value: 'Excellent', label: 'Excellent' }, { value: 'Very Good', label: 'Very good' }, { value: 'Good', label: 'Good' }, { value: 'Fair', label: 'Fair' }, { value: 'Poor', label: 'Poor' }]} /></div>
+          {(query || employee || category) ? <button type="button" className="btn-secondary" onClick={clearHistoryFilters}>Clear filters</button> : null}
+        </div>
 
-      {totalPages > 1 ? <div className={styles.pagination}>
-        <button type="button" className="btn-secondary" disabled={loading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-        <span>Page {page} of {totalPages}</span>
-        <button type="button" className="btn-secondary" disabled={loading || page >= totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
-      </div> : null}
-    </section>
+        <div className={styles.drawerBody}>
+          {historyLoading ? <div className="empty-state">Loading feedback history…</div> : <div className={styles.history}>
+            {items.map((entry) => <button type="button" className={styles.row} key={entry.id} onClick={() => setSelected(entry)}>
+              <div><strong>{entry.employeeName}</strong><small>{entry.clientLocation} · {new Date(entry.createdAt).toLocaleDateString('en-IE')}</small></div>
+              <span className={`${styles.score} ${entry.overall < 4 ? styles.attention : ''}`}>{entry.overall.toFixed(1)}</span>
+              <div><strong>{entry.category}</strong><small>{entry.comments || 'No comment'}</small></div>
+              <span aria-hidden="true">→</span>
+            </button>)}
+            {!items.length ? <div className="empty-state">No feedback matches the current filters.</div> : null}
+          </div>}
+        </div>
+
+        {totalPages > 1 ? <footer className={styles.pagination}>
+          <button type="button" className="btn-secondary" disabled={historyLoading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
+          <span>Page {page} of {totalPages}</span>
+          <button type="button" className="btn-secondary" disabled={historyLoading || page >= totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
+        </footer> : null}
+      </section>
+    </div> : null}
 
     <FeedbackDetailSheet open={Boolean(selected)} active={Boolean(selected)} entry={selected} onClose={() => setSelected(null)} />
   </main>

@@ -297,6 +297,24 @@ describe('field execution', () => {
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
     expect(approved.body.data.status).toBe('approved')
+    expect(approved.body.data.payableSeconds).toBe(3600)
+
+    const adjusted = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({
+      decision: 'approved',
+      payableSeconds: 1800,
+      note: '30 minutes excluded after payroll review.',
+    })
+    expect(adjusted.status).toBe(200)
+    expect(adjusted.body.data.durationSeconds).toBe(3600)
+    expect(adjusted.body.data.payableSeconds).toBe(1800)
+
+    const invalidIncrease = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({
+      decision: 'approved',
+      payableSeconds: 4000,
+      note: 'Should not be accepted.',
+    })
+    expect(invalidIncrease.status).toBe(400)
+    expect((await prisma.timeEntry.findUniqueOrThrow({ where: { id: started.body.data.id } })).payableSeconds).toBe(1800)
   })
 
   it('lets a worker review a minimized location history and request a fair correction', async () => {

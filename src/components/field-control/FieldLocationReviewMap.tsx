@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import OpsIcon from '../ui/OpsIcon'
 
 export type ReviewLocationPoint = {
   id: string
@@ -52,10 +53,28 @@ export default function FieldLocationReviewMap({
   selectedPointId: string | null
   onSelectPoint: (id: string) => void
 }) {
+  const cardRef = useRef<HTMLElement>(null)
   const hostRef = useRef<HTMLDivElement>(null)
   const mapRef = useRef<import('leaflet').Map | null>(null)
   const layerRef = useRef<import('leaflet').LayerGroup | null>(null)
   const [status, setStatus] = useState<'loading' | 'ready' | 'unavailable'>('loading')
+  const [fullscreen, setFullscreen] = useState(false)
+
+  useEffect(() => {
+    const onFullscreenChange = () => {
+      setFullscreen(document.fullscreenElement === cardRef.current)
+      window.setTimeout(() => mapRef.current?.invalidateSize(), 40)
+    }
+    document.addEventListener('fullscreenchange', onFullscreenChange)
+    return () => document.removeEventListener('fullscreenchange', onFullscreenChange)
+  }, [])
+
+  async function toggleFullscreen() {
+    const card = cardRef.current
+    if (!card) return
+    if (document.fullscreenElement === card) await document.exitFullscreen()
+    else await card.requestFullscreen()
+  }
 
   useEffect(() => {
     let cancelled = false
@@ -160,17 +179,22 @@ export default function FieldLocationReviewMap({
   const hasExpected = site?.latitude != null && site.longitude != null
   const hasCaptured = points.length > 0
 
-  return <section className="field-review-map-card" aria-labelledby="field-review-map-title">
+  return <section ref={cardRef} className="field-review-map-card" aria-labelledby="field-review-map-title">
     <div className="field-review-map-head">
       <div>
         <h3 id="field-review-map-title">Location review map</h3>
         <p>Expected site versus GPS captured during this visit.</p>
       </div>
-      <div className="field-review-map-legend" aria-label="Location map legend">
-        <span><i className="site" />Expected site</span>
-        <span><i className="verified" />Verified</span>
-        <span><i className="watch" />Watch</span>
-        <span><i className="review" />Review</span>
+      <div className="field-review-map-tools">
+        <div className="field-review-map-legend" aria-label="Location map legend">
+          <span><i className="site" />Expected site</span>
+          <span><i className="verified" />Verified</span>
+          <span><i className="watch" />Watch</span>
+          <span><i className="review" />Review</span>
+        </div>
+        <button type="button" className="field-review-expand" onClick={() => void toggleFullscreen()} aria-label={fullscreen ? 'Exit full screen map' : 'Expand location map'}>
+          <OpsIcon name="expand" size={16} /> {fullscreen ? 'Exit full screen' : 'Expand map'}
+        </button>
       </div>
     </div>
     <div className="field-review-map-shell">

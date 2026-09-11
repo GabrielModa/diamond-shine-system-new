@@ -287,6 +287,55 @@ describe('POST /api/users/:id/invite', () => {
   })
 })
 
+describe('admin-assisted scheduling profile', () => {
+  it('lets an organization admin assist school and recurring availability with an audit trail', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const previousGeocodingMode = process.env.GEOCODING_TEST_MODE
+    try {
+      process.env.GEOCODING_TEST_MODE = '1'
+      const response = await request(app)
+        .patch(`/api/workforce/profiles/${employee.id}`)
+        .set('Cookie', adminCookie)
+        .send({
+          school: { name: 'Trinity College Dublin', address: 'College Green, Dublin 2, Ireland' },
+          studySchedule: [{ dayOfWeek: 1, startsMinute: 540, endsMinute: 720 }],
+          recurringUnavailability: [{ dayOfWeek: 4, startsMinute: 1080, endsMinute: 1320, reason: 'Family commitment' }],
+        })
+
+      expect(response.status).toBe(200)
+      const profile = await prisma.workforceProfile.findUniqueOrThrow({
+        where: { userId: employee.id },
+        include: { studySchedules: true, recurringUnavailability: true },
+      })
+      expect(profile.schoolName).toBe('Trinity College Dublin')
+      expect(profile.schoolLatitude).not.toBeNull()
+      expect(profile.studySchedules).toEqual([expect.objectContaining({ dayOfWeek: 1, startsMinute: 540, endsMinute: 720 })])
+      expect(profile.recurringUnavailability).toEqual([expect.objectContaining({ dayOfWeek: 4, reason: 'Family commitment' })])
+      expect(await prisma.auditLog.findFirst({
+        where: { action: 'admin_assist_workforce_scheduling_profile', targetId: profile.id },
+      })).not.toBeNull()
+    } finally {
+      if (previousGeocodingMode === undefined) delete process.env.GEOCODING_TEST_MODE
+      else process.env.GEOCODING_TEST_MODE = previousGeocodingMode
+      const profile = await prisma.workforceProfile.findUnique({ where: { userId: employee.id } })
+      if (profile) {
+        await prisma.studySchedule.deleteMany({ where: { profileId: profile.id } })
+        await prisma.recurringUnavailability.deleteMany({ where: { profileId: profile.id } })
+      }
+    }
+  })
+
+  it('returns active broadcast recipients with their organization roles', async () => {
+    const response = await request(app).get('/api/operational-notices/recipients').set('Cookie', adminCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.arrayContaining([
+      expect.objectContaining({ email: 'employee@ds.ie', role: 'employee' }),
+      expect.objectContaining({ email: 'super@ds.ie', role: 'field_supervisor' }),
+      expect.objectContaining({ email: 'admin@ds.ie', role: 'organization_admin' }),
+    ]))
+  })
+})
+
 describe('communications validation', () => {
   it('rejects invalid notification recipient lists', async () => {
     const res = await request(app).put('/api/settings').set('Cookie', adminCookie).send({
