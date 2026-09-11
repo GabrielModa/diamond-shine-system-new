@@ -45,8 +45,6 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   const [activeCard,setActiveCard]=useState<'employee'|'site'|null>(null)
   const activeCardRef=useRef(activeCard)
   useEffect(()=>{activeCardRef.current=activeCard},[activeCard])
-  useEffect(()=>{if(selectedEmployee?.id)setActiveCard('employee')},[selectedEmployee?.id])
-  useEffect(()=>{if(selectedSite?.id)setActiveCard('site')},[selectedSite?.id])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
   useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;setExpanded(document.fullscreenElement===target)};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget])
   useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key!=='Escape')return;if(activeCardRef.current){event.preventDefault();event.stopPropagation();setActiveCard(null);return}if(document.fullscreenElement){event.preventDefault();event.stopPropagation();void document.exitFullscreen()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[])
