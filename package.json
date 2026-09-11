@@ -74,7 +74,8 @@
     "test:workflow": "node --test tests/workflow/*.test.mjs",
     "mobile:build:development": "node scripts/eas.mjs build --platform android --profile development",
     "mobile:build:preview": "node scripts/eas.mjs build --platform android --profile preview",
-    "mobile:build:production": "node scripts/eas.mjs build --platform android --profile production"
+    "mobile:build:production": "node scripts/eas.mjs build --platform android --profile production",
+    "vercel-build": "prisma migrate deploy && prisma generate && next build"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
