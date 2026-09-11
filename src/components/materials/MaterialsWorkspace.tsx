@@ -3,6 +3,7 @@
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { isSupplyOverdue } from '../../lib/business-logic'
+import { clientApi } from '../../lib/client-api'
 import ListControls from '../ui/ListControls'
 import StandardSelect from '../ui/StandardSelect'
 import SupplyOperationsOverview from './SupplyOperationsOverview'
@@ -27,7 +28,7 @@ type SuppliesBootstrap = { sites: Site[]; catalog: Material[]; requests: Supply[
 const NEXT_STATUS: Record<string, string | undefined> = { Requested: 'Triaged', Triaged: 'Approved', Approved: 'Ordered', Ordered: 'In transit', 'In transit': 'Delivered' }
 const CLOSED = new Set(['Delivered', 'Rejected', 'Cancelled'])
 function displaySupplyStatus(status: string) { return status === 'InTransit' ? 'In transit' : status }
-async function api<T>(url: string, options?: RequestInit): Promise<T> { const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...options }); const body = await response.json(); if (!response.ok || !body.ok) throw new Error(body.error ?? 'Something went wrong.'); return body.data as T }
+const api = clientApi
 
 export default function MaterialsWorkspace({ canManage }: { canManage: boolean }) {
   const [tab, setTab] = useState<Tab>(canManage ? 'overview' : 'count')
