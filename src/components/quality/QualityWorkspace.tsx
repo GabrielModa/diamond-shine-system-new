@@ -100,13 +100,10 @@ export default function QualityWorkspace() {
     setBusy(true)
     setError('')
     try {
-      const [nextControl, nextSites] = await Promise.all([
-        api<Control>('/api/quality/control'),
-        api<Site[]>('/api/sites'),
-      ])
+      const nextControl = await api<Control>('/api/quality/control')
       setControl(nextControl)
-      setSites(nextSites)
-      setSiteId((current) => nextSites.some((site) => site.id === current) ? current : nextSites[0]?.id ?? '')
+      setSites(nextControl.sites)
+      setSiteId((current) => nextControl.sites.some((site) => site.id === current) ? current : nextControl.sites[0]?.id ?? '')
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load quality control.')
     } finally {

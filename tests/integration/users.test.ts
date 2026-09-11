@@ -336,6 +336,23 @@ describe('admin-assisted scheduling profile', () => {
   })
 })
 
+describe('communications bootstrap', () => {
+  it('returns inbox and manager targeting data through one scoped read', async () => {
+    const response = await request(app).get('/api/communications/bootstrap').set('Cookie', adminCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.objectContaining({
+      mine: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
+      all: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
+      people: expect.arrayContaining([
+        expect.objectContaining({ email: 'employee@ds.ie', role: 'employee' }),
+        expect.objectContaining({ email: 'super@ds.ie', role: 'field_supervisor' }),
+      ]),
+      sites: expect.any(Array),
+      canManage: true,
+    }))
+  })
+})
+
 describe('communications validation', () => {
   it('rejects invalid notification recipient lists', async () => {
     const res = await request(app).put('/api/settings').set('Cookie', adminCookie).send({

@@ -95,15 +95,23 @@ rows.push(await measure('health', '/api/health'))
 
 const authHeaders = await login()
 if (authHeaders) {
+  const now = new Date()
+  const dayFrom = new Date(now); dayFrom.setHours(0, 0, 0, 0)
+  const dayTo = new Date(dayFrom); dayTo.setDate(dayTo.getDate() + 1)
+  const scheduleFrom = new Date(now.getTime() - 7 * 86_400_000)
+  const scheduleTo = new Date(now.getTime() + 90 * 86_400_000)
   const authenticatedReads = [
-    ['command: visits', '/api/visits'],
-    ['time entries', '/api/time-entries'],
-    ['supplies', '/api/supplies?limit=200'],
-    ['feedback', '/api/feedback?page=1&pageSize=20'],
-    ['field control', '/api/field-control'],
+    ['home summary', '/api/home-summary'],
+    ['command centre', `/api/command-centre?from=${encodeURIComponent(dayFrom.toISOString())}&to=${encodeURIComponent(dayTo.toISOString())}`],
+    ['schedule bootstrap', `/api/schedule/bootstrap?from=${encodeURIComponent(scheduleFrom.toISOString())}&to=${encodeURIComponent(scheduleTo.toISOString())}`],
+    ['supplies bootstrap', '/api/supplies/bootstrap'],
+    ['operations bootstrap', '/api/operations/bootstrap'],
+    ['communications bootstrap', '/api/communications/bootstrap'],
+    ['quality control', '/api/quality/control'],
+    ['operational insights', '/api/intelligence'],
     ['live workforce', '/api/workforce/live'],
-    ['sites', '/api/sites'],
-    ['service plans', '/api/service-plans'],
+    ['time entries', '/api/time-entries'],
+    ['field control', '/api/field-control'],
   ]
   for (const [name, path] of authenticatedReads) rows.push(await measure(name, path, authHeaders))
 } else {

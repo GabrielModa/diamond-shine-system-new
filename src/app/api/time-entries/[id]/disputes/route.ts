@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { getAuthUser, requireCapability } from '../../../../../lib/auth'
+import { authUserHasCapability, getAuthUser } from '../../../../../lib/auth'
 import { logAudit } from '../../../../../lib/audit'
 import { prisma } from '../../../../../lib/prisma'
 import { timeEntryDisputeCreateSchema } from '../../../../../modules/execution/schemas'
@@ -10,9 +10,8 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   const { id } = await params
   const entry = await prisma.timeEntry.findFirst({ where: { id, organizationId: user.organizationId }, select: { userId: true } })
   if (!entry) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
-  if (entry.userId !== user.id) {
-    const manager = await requireCapability(request, 'time.team.review')
-    if ('response' in manager) return manager.response
+  if (entry.userId !== user.id && !authUserHasCapability(user, 'time.team.review')) {
+    return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
   }
   const disputes = await prisma.timeEntryDispute.findMany({
     where: { organizationId: user.organizationId, timeEntryId: id },

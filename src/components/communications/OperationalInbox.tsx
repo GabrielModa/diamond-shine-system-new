@@ -24,6 +24,7 @@ type NoticeData = { items: Notice[]; summary: Record<string, number> }
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
 type Job = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string }
 type QueueData = { items: Job[]; counts: Record<string, number>; latestFailure?: { kind: string; lastError: string; lastAttemptAt: string | null } | null }
+type CommunicationsBootstrap = { mine: NoticeData; all: NoticeData | null; people: Person[]; sites: Site[]; canManage: boolean }
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init })
@@ -83,18 +84,14 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     setBusy(true)
     setError('')
     try {
-      const ownData = await api<NoticeData>('/api/operational-notices?scope=mine')
-      setMine(ownData)
+      const bootstrap = await api<CommunicationsBootstrap>('/api/communications/bootstrap')
+      setMine(bootstrap.mine)
       if (canManage) {
-        const [allData, employeeData, siteData] = await Promise.all([
-          api<NoticeData>('/api/operational-notices?scope=all'),
-          api<Person[]>('/api/operational-notices/recipients'),
-          api<Site[]>('/api/sites'),
-        ])
+        const allData = bootstrap.all ?? { items: [], summary: {} }
         setAll(allData)
-        setPeople(employeeData)
-        setSites(siteData)
-        setSelectedUsers((current) => current.filter((id) => employeeData.some((person) => person.id === id)))
+        setPeople(bootstrap.people)
+        setSites(bootstrap.sites)
+        setSelectedUsers((current) => current.filter((id) => bootstrap.people.some((person) => person.id === id)))
       }
       if (canConfigure) {
         const [alertData, queueData, templateData] = await Promise.all([

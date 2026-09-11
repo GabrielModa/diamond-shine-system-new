@@ -53,6 +53,33 @@ describe('jobs and visits', () => {
     expect(visits.every((visit) => visit.assignments[0]?.userId === employee.id)).toBe(true)
   })
 
+  it('loads schedule visits, plans, team and availability through one bootstrap request', async () => {
+    const plan = await publishedPlan()
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    await request(app).post('/api/jobs').set('Cookie', adminCookie).send({
+      servicePlanId: plan.id,
+      name: 'Bootstrap visit',
+      startAt: '2026-08-24T08:00:00.000Z',
+      recurrence: { frequency: 'once' },
+      assigneeIds: [employee.id],
+    })
+    const response = await request(app)
+      .get('/api/schedule/bootstrap?from=2026-08-23T00:00:00.000Z&to=2026-08-26T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data.visits).toHaveLength(1)
+    expect(response.body.data.plans).toEqual(expect.arrayContaining([expect.objectContaining({ id: plan.id, status: 'published' })]))
+    expect(response.body.data.team).toEqual(expect.arrayContaining([expect.objectContaining({ id: employee.id })]))
+    expect(response.body.data.availability).toEqual(expect.any(Array))
+  })
+
+  it('rejects oversized schedule bootstrap ranges', async () => {
+    const response = await request(app)
+      .get('/api/schedule/bootstrap?from=2026-01-01T00:00:00.000Z&to=2026-12-31T00:00:00.000Z')
+      .set('Cookie', adminCookie)
+    expect(response.status).toBe(400)
+  })
+
   it('shows employees only their assigned visits and records acknowledgement', async () => {
     const plan = await publishedPlan()
     const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })

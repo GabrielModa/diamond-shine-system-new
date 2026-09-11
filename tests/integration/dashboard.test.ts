@@ -29,6 +29,46 @@ beforeEach(async () => {
   await prisma.feedbackEntry.deleteMany()
 })
 
+describe('GET /api/home-summary', () => {
+  it('returns a compact authenticated role summary', async () => {
+    const response = await request(app).get('/api/home-summary').set('Cookie', employeeCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.objectContaining({
+      awaitingAcknowledgement: expect.any(Number),
+      openRequests: expect.any(Number),
+    }))
+    expect(Object.keys(response.body.data).sort()).toEqual(['awaitingAcknowledgement', 'nextVisit', 'openRequests'])
+  })
+
+  it('requires authentication', async () => {
+    expect((await request(app).get('/api/home-summary')).status).toBe(401)
+  })
+})
+
+describe('GET /api/command-centre', () => {
+  it('returns one compact manager read model and rejects employees', async () => {
+    const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
+    const to = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+    const response = await request(app).get(`/api/command-centre?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).set('Cookie', adminCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.objectContaining({
+      summary: expect.objectContaining({
+        visitsToday: expect.any(Number),
+        schedulingIssues: expect.any(Number),
+        timeReview: expect.any(Number),
+      }),
+      activity: expect.objectContaining({
+        supplies: expect.any(Array),
+        feedback: expect.any(Array),
+        incidents: expect.any(Array),
+      }),
+    }))
+
+    const employee = await request(app).get(`/api/command-centre?from=${encodeURIComponent(from)}&to=${encodeURIComponent(to)}`).set('Cookie', employeeCookie)
+    expect(employee.status).toBe(403)
+  })
+})
+
 describe('GET /api/dashboard', () => {
   it('admin and supervisor → 200', async () => {
     expect((await request(app).get('/api/dashboard').set('Cookie', adminCookie)).status).toBe(200)

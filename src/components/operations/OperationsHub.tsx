@@ -12,6 +12,7 @@ type Area = { id: string; name: string; type: string; code?: string | null; acti
 type SiteDetail = Site & { areas: Area[]; preferredAssignees: Array<{ user: TeamMember }> }
 type Contract = { id: string; clientId: string; name: string; reference?: string | null; status: string; startDate?: string | null; endDate?: string | null; currency: string; client: { id: string; displayName: string }; sites: Array<{ site: { id: string; name: string; city: string } }> }
 type Plan = { id: string; name: string; status: string; expectedDurationMinutes: number; requiredWorkers: number; version: number; site: { id: string; name: string; client: { displayName: string } }; _count: { tasks: number; versions: number } }
+type OperationsBootstrap = { clients: Client[]; contracts: Contract[]; sites: Site[]; plans: Plan[]; team: TeamMember[] }
 type Tab = 'clients' | 'contracts' | 'sites' | 'plans'
 
 async function api<T>(url: string, options?: RequestInit): Promise<T> {
@@ -42,13 +43,11 @@ export default function OperationsHub({ canManage }: { canManage: boolean }) {
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const [clientRows, contractRows, siteRows, planRows, teamRows] = await Promise.all([
-        api<Client[]>('/api/clients'), api<Contract[]>('/api/contracts'), api<Site[]>('/api/sites'), api<Plan[]>('/api/service-plans'), api<TeamMember[]>('/api/team'),
-      ])
-      setClients(clientRows); setContracts(contractRows); setSites(siteRows); setPlans(planRows); setTeam(teamRows)
-      setSiteDraft((current) => ({ ...current, clientId: current.clientId || clientRows[0]?.id || '' }))
-      setContractDraft((current) => ({ ...current, clientId: current.clientId || clientRows[0]?.id || '' }))
-      setPlanDraft((current) => ({ ...current, siteId: current.siteId || siteRows[0]?.id || '' }))
+      const bootstrap = await api<OperationsBootstrap>('/api/operations/bootstrap')
+      setClients(bootstrap.clients); setContracts(bootstrap.contracts); setSites(bootstrap.sites); setPlans(bootstrap.plans); setTeam(bootstrap.team)
+      setSiteDraft((current) => ({ ...current, clientId: current.clientId || bootstrap.clients[0]?.id || '' }))
+      setContractDraft((current) => ({ ...current, clientId: current.clientId || bootstrap.clients[0]?.id || '' }))
+      setPlanDraft((current) => ({ ...current, siteId: current.siteId || bootstrap.sites[0]?.id || '' }))
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load operations.' })
     } finally { setLoading(false) }

@@ -69,6 +69,21 @@ async function createSite(clientId: string, cookie = adminCookie) {
   })
 }
 
+describe('operations bootstrap', () => {
+  it('loads the service setup workspace in one scoped read', async () => {
+    const client = (await createClient()).body.data
+    const site = (await createSite(client.id)).body.data
+    const response = await request(app).get('/api/operations/bootstrap').set('Cookie', adminCookie)
+
+    expect(response.status).toBe(200)
+    expect(response.body.data.clients).toEqual(expect.arrayContaining([expect.objectContaining({ id: client.id })]))
+    expect(response.body.data.sites).toEqual(expect.arrayContaining([expect.objectContaining({ id: site.id })]))
+    expect(response.body.data.contracts).toEqual(expect.any(Array))
+    expect(response.body.data.plans).toEqual(expect.any(Array))
+    expect(response.body.data.team).toEqual(expect.any(Array))
+  })
+})
+
 describe('cleaning domain foundation', () => {
   it('creates the client, site, contract and a versioned service plan', async () => {
     const clientResponse = await createClient()

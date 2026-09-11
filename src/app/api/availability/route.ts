@@ -1,22 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../lib/prisma'
-import { requireCapability } from '../../../lib/auth'
+import { authUserHasCapability, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 import { availabilityCreateSchema, availabilityQuerySchema } from '../../../modules/scheduling/schemas'
 import { classifyAvailabilityNotice } from '../../../modules/workforce/profile-policy'
 
-async function hasScheduleManagement(request: NextRequest) {
-  const auth = await requireCapability(request, 'schedule.manage')
-  return !('response' in auth)
-}
 
 export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'schedule.read')
   if ('response' in auth) return auth.response
   const parsed = availabilityQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
-  const manager = await hasScheduleManagement(request)
+  const manager = authUserHasCapability(auth.user, 'schedule.manage')
   const requestedUserId = parsed.data.userId
   if (requestedUserId && requestedUserId !== auth.user.id && !manager) {
     return NextResponse.json({ ok: false, error: 'Not allowed to view this availability.' }, { status: 403 })
@@ -46,7 +42,7 @@ export async function POST(request: NextRequest) {
   }
 
   const userId = parsed.data.userId ?? auth.user.id
-  if (userId !== auth.user.id && !(await hasScheduleManagement(request))) {
+  if (userId !== auth.user.id && !authUserHasCapability(auth.user, 'schedule.manage')) {
     return NextResponse.json({ ok: false, error: 'Not allowed to set availability for this person.' }, { status: 403 })
   }
 

@@ -103,6 +103,33 @@ describe('GET /api/supplies', () => {
     expect(res.body.data.items.every((item: { submittedBy: string }) => item.submittedBy === 'employee@ds.ie')).toBe(true)
   })
 
+  it('loads the supplies workspace through one bootstrap request', async () => {
+    const res = await request(app).get('/api/supplies/bootstrap').set('Cookie', adminCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.requests).toHaveLength(3)
+    expect(res.body.data.catalog).toEqual(expect.any(Array))
+    expect(res.body.data.sites).toEqual(expect.any(Array))
+    expect(res.body.data.control).toEqual(expect.objectContaining({
+      summary: expect.objectContaining({ openRequests: 2 }),
+      levels: expect.any(Array),
+    }))
+    expect(res.body.data.assignees).toEqual(expect.arrayContaining([
+      expect.objectContaining({ email: 'admin@ds.ie' }),
+      expect.objectContaining({ email: 'super@ds.ie' }),
+    ]))
+  })
+
+  it('keeps employee bootstrap requests scoped to the signed-in employee', async () => {
+    await prisma.supplyRequest.create({
+      data: { employeeName: 'Admin', clientLocation: 'Other site', priority: 'normal', products: '[]', submittedBy: 'admin@ds.ie' },
+    })
+    const res = await request(app).get('/api/supplies/bootstrap').set('Cookie', employeeCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.requests.every((item: { submittedBy: string }) => item.submittedBy === 'employee@ds.ie')).toBe(true)
+    expect(res.body.data.control).toBeNull()
+    expect(res.body.data.assignees).toEqual([])
+  })
+
   it('supports the dashboard batch size without rejecting the query', async () => {
     const res = await request(app).get('/api/supplies?limit=200').set('Cookie', adminCookie)
     expect(res.status).toBe(200)

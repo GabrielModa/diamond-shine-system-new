@@ -20,13 +20,12 @@ test('attention overview deduplicates visits, preserves colours and sends undate
   })
   const visits = [makeVisit('Shared gap', 10, 'a', 'notified', 2), makeVisit('Overlap', 11, 'a'), makeVisit('Pending', 14, 'b', 'notified'), makeVisit('Healthy', 17, 'c')]
   const reply = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
-  await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
-  await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
-  await page.route('**/api/team', (route) => route.fulfill(reply(['a', 'b', 'c'].map(worker))))
-  await page.route('**/api/service-plans', (route) => route.fulfill(reply([{
+  const team = ['a', 'b', 'c'].map(worker)
+  const plans = [{
     id: 'plan-without-date', name: 'Undated service', status: 'published', expectedDurationMinutes: 120, requiredWorkers: 1,
     site: { id: 'site-undated', name: 'Undated site', city: 'Dublin', client: { id: 'client-undated', displayName: 'Undated service' } },
-  }])))
+  }]
+  await page.route('**/api/schedule/bootstrap?**', (route) => route.fulfill(reply({ visits, availability: [], team, plans })))
   await page.route('**/api/schedule-health?**', (route) => route.fulfill(reply({ summary: { visits: 4, covered: 1, needsStaff: 1, unassigned: 0, missingSchedule: 0, unscheduledServices: 1, paused: 0, conflicts: 1, unacknowledged: 2 }, items: [
     { id: 'gap', visitId: 'Shared gap', state: 'needs_staff', clientName: 'Shared gap', detail: '1/2 assigned' },
     { id: 'conflict', visitId: 'Shared gap', state: 'cleaner_overlap', clientName: 'Shared gap', detail: 'Shared worker', conflict: { workerId: 'a', workerName: 'a', otherVisitId: 'Overlap', otherClientName: 'Overlap', otherSiteName: 'Overlap', otherScheduledStart: visits[1].scheduledStart, otherScheduledEnd: visits[1].scheduledEnd, overlapMinutes: 60 } },
@@ -177,7 +176,11 @@ test('adding one visit refreshes schedule health without creating recurrence', a
     healthRequests += 1
     await route.continue()
   })
-  await page.route('**/api/service-plans', (route) => route.fulfill({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data: [fakePlan] }) }))
+  await page.route('**/api/schedule/bootstrap?**', (route) => route.fulfill({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, data: { visits: [], availability: [], team: [], plans: [fakePlan] } }),
+  }))
   await page.route('**/api/visits', async (route) => {
     if (route.request().method() !== 'POST') return route.continue()
     postedVisit = route.request().postDataJSON() as Record<string, unknown>
@@ -281,9 +284,12 @@ test('employee scope follows A to B to all and browser history, including health
     job: { name: 'Audit work' }, assignments: [{ status: 'acknowledged', user: member }],
   }))
   const reply = (data: unknown) => ({ status: 200, contentType: 'application/json', body: JSON.stringify({ ok: true, data }) })
-  await page.route('**/api/team', (route) => route.fulfill(reply(members)))
-  await page.route('**/api/visits?**', (route) => route.fulfill(reply(visits)))
-  await page.route('**/api/availability?**', (route) => route.fulfill(reply([])))
+  await page.route('**/api/schedule/bootstrap?**', (route) => route.fulfill(reply({
+    visits,
+    availability: [],
+    team: members,
+    plans: [],
+  })))
   await page.route('**/api/schedule-employee-summary?**', (route) => {
     const employeeId = new URL(route.request().url()).searchParams.get('employeeId') ?? 'audit-a'
     const employee = members.find((member) => member.id === employeeId) ?? members[0]
