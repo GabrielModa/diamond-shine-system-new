@@ -68,7 +68,7 @@ export async function getAuthUser(request: NextRequest): Promise<AuthUser | null
   }
 }
 
-function canUseCapability(user: AuthUser, capability: Capability, requestedScope?: PermissionScope) {
+export function authUserHasCapability(user: AuthUser, capability: Capability, requestedScope?: PermissionScope) {
   return hasCapability({
     role: user.membershipRole,
     capability,
@@ -100,7 +100,7 @@ export async function requireCapability(
   if (!user) {
     return { response: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) }
   }
-  if (!canUseCapability(user, capability, requestedScope)) {
+  if (!authUserHasCapability(user, capability, requestedScope)) {
     return { response: NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 }) }
   }
   return { user }
@@ -114,7 +114,7 @@ export async function requireCapabilities(
   if (!user) {
     return { response: NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 }) }
   }
-  if (capabilities.some((capability) => !canUseCapability(user, capability))) {
+  if (capabilities.some((capability) => !authUserHasCapability(user, capability))) {
     return { response: NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 }) }
   }
   return { user }

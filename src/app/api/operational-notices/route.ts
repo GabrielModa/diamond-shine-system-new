@@ -6,15 +6,13 @@ import { operationalNoticeCreateSchema, operationalNoticeQuerySchema } from '../
 import { enqueueNotification } from '../../../lib/notification-queue'
 
 export async function GET(request: NextRequest) {
-  const auth = await requireAuth(request, ['admin', 'supervisor', 'employee'])
-  if ('response' in auth) return auth.response
   const parsed = operationalNoticeQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
+  const auth = parsed.data.scope === 'all'
+    ? await requireCapability(request, 'communications.manage')
+    : await requireAuth(request, ['admin', 'supervisor', 'employee'])
+  if ('response' in auth) return auth.response
   const organizationId = auth.user.organizationId
-  if (parsed.data.scope === 'all') {
-    const manager = await requireCapability(request, 'communications.manage')
-    if ('response' in manager) return manager.response
-  }
   const mine = parsed.data.scope === 'mine'
   const notices = await prisma.operationalNotice.findMany({
     where: {

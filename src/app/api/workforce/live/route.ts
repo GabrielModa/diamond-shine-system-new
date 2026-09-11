@@ -163,6 +163,24 @@ export async function GET(request: NextRequest) {
     }),
   ])
 
+  const temporaryByUser = new Map(temporaryAvailability.map((entry) => [entry.userId, entry]))
+
+  const visitsByUser = new Map<string, typeof visits>()
+  for (const visit of visits) {
+    for (const assignment of visit.assignments) {
+      const list = visitsByUser.get(assignment.userId) ?? []
+      list.push(visit)
+      visitsByUser.set(assignment.userId, list)
+    }
+  }
+
+  const runningEntriesByUser = new Map<string, typeof runningEntries>()
+  for (const entry of runningEntries) {
+    const list = runningEntriesByUser.get(entry.userId) ?? []
+    list.push(entry)
+    runningEntriesByUser.set(entry.userId, list)
+  }
+
   const employees = users.map((user) => {
     const profile = user.workforceProfile
     const setupRequired = !profile || !profile.weeklyTargetConfigured
@@ -179,7 +197,7 @@ export async function GET(request: NextRequest) {
       longitude: profile.schoolLongitude == null ? null : Number(profile.schoolLongitude),
     } : null
 
-    const activeTemporary = temporaryAvailability.find((entry) => entry.userId === user.id) ?? null
+    const activeTemporary = temporaryByUser.get(user.id) ?? null
     const baseContext = setupRequired || !home
       ? null
       : resolveWorkforceContext({
@@ -211,10 +229,10 @@ export async function GET(request: NextRequest) {
         ? 'temporary_unavailability' as const
         : baseContext?.state ?? 'home'
 
-    const assignedVisits = visits.filter((visit) => visit.assignments.some((assignment) => assignment.userId === user.id))
+    const assignedVisits = visitsByUser.get(user.id) ?? []
     const currentVisit = assignedVisits.find((visit) => visit.scheduledStart <= now && now < visit.scheduledEnd) ?? null
     const nextVisit = assignedVisits.find((visit) => visit.scheduledStart > now) ?? null
-    const runningForUser = runningEntries.filter((entry) => entry.userId === user.id)
+    const runningForUser = runningEntriesByUser.get(user.id) ?? []
     const running = runningForUser[0] ?? null
     const latestSignal = running?.locationEvents[0] ?? null
     const activeVisit = running?.visit ?? currentVisit

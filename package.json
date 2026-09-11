@@ -60,6 +60,7 @@
     "db:migrations:status": "prisma migrate status",
     "db:migrations:doctor": "node scripts/migration-doctor.mjs",
     "observability:health-latency": "node scripts/health-latency-report.mjs",
+    "observability:performance-baseline": "node scripts/performance-baseline.mjs",
     "pilot:smoke": "tsx scripts/pilot-smoke.ts",
     "release:source-check": "node scripts/release-source-check.mjs",
     "verify:release": "npm run production:check && npm run db:migrations:status && npm run production:smoke && npm run pilot:smoke",
