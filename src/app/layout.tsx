@@ -1,6 +1,13 @@
 import './globals.css'
 import { ReactNode } from 'react'
 import type { Metadata } from 'next'
+import { Space_Grotesk } from 'next/font/google'
+
+const spaceGrotesk = Space_Grotesk({
+  subsets: ['latin'],
+  weight: ['400', '600', '700'],
+  display: 'swap',
+})
 
 export const metadata: Metadata = {
   title: {
@@ -13,7 +20,7 @@ export const metadata: Metadata = {
 export default function RootLayout({ children }: { children: ReactNode }) {
   return (
     <html lang="en">
-      <body>{children}</body>
+      <body className={spaceGrotesk.className}>{children}</body>
     </html>
   )
 }
