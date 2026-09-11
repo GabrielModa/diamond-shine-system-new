@@ -143,7 +143,7 @@ export async function GET(request: NextRequest) {
       sitesWithoutCount,
     },
     levels: mappedLevels,
-    requests: requests.filter((item) => ACTIVE_REQUEST_STATUSES.includes(item.status === 'In transit' ? 'InTransit' : item.status as typeof ACTIVE_REQUEST_STATUSES[number])),
+    requests: requests.filter((item) => !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)),
   } : null
 
   return NextResponse.json({
