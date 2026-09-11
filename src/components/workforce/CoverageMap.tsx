@@ -14,6 +14,7 @@ export type MapEmployee = {
   nextVisit:{startsAt:string;site:Site}|null
   profile:{home:Point;school:Point|null;studySchedule:Array<{dayOfWeek:number;startsMinute:number;endsMinute:number}>}
 }
+type PlanningMapStatus = {status:'available'|'partial'|'blocked';availableWindows:number;totalWindows:number;blocks:Array<{reason:string}>}
 type Props = {
   employees:MapEmployee[]; sites:Site[]; selectedEmployee:MapEmployee|null; selectedSite:Site|null
   showEmployees:boolean; showSites:boolean
@@ -26,6 +27,7 @@ type Props = {
   fullscreenTarget?:RefObject<HTMLElement|null>
   routeMode?:'driving'|'transit'|'cycling'|'walking'; onRouteModeChange?:(mode:'driving'|'transit'|'cycling'|'walking')=>void
   route?:{provider:string;durationSeconds:number;distanceMeters:number}|null; routeError?:string; mapsLink?:string
+  planningByEmployee?:Map<string,PlanningMapStatus>
 }
 const initials=(name:string)=>name.split(' ').map(p=>p[0]).join('').slice(0,2)
 const hours=(m:number)=>`${Math.floor(m/60)}h ${m%60}m`
@@ -33,7 +35,7 @@ const siteStateLabel=(state:Site['coverageState'])=>state==='needs_staff'?'Needs
 const siteMarkerIcon=(state:Site['coverageState'])=>`<span class="wf-site-marker-symbol" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 20v-9.5L12 7l5 3.5V20M9.5 20v-5h5v5M5 20h14M9.5 11.5h.01M14.5 11.5h.01"/></svg><b>${state==='needs_staff'?'!':state==='covered'?'✓':'–'}</b></span>`
 const SiteSymbol=({state}:{state:Site['coverageState']})=><span className={`wf-site-marker-symbol ${state}`} aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M7 20v-9.5L12 7l5 3.5V20M9.5 20v-5h5v5M5 20h14M9.5 11.5h.01M14.5 11.5h.01"/></svg><b>{state==='needs_staff'?'!':state==='covered'?'✓':'–'}</b></span>
 
-export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,siteCoverageFilter='all',onEmployee,onSite,routePath,routeOrigin,originMode='auto',onOriginModeChange,fullscreenTarget,routeMode,onRouteModeChange,route,routeError,mapsLink}:Props){
+export default function CoverageMap({employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,siteCoverageFilter='all',onEmployee,onSite,routePath,routeOrigin,originMode='auto',onOriginModeChange,fullscreenTarget,routeMode,onRouteModeChange,route,routeError,mapsLink,planningByEmployee}:Props){
   const hostRef=useRef<HTMLDivElement>(null)
   const shellRef=useRef<HTMLDivElement>(null)
   const mapRef=useRef<import('leaflet').Map|null>(null)
@@ -53,7 +55,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
     const L=m.default
-    const map=L.map(hostRef.current,{zoomControl:true,scrollWheelZoom:true,preferCanvas:true}).setView([53.3498,-6.2603],12)
+    const map=L.map(hostRef.current,{zoomControl:true,scrollWheelZoom:true,doubleClickZoom:false,preferCanvas:true}).setView([53.3498,-6.2603],12)
     map.on('click',()=>setActiveCard(null))
     const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19})
     tiles.on('load',()=>!cancelled&&setStatus('ready'));tiles.on('tileerror',()=>!cancelled&&setStatus('unavailable'));tiles.addTo(map)
@@ -67,19 +69,25 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       const lat=site.latitude!,lng=site.longitude!;bounds.push([lat,lng])
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-site-pin ${site.coverageState} ${site.id===selectedSite?.id?'selected':''}">${siteMarkerIcon(site.coverageState)}</span>`,iconSize:[34,42],iconAnchor:[17,40]})})
         .bindTooltip(`<strong>${site.name}</strong><br>${site.client.displayName} · ${siteStateLabel(site.coverageState)}`,{direction:'top',className:'wf-map-tooltip'})
-      marker.on('click',()=>{setActiveCard('site');onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
+      marker.on('click',()=>{setActiveCard(null);onSite(site);map.panTo([lat,lng],{animate:true})})
+      marker.on('dblclick',event=>{L.DomEvent.stopPropagation(event);setActiveCard('site');onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Service site ${site.client.displayName} · ${site.name}`)
       marker.getElement()?.setAttribute('data-workforce-site-marker',site.id)
       marker.getElement()?.setAttribute('data-coverage-state',site.coverageState)
     })
-    if(showEmployees)employees.filter(e=>['home','school'].includes(e.context.state)&&e.context.origin?.latitude!=null&&e.context.origin.longitude!=null).forEach(e=>{
-      const o=e.id===selectedEmployee?.id?(routeOrigin ?? e.context.origin):e.context.origin!;if(o?.latitude==null||o.longitude==null)return;const lat=o.latitude,lng=o.longitude;bounds.push([lat,lng])
-      const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home'
-      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls} ${e.id===selectedEmployee?.id?'selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
-        .bindTooltip(`${e.name} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`} · ${e.context.state==='school'?'School':'Home'}`,{direction:'top'})
-      marker.on('click',()=>{setActiveCard('employee');onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
+    if(showEmployees)employees.filter(e=>e.profile.home.latitude!=null&&e.profile.home.longitude!=null).forEach(e=>{
+      const o=e.id===selectedEmployee?.id?(routeOrigin ?? e.profile.home):e.profile.home;if(o?.latitude==null||o.longitude==null)return;const lat=o.latitude,lng=o.longitude;bounds.push([lat,lng])
+      const plan=planningByEmployee?.get(e.id)
+      const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':'home'
+      const planClass=plan?.status??'available'
+      const planLabel=plan?.status==='available'?'Available all selected days':plan?.status==='partial'?`Available ${plan.availableWindows}/${plan.totalWindows} days`:plan?.blocks[0]?.reason??'Unavailable'
+      const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls} planning-${planClass} ${e.id===selectedEmployee?.id?'selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
+        .bindTooltip(`<strong>${e.name}</strong><br>${planLabel} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`}`,{direction:'top',className:'wf-map-tooltip'})
+      marker.on('click',()=>{setActiveCard(null);onEmployee(e);map.panTo([lat,lng],{animate:true})})
+      marker.on('dblclick',event=>{L.DomEvent.stopPropagation(event);setActiveCard('employee');onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Employee ${e.name}`)
       marker.getElement()?.setAttribute('data-workforce-employee-marker',e.id)
+      marker.getElement()?.setAttribute('data-planning-status',planClass)
     })
     const o=routeOrigin ?? selectedEmployee?.context.origin
     if(o?.latitude!=null&&o.longitude!=null&&selectedSite?.latitude!=null&&selectedSite.longitude!=null){
@@ -89,7 +97,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     }else if(o?.latitude!=null&&o.longitude!=null){
       map.setView([o.latitude,o.longitude],13,{animate:true})
     }else if(bounds.length)map.fitBounds(bounds,{padding:[38,38],maxZoom:13})
-  });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,siteCoverageFilter,onEmployee,onSite,routePath,routeOrigin,originMode])
+  });return()=>{cancelled=true}},[employees,sites,selectedEmployee,selectedSite,showEmployees,showSites,siteCoverageFilter,onEmployee,onSite,routePath,routeOrigin,originMode,planningByEmployee])
 
   const activeOriginMode=selectedEmployee&&originMode==='school'&&selectedEmployee.profile.school?'school':selectedEmployee?.context.state==='school'?'school':'home'
   const mapSurface = <div ref={shellRef} className="coverage-map-shell">
@@ -97,7 +105,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
-    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
+    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Available</span><span><i className="person partial"/>Some days</span><span><i className="person blocked"/>Unavailable</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
     {selectedSite&&activeCard==='site'?<aside className="wf-map-site-card" data-testid="map-site-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>setActiveCard(null)}>×</button>
       <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
