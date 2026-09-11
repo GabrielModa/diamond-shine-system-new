@@ -288,11 +288,21 @@ describe('field execution', () => {
     expect(Number(reviewEntry.visit.site.latitude)).toBeCloseTo(53.3498, 4)
     expect(Number(reviewEntry.visit.site.longitude)).toBeCloseTo(-6.2603, 4)
     expect(reviewEntry.visit.site.geofenceVerifiedM).toBeGreaterThan(0)
-    expect(reviewEntry.locationEvents).toEqual(expect.arrayContaining([
+    expect(reviewEntry.locationEvents).toEqual([
+      expect.objectContaining({ kind: 'clock_in', classification: 'verified', latitude: expect.anything(), longitude: expect.anything() }),
+    ])
+
+    const locationReview = await request(app)
+      .get(`/api/field-control/time-entries/${started.body.data.id}`)
+      .set('Cookie', adminCookie)
+    expect(locationReview.status).toBe(200)
+    expect(locationReview.body.data.locationEvents).toEqual(expect.arrayContaining([
       expect.objectContaining({ kind: 'clock_in', classification: 'verified', latitude: expect.anything(), longitude: expect.anything() }),
       expect.objectContaining({ kind: 'heartbeat', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
       expect.objectContaining({ kind: 'clock_out', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
     ]))
+    expect(locationReview.body.data.locationEventsTruncated).toBe(false)
+    expect(locationReview.body.data.locationEventCount).toBe(3)
 
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
