@@ -22,6 +22,7 @@ type Supply = SupplyRequest & {
 type Assignee = { email: string; name: string | null; role: string; status: string }
 type SupplyFilter = { status?: SupplyStatus; priority?: SupplyPriority; preset?: 'all' | 'overdue' | 'unassigned' | 'month' }
 type Control = { summary: { tracked: number; outOfStock: number; needsReorder: number; openRequests: number; overdueRequests: number; sitesWithoutCount: number }; levels: Array<Material & { site: Site; daysRemaining: number | null }>; requests: Supply[] }
+type SuppliesBootstrap = { sites: Site[]; catalog: Material[]; requests: Supply[]; control: Control | null; assignees: Assignee[] }
 
 const NEXT_STATUS: Record<string, string | undefined> = { Requested: 'Triaged', Triaged: 'Approved', Approved: 'Ordered', Ordered: 'In transit', 'In transit': 'Delivered' }
 const CLOSED = new Set(['Delivered', 'Rejected', 'Cancelled'])
@@ -43,19 +44,13 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
   const refresh = useCallback(async () => {
     setBusy(true)
     try {
-      const [siteData, catalogData, requestData, controlData, assigneeData] = await Promise.all([
-        api<Site[]>('/api/sites'),
-        api<Material[]>('/api/materials/catalog'),
-        api<{ items: Supply[] }>(`/api/supplies?limit=200${canManage ? '' : '&mine=true'}`),
-        canManage ? api<Control>('/api/materials/control') : Promise.resolve(null),
-        canManage ? api<Assignee[]>('/api/supplies/assignees') : Promise.resolve([]),
-      ])
-      setSites(siteData)
-      setCatalog(catalogData)
-      setRequests(requestData.items.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })))
-      setControl(controlData ? { ...controlData, requests: controlData.requests.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })) } : null)
-      setAssignees(assigneeData.filter((item) => item.status === 'active'))
-      setSiteId((current) => current || siteData[0]?.id || '')
+      const bootstrap = await api<SuppliesBootstrap>('/api/supplies/bootstrap')
+      setSites(bootstrap.sites)
+      setCatalog(bootstrap.catalog)
+      setRequests(bootstrap.requests.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })))
+      setControl(bootstrap.control ? { ...bootstrap.control, requests: bootstrap.control.requests.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })) } : null)
+      setAssignees(bootstrap.assignees.filter((item) => item.status === 'active'))
+      setSiteId((current) => current || bootstrap.sites[0]?.id || '')
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
     finally { setBusy(false) }
   }, [canManage])
