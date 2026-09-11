@@ -113,13 +113,19 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await siteMarkers.first().dispatchEvent('click')
   await expect(siteSelect).not.toContainText('Search service site…')
   await expect(page.getByTestId('map-site-card')).toBeVisible()
+  await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
   await page.getByRole('button', { name: 'Close selected site' }).click()
   await expect(page.getByTestId('map-site-card')).toHaveCount(0)
   await expect(siteSelect).not.toContainText('Search service site…')
+  await expect(page.getByRole('combobox', { name: 'Choose team member' })).toContainText('Aisha Khan')
   await expect(page.locator('.wf-site-pin.selected')).toBeVisible()
+  await expect(page.locator('.wf-person-pin.selected')).toBeVisible()
 
-  await page.getByRole('button', { name: '🚶 Walk' }).click()
-  await expect(page.locator('.wf-map-focus-card')).toBeVisible()
+  const walk = page.getByRole('button', { name: '🚶 Walk' })
+  await walk.click()
+  await expect(walk).toHaveClass(/active/)
+  await expect(page.getByTestId('map-site-card')).toHaveCount(0)
+  await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
 })
 
 test('scenario matrix exposes routeable employees and route-origin overrides', async ({ page }) => {
