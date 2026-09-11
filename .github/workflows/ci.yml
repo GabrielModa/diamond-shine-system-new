@@ -37,6 +37,7 @@ jobs:
       - run: npm --prefix apps/mobile ci
       - run: npx prisma generate
       - run: npm run db:deploy
+      - run: npm run db:migrations:assert-applied
       - run: npm run typecheck
       - run: npm run mobile:typecheck
       - run: npm run lint
