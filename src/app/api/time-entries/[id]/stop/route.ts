@@ -6,6 +6,7 @@ import { canManageTeamTime } from '../../../../../modules/execution/access'
 import { assessLocation } from '../../../../../modules/execution/location'
 import { repeatedLocationPattern } from '../../../../../modules/execution/location-pattern'
 import { stopTimeEntrySchema } from '../../../../../modules/execution/schemas'
+import { executionTimeEntrySelect } from '../../../../../modules/execution/time-entry-select'
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const user = await getAuthUser(request)
@@ -18,7 +19,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params
   const entry = await prisma.timeEntry.findFirst({
     where: { id, organizationId: user.organizationId },
-    include: { visit: { include: { site: true, servicePlanVersion: true } } },
+    select: {
+      ...executionTimeEntrySelect,
+      visit: { include: { site: true, servicePlanVersion: true } },
+    },
   })
   if (!entry) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (entry.userId !== user.id && !canManageTeamTime(user)) {
@@ -90,7 +94,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       },
     })
     if (claimed.count !== 1) {
-      return { duplicate: true as const, saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id } }) }
+      return {
+        duplicate: true as const,
+        saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id }, select: executionTimeEntrySelect }),
+      }
     }
     if (!intermediateVisitTransition && entry.visitId && parsed.data.latitude != null && parsed.data.longitude != null) {
       await tx.locationEvent.create({
@@ -109,7 +116,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         },
       })
     }
-    return { duplicate: false as const, saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id } }) }
+    return {
+      duplicate: false as const,
+      saved: await tx.timeEntry.findUniqueOrThrow({ where: { id: entry.id }, select: executionTimeEntrySelect }),
+    }
   })
   if (stopResult.duplicate) {
     return NextResponse.json({ ok: true, duplicate: true, data: stopResult.saved })
