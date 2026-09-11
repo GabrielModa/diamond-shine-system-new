@@ -326,3 +326,21 @@ Test authenticated, read-heavy mixes at increasing concurrency and record:
 - function/server concurrency.
 
 Do this against both the current host and any proposed replacement using the same database region and dataset.
+
+
+## Implemented second-pass read-model optimizations
+
+The follow-up optimization pass moved the most request-heavy workspaces onto purpose-built read models while preserving server-side capability checks:
+
+- **Command Centre:** 7 browser API requests → 1 aggregate request.
+- **Schedule bootstrap:** 4 browser API requests → 1 bounded request; visit-conflict lookup is precomputed instead of rescanning all visits per card.
+- **Supplies bootstrap:** up to 5 browser API requests → 1 compact request; selectors no longer hydrate full Site records.
+- **Role Home:** 3 list reads → 1 compact summary request.
+- **Operations / Service Setup:** 5 browser API requests → 1 capability-aware bootstrap.
+- **Quality Control:** 2 initial reads → 1 by reusing the site data already returned by the control model.
+- **Communications:** core inbox/broadcast bootstrap goes from 4 reads → 1. Administrator-only delivery configuration remains separately loaded because settings, queue diagnostics and editable templates have distinct authorization and initialization semantics.
+- **Protected server pages:** membership/capability resolution is memoized for the request and shared by the protected layout and pages that request the same access context.
+
+Operational Insights was also changed to group site signals once instead of repeatedly filtering every source collection for every site, and additional PostgreSQL indexes were added only where they match current operational filter/order paths.
+
+These changes intentionally avoid long-lived caching of timers, GPS, incidents, acknowledgement state or other live operational facts.
