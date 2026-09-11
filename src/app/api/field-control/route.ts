@@ -70,7 +70,6 @@ export async function GET(request: NextRequest) {
             },
           },
         },
-        locationEvents: { orderBy: { capturedAt: 'asc' } },
         disputes: { where: { status: 'open' }, select: { id: true, reason: true, createdAt: true } },
       },
       orderBy: { startedAt: 'desc' },
