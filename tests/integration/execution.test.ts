@@ -277,6 +277,22 @@ describe('field execution', () => {
     expect(stopped.body.data.reviewReason).toContain('PRESENCE_LOCATION_ANOMALY')
     expect(stopped.body.data.reviewReason).toContain('LOCATION_FAR_FROM_SITE')
 
+    await prisma.locationEvent.createMany({
+      data: Array.from({ length: 1050 }, (_, index) => ({
+        organizationId: visit.organizationId,
+        visitId: visit.id,
+        timeEntryId: started.body.data.id,
+        kind: 'heartbeat' as const,
+        latitude: 53.3498,
+        longitude: -6.2603,
+        accuracyM: 10,
+        distanceM: 5,
+        classification: 'verified' as const,
+        capturedAt: new Date(Date.parse('2026-08-24T09:01:00.000Z') + index * 1000),
+        source: 'field-control-scale-test',
+      })),
+    })
+
     const queue = await request(app).get('/api/time-entries?status=needs_review').set('Cookie', adminCookie)
     expect(queue.status).toBe(200)
     expect(queue.body.data).toHaveLength(1)
@@ -301,8 +317,9 @@ describe('field execution', () => {
       expect.objectContaining({ kind: 'heartbeat', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
       expect.objectContaining({ kind: 'clock_out', classification: 'suspicious', latitude: expect.anything(), longitude: expect.anything() }),
     ]))
-    expect(locationReview.body.data.locationEventsTruncated).toBe(false)
-    expect(locationReview.body.data.locationEventCount).toBe(3)
+    expect(locationReview.body.data.locationEvents).toHaveLength(1000)
+    expect(locationReview.body.data.locationEventsTruncated).toBe(true)
+    expect(locationReview.body.data.locationEventCount).toBe(1053)
 
     const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
     expect(approved.status).toBe(200)
