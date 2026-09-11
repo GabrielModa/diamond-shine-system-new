@@ -40,29 +40,21 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
   const layersRef=useRef<import('leaflet').LayerGroup|null>(null)
   const [status,setStatus]=useState<'loading'|'ready'|'unavailable'>('loading')
   const [expanded,setExpanded]=useState(false)
-  const [dismissedEmployeeId,setDismissedEmployeeId]=useState<string|null>(null)
-  const [dismissedSiteId,setDismissedSiteId]=useState<string|null>(null)
-
-  const selectedEmployeeRef=useRef(selectedEmployee)
-  const selectedSiteRef=useRef(selectedSite)
-  const dismissedEmployeeRef=useRef(dismissedEmployeeId)
-  const dismissedSiteRef=useRef(dismissedSiteId)
-  useEffect(()=>{selectedEmployeeRef.current=selectedEmployee},[selectedEmployee])
-  useEffect(()=>{selectedSiteRef.current=selectedSite},[selectedSite])
-  useEffect(()=>{dismissedEmployeeRef.current=dismissedEmployeeId},[dismissedEmployeeId])
-  useEffect(()=>{dismissedSiteRef.current=dismissedSiteId},[dismissedSiteId])
-  useEffect(()=>{setDismissedEmployeeId(null)},[selectedEmployee?.id])
-  useEffect(()=>{setDismissedSiteId(null)},[selectedSite?.id])
+  const [activeCard,setActiveCard]=useState<'employee'|'site'|null>(null)
+  const activeCardRef=useRef(activeCard)
+  useEffect(()=>{activeCardRef.current=activeCard},[activeCard])
+  useEffect(()=>{if(selectedEmployee?.id)setActiveCard('employee')},[selectedEmployee?.id])
+  useEffect(()=>{if(selectedSite?.id)setActiveCard('site')},[selectedSite?.id])
   useEffect(()=>{const map=mapRef.current;if(!map)return;const timers=[40,180,500].map(delay=>window.setTimeout(()=>map.invalidateSize({animate:false}),delay));return()=>timers.forEach(timer=>window.clearTimeout(timer))},[expanded])
   useEffect(()=>{const onFullscreenChange=()=>{const target=fullscreenTarget?.current??shellRef.current;setExpanded(document.fullscreenElement===target)};document.addEventListener('fullscreenchange',onFullscreenChange);return()=>document.removeEventListener('fullscreenchange',onFullscreenChange)},[fullscreenTarget])
-  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key!=='Escape')return;const employee=selectedEmployeeRef.current;const site=selectedSiteRef.current;const employeeCardOpen=Boolean(employee&&dismissedEmployeeRef.current!==employee.id);const siteCardOpen=Boolean(site&&dismissedSiteRef.current!==site.id);if(employeeCardOpen){event.preventDefault();event.stopPropagation();setDismissedEmployeeId(employee!.id);return}if(siteCardOpen){event.preventDefault();event.stopPropagation();setDismissedSiteId(site!.id);return}if(document.fullscreenElement){event.preventDefault();event.stopPropagation();void document.exitFullscreen()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[])
+  useEffect(()=>{const onKey=(event:KeyboardEvent)=>{if(event.key!=='Escape')return;if(activeCardRef.current){event.preventDefault();event.stopPropagation();setActiveCard(null);return}if(document.fullscreenElement){event.preventDefault();event.stopPropagation();void document.exitFullscreen()}};window.addEventListener('keydown',onKey,true);return()=>window.removeEventListener('keydown',onKey,true)},[])
   const toggleFullscreen=()=>{const target=fullscreenTarget?.current??shellRef.current;if(document.fullscreenElement===target){void document.exitFullscreen();return}const request=target?.requestFullscreen as ((options?:{keyboardLock?:'browser';navigationUI?:'hide'|'show'|'auto'})=>Promise<void>)|undefined;void request?.call(target,{keyboardLock:'browser',navigationUI:'hide'}).catch(()=>{void target?.requestFullscreen?.().catch(()=>setExpanded(false))})}
 
   useEffect(()=>{let cancelled=false;void import('leaflet').then(m=>{
     if(cancelled||!hostRef.current||mapRef.current)return
     const L=m.default
     const map=L.map(hostRef.current,{zoomControl:true,scrollWheelZoom:true,preferCanvas:true}).setView([53.3498,-6.2603],12)
-    map.on('click',()=>{const employee=selectedEmployeeRef.current;const site=selectedSiteRef.current;if(employee)setDismissedEmployeeId(employee.id);if(site)setDismissedSiteId(site.id)})
+    map.on('click',()=>setActiveCard(null))
     const tiles=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{attribution:'&copy; OpenStreetMap contributors',maxZoom:19})
     tiles.on('load',()=>!cancelled&&setStatus('ready'));tiles.on('tileerror',()=>!cancelled&&setStatus('unavailable'));tiles.addTo(map)
     layersRef.current=L.layerGroup().addTo(map);mapRef.current=map;setTimeout(()=>map.invalidateSize(),0)
@@ -75,7 +67,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       const lat=site.latitude!,lng=site.longitude!;bounds.push([lat,lng])
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-site-pin ${site.coverageState} ${site.id===selectedSite?.id?'selected':''}">${siteMarkerIcon(site.coverageState)}</span>`,iconSize:[34,42],iconAnchor:[17,40]})})
         .bindTooltip(`<strong>${site.name}</strong><br>${site.client.displayName} · ${siteStateLabel(site.coverageState)}`,{direction:'top',className:'wf-map-tooltip'})
-      marker.on('click',()=>{setDismissedSiteId(null);onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
+      marker.on('click',()=>{setActiveCard('site');onSite(site);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Service site ${site.client.displayName} · ${site.name}`)
       marker.getElement()?.setAttribute('data-workforce-site-marker',site.id)
       marker.getElement()?.setAttribute('data-coverage-state',site.coverageState)
@@ -85,7 +77,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':e.context.state==='school'?'school':'home'
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls} ${e.id===selectedEmployee?.id?'selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
         .bindTooltip(`${e.name} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`} · ${e.context.state==='school'?'School':'Home'}`,{direction:'top'})
-      marker.on('click',()=>{setDismissedEmployeeId(null);onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
+      marker.on('click',()=>{setActiveCard('employee');onEmployee(e);map.panTo([lat,lng],{animate:true})});marker.addTo(layers)
       marker.getElement()?.setAttribute('aria-label',`Employee ${e.name}`)
       marker.getElement()?.setAttribute('data-workforce-employee-marker',e.id)
     })
@@ -106,15 +98,15 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
     <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Home</span><span><i className="person school"/>School</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
-    {selectedSite&&dismissedSiteId!==selectedSite.id?<aside className="wf-map-site-card" data-testid="map-site-card">
-      <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>setDismissedSiteId(selectedSite.id)}>×</button>
+    {selectedSite&&activeCard==='site'?<aside className="wf-map-site-card" data-testid="map-site-card">
+      <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>setActiveCard(null)}>×</button>
       <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
       <p>{selectedSite.addressLine1}, {selectedSite.city}</p>
       <div className="wf-map-site-meta"><span className={selectedSite.coverageState}>{siteStateLabel(selectedSite.coverageState)}</span><span><b>{selectedSite.upcomingVisits}</b> upcoming</span><span><b>{selectedSite.assignedEmployeeIds.length}</b> assigned</span></div>
       {selectedSite.assignedEmployeeIds.length?<small className="wf-map-site-team">{selectedSite.assignedEmployeeIds.map(id=>employees.find(employee=>employee.id===id)?.name).filter(Boolean).join(' · ')}</small>:<small className="wf-map-site-team warning">No employee assigned to the upcoming visit.</small>}
     </aside>:null}
-    {selectedEmployee?.context.origin&&dismissedEmployeeId!==selectedEmployee.id?<aside className="wf-map-focus-card" data-testid="map-employee-card">
-      <button type="button" className="wf-map-card-close" aria-label="Close selected employee" onClick={()=>setDismissedEmployeeId(selectedEmployee.id)}>×</button>
+    {selectedEmployee?.context.origin&&activeCard==='employee'?<aside className="wf-map-focus-card" data-testid="map-employee-card">
+      <button type="button" className="wf-map-card-close" aria-label="Close selected employee" onClick={()=>setActiveCard(null)}>×</button>
       <div className="wf-map-focus-top"><span className={`wf-origin-dot ${activeOriginMode}`}/><div><strong>{selectedEmployee.name}</strong><small>{originMode==='auto'?(activeOriginMode==='school'?'Using school origin':selectedEmployee.context.state==='school'?'At school now':'Using home base'):`Route preview · ${originMode}`}</small></div></div>
       <p>{(routeOrigin ?? selectedEmployee.context.origin).address}</p>
       {selectedEmployee.profile.school?<div className="wf-school-strip"><span>School</span><strong>{selectedEmployee.profile.school.label}</strong><small>{schoolScheduleSummary(selectedEmployee.profile.studySchedule)}</small></div>:null}
