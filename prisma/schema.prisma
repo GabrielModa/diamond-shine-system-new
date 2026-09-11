@@ -777,6 +777,8 @@ model TimeEntry {
   @@unique([organizationId, clientMutationId])
   @@index([organizationId, userId, startedAt])
   @@index([organizationId, visitId, status])
+  @@index([organizationId, startedAt, status])
+  @@index([organizationId, status, startedAt])
   @@map("time_entries")
 }
 
@@ -820,6 +822,7 @@ model LocationEvent {
   timeEntry      TimeEntry?        @relation(fields: [timeEntryId], references: [id], onDelete: Cascade)
 
   @@index([organizationId, visitId, capturedAt])
+  @@index([organizationId, timeEntryId, kind, capturedAt])
   @@map("location_events")
 }
 
