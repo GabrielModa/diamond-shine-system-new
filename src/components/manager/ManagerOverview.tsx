@@ -5,13 +5,27 @@ import { useCallback, useEffect, useMemo, useState } from 'react'
 import { operationalDayRange, operationalGreeting } from '../../lib/operational-time'
 import CommandActivityFeed from './CommandActivityFeed'
 
-type Visit = { id: string; status: string }
-type TimeEntry = { id: string; status: string; disputes: Array<{ status: string }> }
-type SupplyResponse = { items: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; status: string; priority: string }> }
-type FeedbackResponse = { items: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; overall: number; category: string }> }
-type FieldSummary = { summary: { openIncidents: number; criticalIncidents: number; needsReview: number; blocked: number }; incidents: Array<{ id: string; createdAt: string; title: string; severity: string; status: string; visit: { site: { name: string; client: { displayName: string } } } }> }
-type QualitySummary = { summary: { openActions: number; overdueActions: number; criticalActions: number } }
-type ScheduleHealth = { summary: { attention: number } }
+type CommandData = {
+  summary: {
+    visitsToday: number
+    inProgress: number
+    completed: number
+    schedulingIssues: number
+    timeReview: number
+    awaitingTriage: number
+    urgentSupplies: number
+    openIncidents: number
+    criticalIncidents: number
+    blockedVisits: number
+    overdueActions: number
+    criticalActions: number
+  }
+  activity: {
+    supplies: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; status: string; priority: string }>
+    feedback: Array<{ id: string; createdAt: string; employeeName: string; clientLocation: string; overall: number; category: string }>
+    incidents: Array<{ id: string; createdAt: string; title: string; severity: string; status: string; visit: { site: { name: string; client: { displayName: string } } } }>
+  }
+}
 
 async function read<T>(url: string): Promise<T | null> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store' })
@@ -20,50 +34,30 @@ async function read<T>(url: string): Promise<T | null> {
 }
 
 export default function ManagerOverview({ timezone }: { timezone: string }) {
-  const [visits, setVisits] = useState<Visit[]>([])
-  const [entries, setEntries] = useState<TimeEntry[]>([])
-  const [supplies, setSupplies] = useState<SupplyResponse | null>(null)
-  const [feedback, setFeedback] = useState<FeedbackResponse | null>(null)
-  const [field, setField] = useState<FieldSummary | null>(null)
-  const [quality, setQuality] = useState<QualitySummary | null>(null)
-  const [health, setHealth] = useState<ScheduleHealth | null>(null)
+  const [data, setData] = useState<CommandData | null>(null)
   const [loading, setLoading] = useState(true)
   const range = useMemo(() => operationalDayRange(new Date(), timezone), [timezone])
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const [visitData, entryData, supplyData, feedbackData, fieldData, qualityData, healthData] = await Promise.all([
-      read<Visit[]>(`/api/visits?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
-      read<TimeEntry[]>('/api/time-entries'),
-      read<SupplyResponse>('/api/supplies?limit=200'),
-      read<FeedbackResponse>('/api/feedback?page=1&pageSize=20'),
-      read<FieldSummary>('/api/field-control'),
-      read<QualitySummary>('/api/quality/control'),
-      read<ScheduleHealth>(`/api/schedule-health?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`),
-    ])
-    setVisits(visitData ?? [])
-    setEntries(entryData ?? [])
-    setSupplies(supplyData)
-    setFeedback(feedbackData)
-    setField(fieldData)
-    setQuality(qualityData)
-    setHealth(healthData)
+    const next = await read<CommandData>(`/api/command-centre?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)
+    setData(next)
     setLoading(false)
   }, [range])
 
   useEffect(() => { void refresh() }, [refresh])
 
-  const active = visits.filter((visit) => visit.status === 'in_progress').length
-  const completed = visits.filter((visit) => visit.status === 'completed').length
-  const schedulingIssues = health?.summary.attention ?? 0
-  const timeReview = entries.filter((entry) => entry.status === 'needs_review' || entry.disputes.some((dispute) => dispute.status === 'open')).length
-  const openSupplies = supplies?.items.filter((item) => !['Delivered', 'Rejected', 'Cancelled'].includes(item.status)) ?? []
-  const awaitingTriage = openSupplies.filter((item) => item.status === 'Requested').length
-  const urgentSupplies = openSupplies.filter((item) => item.priority === 'urgent').length
-  const openIncidents = field?.summary.openIncidents ?? 0
-  const criticalIncidents = field?.summary.criticalIncidents ?? 0
-  const blockedVisits = field?.summary.blocked ?? 0
-  const qualityAttention = Math.max(quality?.summary.overdueActions ?? 0, quality?.summary.criticalActions ?? 0)
+  const summary = data?.summary
+  const active = summary?.inProgress ?? 0
+  const completed = summary?.completed ?? 0
+  const schedulingIssues = summary?.schedulingIssues ?? 0
+  const timeReview = summary?.timeReview ?? 0
+  const awaitingTriage = summary?.awaitingTriage ?? 0
+  const urgentSupplies = summary?.urgentSupplies ?? 0
+  const openIncidents = summary?.openIncidents ?? 0
+  const criticalIncidents = summary?.criticalIncidents ?? 0
+  const blockedVisits = summary?.blockedVisits ?? 0
+  const qualityAttention = Math.max(summary?.overdueActions ?? 0, summary?.criticalActions ?? 0)
   const attentionTotal = schedulingIssues + openIncidents + timeReview + qualityAttention + awaitingTriage
   const now = new Date()
 
@@ -86,7 +80,7 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
     qualityAttention ? {
       href: '/quality',
       title: 'Quality needs a decision',
-      detail: `${quality?.summary.overdueActions ?? 0} overdue · ${quality?.summary.criticalActions ?? 0} critical corrective actions`,
+      detail: `${summary?.overdueActions ?? 0} overdue · ${summary?.criticalActions ?? 0} critical corrective actions`,
     } : null,
     timeReview ? {
       href: '/timesheets',
@@ -109,7 +103,7 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
     </header>
 
     <section className="command-metrics" aria-label="Today's operations">
-      <Link href="/schedule"><span>Visits today</span><strong>{loading ? '—' : visits.length}</strong><small>Schedule owns the daily plan</small></Link>
+      <Link href="/schedule"><span>Visits today</span><strong>{loading ? '—' : summary?.visitsToday ?? 0}</strong><small>Schedule owns the daily plan</small></Link>
       <Link href="/live-operations"><span>In progress</span><strong>{loading ? '—' : active}</strong><small>Live workforce right now</small></Link>
       <Link href="/field-control"><span>Completed</span><strong>{loading ? '—' : completed}</strong><small>Delivered visits today</small></Link>
       <Link href="#attention"><span>Needs attention</span><strong>{loading ? '—' : attentionTotal}</strong><small>{attentionTotal ? 'Exceptions only' : 'No active exception queue'}</small></Link>
@@ -133,6 +127,6 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
       </aside>
     </section>
 
-    <CommandActivityFeed supplies={supplies?.items ?? []} feedback={feedback?.items ?? []} incidents={field?.incidents ?? []} />
+    <CommandActivityFeed supplies={data?.activity.supplies ?? []} feedback={data?.activity.feedback ?? []} incidents={data?.activity.incidents ?? []} />
   </main>
 }
