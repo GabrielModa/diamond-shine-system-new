@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import { operationalDayRange, operationalGreeting } from '../../lib/operational-time'
+import { clientApi } from '../../lib/client-api'
 import CommandActivityFeed from './CommandActivityFeed'
 
 type CommandData = {
@@ -27,22 +28,24 @@ type CommandData = {
   }
 }
 
-async function read<T>(url: string): Promise<T | null> {
-  const response = await fetch(url, { credentials: 'include', cache: 'no-store' })
-  const body = await response.json().catch(() => null)
-  return response.ok && body?.ok ? body.data as T : null
-}
-
 export default function ManagerOverview({ timezone }: { timezone: string }) {
   const [data, setData] = useState<CommandData | null>(null)
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState('')
   const range = useMemo(() => operationalDayRange(new Date(), timezone), [timezone])
 
   const refresh = useCallback(async () => {
     setLoading(true)
-    const next = await read<CommandData>(`/api/command-centre?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`)
-    setData(next)
-    setLoading(false)
+    setError('')
+    try {
+      const next = await clientApi<CommandData>(`/api/command-centre?from=${encodeURIComponent(range.from)}&to=${encodeURIComponent(range.to)}`, undefined, 'Could not load command centre')
+      setData(next)
+    } catch (cause) {
+      setData(null)
+      setError(cause instanceof Error ? cause.message : 'Could not load command centre.')
+    } finally {
+      setLoading(false)
+    }
   }, [range])
 
   useEffect(() => { void refresh() }, [refresh])
@@ -101,6 +104,8 @@ export default function ManagerOverview({ timezone }: { timezone: string }) {
         <Link href="/schedule" className="btn-secondary">Open schedule</Link>
       </div>
     </header>
+
+    {error ? <div className="inline-message error" role="alert">{error}</div> : null}
 
     <section className="command-metrics" aria-label="Today's operations">
       <Link href="/schedule"><span>Visits today</span><strong>{loading ? '—' : summary?.visitsToday ?? 0}</strong><small>Schedule owns the daily plan</small></Link>
