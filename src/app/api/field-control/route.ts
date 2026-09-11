@@ -70,6 +70,11 @@ export async function GET(request: NextRequest) {
             },
           },
         },
+        locationEvents: {
+          where: { kind: 'clock_in' },
+          orderBy: { capturedAt: 'asc' },
+          take: 1,
+        },
         disputes: { where: { status: 'open' }, select: { id: true, reason: true, createdAt: true } },
       },
       orderBy: { startedAt: 'desc' },
