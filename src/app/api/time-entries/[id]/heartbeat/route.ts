@@ -41,6 +41,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       await tx.timeEntry.update({
         where: { id: entry.id },
         data: { reviewReason: [entry.reviewReason, reviewReason].filter(Boolean).join(', ') },
+        select: { id: true },
       })
     }
 
