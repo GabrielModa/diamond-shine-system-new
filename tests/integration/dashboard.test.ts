@@ -29,6 +29,22 @@ beforeEach(async () => {
   await prisma.feedbackEntry.deleteMany()
 })
 
+describe('GET /api/home-summary', () => {
+  it('returns a compact authenticated role summary', async () => {
+    const response = await request(app).get('/api/home-summary').set('Cookie', employeeCookie)
+    expect(response.status).toBe(200)
+    expect(response.body.data).toEqual(expect.objectContaining({
+      awaitingAcknowledgement: expect.any(Number),
+      openRequests: expect.any(Number),
+    }))
+    expect(Object.keys(response.body.data).sort()).toEqual(['awaitingAcknowledgement', 'nextVisit', 'openRequests'])
+  })
+
+  it('requires authentication', async () => {
+    expect((await request(app).get('/api/home-summary')).status).toBe(401)
+  })
+})
+
 describe('GET /api/command-centre', () => {
   it('returns one compact manager read model and rejects employees', async () => {
     const from = new Date(Date.now() - 24 * 60 * 60 * 1000).toISOString()
