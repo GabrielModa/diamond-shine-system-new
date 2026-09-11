@@ -75,7 +75,8 @@
     "mobile:build:development": "node scripts/eas.mjs build --platform android --profile development",
     "mobile:build:preview": "node scripts/eas.mjs build --platform android --profile preview",
     "mobile:build:production": "node scripts/eas.mjs build --platform android --profile production",
-    "vercel-build": "prisma migrate deploy && prisma generate && next build"
+    "vercel-build": "prisma generate && npm run db:migrations:assert-applied && next build",
+    "db:migrations:assert-applied": "node scripts/assert-migrations-applied.mjs"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
