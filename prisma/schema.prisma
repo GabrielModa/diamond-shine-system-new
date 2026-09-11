@@ -243,6 +243,7 @@ model Site {
 
   @@index([organizationId, clientId, status])
   @@index([organizationId, postalCode])
+  @@index([organizationId, archivedAt, name])
   @@map("sites")
 }
 
@@ -362,6 +363,7 @@ model ServicePlan {
 
   @@index([organizationId, siteId, status])
   @@index([organizationId, contractId])
+  @@index([organizationId, archivedAt, updatedAt])
   @@map("service_plans")
 }
 
@@ -570,6 +572,7 @@ model Visit {
 
   @@unique([jobId, generationKey])
   @@index([organizationId, scheduledStart, status])
+  @@index([organizationId, status, scheduledStart])
   @@index([organizationId, siteId, scheduledStart])
   @@index([organizationId, servicePauseId, scheduledStart])
   @@index([organizationId, generationKey])
@@ -977,6 +980,7 @@ model AuditLog {
   @@index([actorEmail])
   @@index([createdAt])
   @@index([organizationId, createdAt])
+  @@index([organizationId, targetType, createdAt])
   @@map("audit_logs")
 }
 
@@ -1040,6 +1044,8 @@ model SupplyRequest {
   @@index([createdAt])
   @@index([organizationId, createdAt])
   @@index([organizationId, siteId, status])
+  @@index([organizationId, dueAt, createdAt])
+  @@index([organizationId, status, dueAt, createdAt])
   @@map("supply_requests")
 }
 
@@ -1065,6 +1071,7 @@ model OperationalNotice {
   recipients              OperationalNoticeRecipient[]
 
   @@index([organizationId, publishedAt])
+  @@index([organizationId, priority, publishedAt])
   @@index([organizationId, siteId, publishedAt])
   @@index([organizationId, visitId])
   @@map("operational_notices")
