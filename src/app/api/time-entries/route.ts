@@ -7,6 +7,7 @@ import { prisma } from '../../../lib/prisma'
 import { assignedVisitFilter } from '../../../modules/execution/access'
 import { startTimeEntrySchema } from '../../../modules/execution/schemas'
 import { lockUserTimerStart } from '../../../modules/execution/timer-lock'
+import { executionTimeEntrySelect } from '../../../modules/execution/time-entry-select'
 
 const querySchema = z.object({
   from: z.coerce.date().optional(),
@@ -153,7 +154,7 @@ export async function POST(request: NextRequest) {
   if (parsed.data.clientMutationId) {
     const duplicate = await prisma.timeEntry.findFirst({
       where: { organizationId: auth.user.organizationId, clientMutationId: parsed.data.clientMutationId },
-      include: { locationEvents: true },
+      select: { ...executionTimeEntrySelect, locationEvents: true },
     })
     if (duplicate) {
       if (duplicate.userId !== auth.user.id || duplicate.kind !== parsed.data.kind || duplicate.visitId !== (parsed.data.visitId ?? null)) {
@@ -202,7 +203,7 @@ export async function POST(request: NextRequest) {
               source: parsed.data.source,
             } } : undefined,
           },
-          include: { locationEvents: true },
+          select: { ...executionTimeEntrySelect, locationEvents: true },
         })
         return { entry } as const
       })
@@ -217,7 +218,7 @@ export async function POST(request: NextRequest) {
             organizationId: auth.user.organizationId,
             clientMutationId: parsed.data.clientMutationId,
           },
-          include: { locationEvents: true },
+          select: { ...executionTimeEntrySelect, locationEvents: true },
         })
         if (duplicate && duplicate.userId === auth.user.id && duplicate.kind === parsed.data.kind && duplicate.visitId === (parsed.data.visitId ?? null)) {
           return { response: NextResponse.json({ ok: true, data: duplicate, duplicate: true }) } as const
