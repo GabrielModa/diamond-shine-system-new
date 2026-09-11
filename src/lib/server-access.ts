@@ -1,10 +1,11 @@
+import { cache } from 'react'
 import { cookies } from 'next/headers'
 import type { Capability } from './permissions'
 import { hasCapability } from './permissions'
 import { prisma } from './prisma'
 import { sessionCookie, verifySessionToken } from './session'
 
-export async function currentMembershipAccess() {
+export const currentMembershipAccess = cache(async function currentMembershipAccess() {
   const session = await verifySessionToken((await cookies()).get(sessionCookie.name)?.value)
   if (!session) return null
   const membership = await prisma.membership.findFirst({
@@ -27,7 +28,7 @@ export async function currentMembershipAccess() {
       })
     },
   }
-}
+})
 
 export async function currentUserCan(capability: Capability) {
   return (await currentMembershipAccess())?.can(capability) ?? false
