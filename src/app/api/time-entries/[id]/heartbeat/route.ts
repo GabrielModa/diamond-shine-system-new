@@ -3,6 +3,7 @@ import { requireCapability } from '../../../../../lib/auth'
 import { prisma } from '../../../../../lib/prisma'
 import { assessLocation } from '../../../../../modules/execution/location'
 import { heartbeatSchema } from '../../../../../modules/execution/schemas'
+import { executionTimeEntrySelect } from '../../../../../modules/execution/time-entry-select'
 
 export async function POST(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'time.own.manage')
@@ -15,7 +16,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const { id } = await params
   const entry = await prisma.timeEntry.findFirst({
     where: { id, organizationId: auth.user.organizationId, userId: auth.user.id, kind: 'visit', status: 'running' },
-    include: { visit: { include: { site: true } } },
+    select: {
+      ...executionTimeEntrySelect,
+      visit: { include: { site: true } },
+    },
   })
   if (!entry?.visit) return NextResponse.json({ ok: false, error: 'Active visit timer not found' }, { status: 404 })
   const visit = entry.visit
