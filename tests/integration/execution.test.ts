@@ -296,6 +296,11 @@ describe('field execution', () => {
     const queue = await request(app).get('/api/time-entries?status=needs_review').set('Cookie', adminCookie)
     expect(queue.status).toBe(200)
     expect(queue.body.data).toHaveLength(1)
+    expect(queue.body.data[0].locationEvents).toEqual([])
+    expect(queue.body.data[0].locationSummary).toEqual(expect.objectContaining({
+      count: 1053,
+      needsReview: true,
+    }))
 
     const control = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
@@ -352,7 +357,12 @@ describe('field execution', () => {
     await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', supervisorCookie).send({ endedAt: '2026-08-24T07:15:00.000Z' })
     const mine = await request(app).get('/api/time-entries?mine=true&from=2026-08-24&to=2026-08-25').set('Cookie', supervisorCookie)
     expect(mine.status).toBe(200)
-    expect(mine.body.data[0].locationEvents[0]).not.toHaveProperty('latitude')
+    expect(mine.body.data[0].locationEvents).toEqual([])
+    expect(mine.body.data[0].locationSummary.count).toBeGreaterThan(0)
+    const ownDetail = await request(app).get(`/api/time-entries/${started.body.data.id}`).set('Cookie', supervisorCookie)
+    expect(ownDetail.status).toBe(200)
+    expect(ownDetail.body.data.locationEvents[0]).not.toHaveProperty('latitude')
+    expect(ownDetail.body.data.locationEvents[0]).not.toHaveProperty('longitude')
     const dispute = await request(app).post(`/api/time-entries/${started.body.data.id}/disputes`).set('Cookie', supervisorCookie).send({ reason: 'The reading was taken at the site entrance, not away from work.' })
     expect(dispute.status).toBe(201)
     expect(dispute.body.data.status).toBe('open')
