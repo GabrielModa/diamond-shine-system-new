@@ -51,7 +51,15 @@ export async function GET(request: NextRequest) {
           { disputes: { some: { status: 'open' } } },
         ],
       },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        startedAt: true,
+        endedAt: true,
+        durationSeconds: true,
+        startDistanceM: true,
+        startLocationClass: true,
+        reviewReason: true,
         user: { select: { id: true, name: true, email: true } },
         visit: {
           select: {
@@ -94,7 +102,12 @@ export async function GET(request: NextRequest) {
     }),
     prisma.timeEntry.findMany({
       where: { organizationId, status: 'running', kind: 'visit' },
-      include: {
+      select: {
+        id: true,
+        status: true,
+        kind: true,
+        startedAt: true,
+        endedAt: true,
         user: { select: { id: true, name: true, email: true } },
         visit: { select: { id: true, site: { select: { name: true, client: { select: { displayName: true } } } } } },
       },
