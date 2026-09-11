@@ -1,6 +1,10 @@
 import OperationalInbox from '../../../components/communications/OperationalInbox'
-import { currentUserCan } from '../../../lib/server-access'
+import { currentMembershipAccess } from '../../../lib/server-access'
 
 export default async function CommunicationsPage() {
-  return <OperationalInbox canManage={await currentUserCan('communications.manage')} canConfigure={await currentUserCan('organization.manage')} />
+  const access = await currentMembershipAccess()
+  return <OperationalInbox
+    canManage={access?.can('communications.manage') ?? false}
+    canConfigure={access?.can('organization.manage') ?? false}
+  />
 }
