@@ -38,8 +38,12 @@ export async function GET(request: NextRequest) {
         status: { notIn: ['cancelled', 'missed'] },
         scheduledStart: { gte: previousSince, lte: now },
       },
-      include: {
-        site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
+      select: {
+        id: true,
+        siteId: true,
+        status: true,
+        scheduledStart: true,
+        requiredWorkers: true,
         job: { select: { defaultDurationMin: true } },
         timeEntries: { select: { id: true, kind: true, status: true, durationSeconds: true, startLocationClass: true } },
         incidents: { select: { status: true, severity: true } },
@@ -56,7 +60,10 @@ export async function GET(request: NextRequest) {
       select: { id: true, siteId: true, title: true, severity: true, status: true, dueAt: true },
       orderBy: { dueAt: 'asc' },
     }),
-    prisma.siteStockLevel.findMany({ where: { organizationId }, include: { catalogItem: { select: { name: true } } } }),
+    prisma.siteStockLevel.findMany({
+      where: { organizationId },
+      select: { siteId: true, onHand: true, parLevel: true, reorderPoint: true },
+    }),
     prisma.supplyRequest.findMany({
       where: { organizationId, status: { in: ACTIVE_SUPPLY } },
       select: { id: true, siteId: true, priority: true, dueAt: true, clientLocation: true },
@@ -119,12 +126,45 @@ export async function GET(request: NextRequest) {
     { key: 'critical', label: 'Critical issue control', weight: 5, value: healthInputs.criticalIssueRate == null ? null : Math.round(100 - healthInputs.criticalIssueRate), direction: 'higher_is_better' },
   ]
 
+  const visitsBySite = new Map<string, typeof currentVisits>()
+  for (const visit of currentVisits) {
+    const rows = visitsBySite.get(visit.siteId) ?? []
+    rows.push(visit)
+    visitsBySite.set(visit.siteId, rows)
+  }
+  const inspectionsBySite = new Map<string, typeof currentInspections>()
+  for (const inspection of currentInspections) {
+    const rows = inspectionsBySite.get(inspection.siteId) ?? []
+    rows.push(inspection)
+    inspectionsBySite.set(inspection.siteId, rows)
+  }
+  const actionsBySite = new Map<string, typeof actions>()
+  for (const action of actions) {
+    const rows = actionsBySite.get(action.siteId) ?? []
+    rows.push(action)
+    actionsBySite.set(action.siteId, rows)
+  }
+  const stockBySite = new Map<string, typeof stock>()
+  for (const item of stock) {
+    const rows = stockBySite.get(item.siteId) ?? []
+    rows.push(item)
+    stockBySite.set(item.siteId, rows)
+  }
+  const noticesBySite = new Map<string, typeof awaitingAck>()
+  for (const recipient of awaitingAck) {
+    const siteId = recipient.notice.siteId
+    if (!siteId) continue
+    const rows = noticesBySite.get(siteId) ?? []
+    rows.push(recipient)
+    noticesBySite.set(siteId, rows)
+  }
+
   const siteRisks = sites.map((site) => {
-    const siteVisits = currentVisits.filter((visit) => visit.siteId === site.id)
-    const siteInspections = currentInspections.filter((item) => item.siteId === site.id)
-    const siteActions = actions.filter((item) => item.siteId === site.id)
-    const siteStock = stock.filter((item) => item.siteId === site.id)
-    const siteNotices = noticeRecipients.filter((item) => item.notice.siteId === site.id && !item.acknowledgedAt)
+    const siteVisits = visitsBySite.get(site.id) ?? []
+    const siteInspections = inspectionsBySite.get(site.id) ?? []
+    const siteActions = actionsBySite.get(site.id) ?? []
+    const siteStock = stockBySite.get(site.id) ?? []
+    const siteNotices = noticesBySite.get(site.id) ?? []
     const signals = {
       missedOrBlocked: siteVisits.filter((item) => item.status === 'completion_blocked').length,
       criticalIncidents: siteVisits.flatMap((item) => item.incidents).filter((item) => item.severity === 'critical' && !['resolved', 'closed'].includes(item.status)).length,
