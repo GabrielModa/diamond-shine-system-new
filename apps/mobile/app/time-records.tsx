@@ -9,8 +9,8 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 
 type Event = { id: string; kind: string; capturedAt: string; distanceM?: number | null; accuracyM?: number | null; classification?: string | null; source: string };
 type Dispute = { id: string; reason: string; status: 'open' | 'accepted' | 'declined'; resolution?: string | null; resolvedAt?: string | null; createdAt: string };
-type Record = { id: string; kind: string; status: string; startedAt: string; endedAt?: string | null; durationSeconds?: number | null; startLocationClass?: string | null; endLocationClass?: string | null; reviewReason?: string | null; locationEvents?: Event[]; locationSummary?: { count: number; maxDistanceM: number | null; needsReview: boolean }; disputes: Dispute[]; visit?: { site: { name: string; client: { displayName: string } } } | null };
-type RecordDetail = Record & { locationEvents: Event[]; locationEventCount: number; locationEventsTruncated: boolean };
+type TimeRecord = { id: string; kind: string; status: string; startedAt: string; endedAt?: string | null; durationSeconds?: number | null; startLocationClass?: string | null; endLocationClass?: string | null; reviewReason?: string | null; locationEvents?: Event[]; locationSummary?: { count: number; maxDistanceM: number | null; needsReview: boolean }; disputes: Dispute[]; visit?: { site: { name: string; client: { displayName: string } } } | null };
+type RecordDetail = TimeRecord & { locationEvents: Event[]; locationEventCount: number; locationEventsTruncated: boolean };
 
 function duration(seconds?: number | null) { if (!seconds) return 'In progress'; const h = Math.floor(seconds / 3600); const m = Math.round((seconds % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; }
 function label(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'GPS unavailable'; }
@@ -18,7 +18,7 @@ function label(value?: string | null) { return value ? value.replaceAll('_', ' '
 export default function TimeRecordsScreen() {
   const { session } = useAuth();
   const timezone = session?.timezone ?? 'Europe/Dublin';
-  const [records, setRecords] = useState<Record[]>([]);
+  const [records, setRecords] = useState<TimeRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<string | null>(null);
@@ -32,14 +32,14 @@ export default function TimeRecordsScreen() {
     setLoading(true); setMessage(null);
     try {
       const to = new Date(); const from = new Date(Date.now() - 30 * 86400000);
-      setRecords(await apiFetch<Record[]>(session, `/api/time-entries?mine=true&from=${from.toISOString()}&to=${to.toISOString()}`));
+      setRecords(await apiFetch<TimeRecord[]>(session, `/api/time-entries?mine=true&from=${from.toISOString()}&to=${to.toISOString()}`));
     } catch { setMessage('Could not load your time records. Reconnect and try again.'); }
     finally { setLoading(false); }
   }, [session]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const selectedRecord = useMemo(() => records.find((record) => record.id === selected), [records, selected]);
 
-  async function toggleEvents(record: Record) {
+  async function toggleEvents(record: TimeRecord) {
     if (!session) return;
     if (expanded === record.id) { setExpanded(null); return; }
     setExpanded(record.id);
