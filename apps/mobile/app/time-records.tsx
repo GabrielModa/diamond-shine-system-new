@@ -9,7 +9,8 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 
 type Event = { id: string; kind: string; capturedAt: string; distanceM?: number | null; accuracyM?: number | null; classification?: string | null; source: string };
 type Dispute = { id: string; reason: string; status: 'open' | 'accepted' | 'declined'; resolution?: string | null; resolvedAt?: string | null; createdAt: string };
-type Record = { id: string; kind: string; status: string; startedAt: string; endedAt?: string | null; durationSeconds?: number | null; startLocationClass?: string | null; endLocationClass?: string | null; reviewReason?: string | null; locationEvents: Event[]; disputes: Dispute[]; visit?: { site: { name: string; client: { displayName: string } } } | null };
+type Record = { id: string; kind: string; status: string; startedAt: string; endedAt?: string | null; durationSeconds?: number | null; startLocationClass?: string | null; endLocationClass?: string | null; reviewReason?: string | null; locationEvents?: Event[]; locationSummary?: { count: number; maxDistanceM: number | null; needsReview: boolean }; disputes: Dispute[]; visit?: { site: { name: string; client: { displayName: string } } } | null };
+type RecordDetail = Record & { locationEvents: Event[]; locationEventCount: number; locationEventsTruncated: boolean };
 
 function duration(seconds?: number | null) { if (!seconds) return 'In progress'; const h = Math.floor(seconds / 3600); const m = Math.round((seconds % 3600) / 60); return h ? `${h}h ${m}m` : `${m}m`; }
 function label(value?: string | null) { return value ? value.replaceAll('_', ' ') : 'GPS unavailable'; }
@@ -20,6 +21,9 @@ export default function TimeRecordsScreen() {
   const [records, setRecords] = useState<Record[]>([]);
   const [loading, setLoading] = useState(true);
   const [selected, setSelected] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<string | null>(null);
+  const [details, setDetails] = useState<Record<string, RecordDetail>>({});
+  const [detailLoading, setDetailLoading] = useState<string | null>(null);
   const [reason, setReason] = useState('');
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
@@ -34,6 +38,24 @@ export default function TimeRecordsScreen() {
   }, [session]);
   useFocusEffect(useCallback(() => { void load(); }, [load]));
   const selectedRecord = useMemo(() => records.find((record) => record.id === selected), [records, selected]);
+
+  async function toggleEvents(record: Record) {
+    if (!session) return;
+    if (expanded === record.id) { setExpanded(null); return; }
+    setExpanded(record.id);
+    if (details[record.id]) return;
+    setDetailLoading(record.id);
+    try {
+      const detail = await apiFetch<RecordDetail>(session, `/api/time-entries/${record.id}`);
+      setDetails((current) => ({ ...current, [record.id]: detail }));
+    } catch (error) {
+      setMessage(error instanceof Error ? error.message : 'Could not load location events.');
+      setExpanded(null);
+    } finally {
+      setDetailLoading(null);
+    }
+  }
+
   async function submit() {
     if (!session || !selected || reason.trim().length < 8) return;
     setBusy(true);
@@ -51,11 +73,14 @@ export default function TimeRecordsScreen() {
     {records.map((record) => <Card key={record.id}><View style={styles.top}><View><Text style={styles.title}>{record.visit ? `${record.visit.site.client.displayName} · ${record.visit.site.name}` : record.kind}</Text><Text style={styles.copy}>{formatOperationalDate(record.startedAt, timezone, { day: 'numeric', month: 'short', year: 'numeric', hour: '2-digit', minute: '2-digit' })} · {duration(record.durationSeconds)}</Text></View><Text style={styles.status}>{record.status.replaceAll('_', ' ')}</Text></View>
       <View style={styles.pills}><Text style={styles.pill}>Start: {label(record.startLocationClass)}</Text>{record.endLocationClass ? <Text style={styles.pill}>End: {label(record.endLocationClass)}</Text> : null}</View>
       {record.reviewReason ? <Text style={styles.review}>Review note: {record.reviewReason}</Text> : null}
-      {record.locationEvents.map((event) => <View style={styles.event} key={event.id}><Text style={styles.eventTitle}>{event.kind.replaceAll('_', ' ')}</Text><Text style={styles.copy}>{formatOperationalTime(event.capturedAt, timezone)} · {label(event.classification)}{event.distanceM != null ? ` · ${event.distanceM}m from site` : ''}{event.accuracyM != null ? ` · ±${event.accuracyM}m accuracy` : ''}</Text></View>)}
+      {(record.locationSummary?.count ?? 0) > 0 ? <View style={styles.locationSummary}><Text style={styles.copy}>{record.locationSummary?.count} saved location event{record.locationSummary?.count === 1 ? '' : 's'}{record.locationSummary?.needsReview ? ' · review signal present' : ''}</Text><Button title={expanded === record.id ? 'Hide location events' : 'View location events'} compact variant="secondary" onPress={() => void toggleEvents(record)} /></View> : <Text style={styles.copy}>No saved location events for this record.</Text>}
+      {expanded === record.id && detailLoading === record.id ? <ActivityIndicator color={colors.primary} /> : null}
+      {expanded === record.id && details[record.id]?.locationEvents.map((event) => <View style={styles.event} key={event.id}><Text style={styles.eventTitle}>{event.kind.replaceAll('_', ' ')}</Text><Text style={styles.copy}>{formatOperationalTime(event.capturedAt, timezone)} · {label(event.classification)}{event.distanceM != null ? ` · ${event.distanceM}m from site` : ''}{event.accuracyM != null ? ` · ±${event.accuracyM}m accuracy` : ''}</Text></View>)}
+      {expanded === record.id && details[record.id]?.locationEventsTruncated ? <Text style={styles.copy}>Showing the first {details[record.id].locationEvents.length} of {details[record.id].locationEventCount} saved events.</Text> : null}
       {record.disputes.map((dispute) => <View key={dispute.id} style={styles.dispute}><Text style={styles.eventTitle}>Correction request · {dispute.status}</Text><Text style={styles.copy}>{dispute.reason}</Text>{dispute.resolution ? <Text style={styles.copy}>Operations: {dispute.resolution}</Text> : <Text style={styles.copy}>Awaiting operations review</Text>}</View>)}
       {!record.disputes.some((dispute) => dispute.status === 'open') ? <Button title={selected === record.id ? 'Close correction form' : 'Question this record'} compact variant="secondary" onPress={() => setSelected(selected === record.id ? null : record.id)} /> : null}
     </Card>)}
     {selectedRecord ? <Card style={styles.form}><Text style={styles.title}>What needs correcting?</Text><Text style={styles.copy}>Explain the issue so operations can review it fairly. This does not change an approved record automatically.</Text><TextInput value={reason} onChangeText={setReason} placeholder="Example: I was at the site entrance, but GPS placed me on the road." placeholderTextColor={colors.muted} multiline style={styles.input} /><Button title="Send correction request" loading={busy} disabled={reason.trim().length < 8} onPress={() => void submit()} /></Card> : null}
   </Screen>;
 }
-const styles = StyleSheet.create({ top: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, title: { color: colors.ink, fontSize: 16, fontWeight: '900', textTransform: 'capitalize' }, copy: { color: colors.muted, fontSize: 12, lineHeight: 18 }, privacyTitle: { color: colors.ink, fontWeight: '900', fontSize: 16 }, message: { borderColor: colors.primary }, status: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'capitalize' }, pills: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' }, pill: { color: colors.ink, backgroundColor: colors.primarySoft, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' }, review: { color: colors.warning, fontSize: 12, fontWeight: '700' }, event: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 2 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '900', textTransform: 'capitalize' }, dispute: { gap: 3, backgroundColor: '#FFF8EA', borderRadius: 12, padding: 10 }, form: { gap: 10, borderColor: colors.primary }, input: { minHeight: 100, borderWidth: 1, borderColor: colors.border, borderRadius: 12, color: colors.ink, padding: 12, textAlignVertical: 'top', fontSize: 14 } });
+const styles = StyleSheet.create({ top: { flexDirection: 'row', justifyContent: 'space-between', gap: 10 }, title: { color: colors.ink, fontSize: 16, fontWeight: '900', textTransform: 'capitalize' }, copy: { color: colors.muted, fontSize: 12, lineHeight: 18 }, privacyTitle: { color: colors.ink, fontWeight: '900', fontSize: 16 }, message: { borderColor: colors.primary }, status: { color: colors.primary, fontSize: 11, fontWeight: '900', textTransform: 'capitalize' }, pills: { flexDirection: 'row', gap: 6, flexWrap: 'wrap' }, pill: { color: colors.ink, backgroundColor: colors.primarySoft, borderRadius: 99, paddingHorizontal: 8, paddingVertical: 4, fontSize: 11, fontWeight: '800', textTransform: 'capitalize' }, review: { color: colors.warning, fontSize: 12, fontWeight: '700' }, locationSummary: { gap: 8 }, event: { borderTopWidth: 1, borderTopColor: colors.border, paddingTop: 8, gap: 2 }, eventTitle: { color: colors.ink, fontSize: 13, fontWeight: '900', textTransform: 'capitalize' }, dispute: { gap: 3, backgroundColor: '#FFF8EA', borderRadius: 12, padding: 10 }, form: { gap: 10, borderColor: colors.primary }, input: { minHeight: 100, borderWidth: 1, borderColor: colors.border, borderRadius: 12, color: colors.ink, padding: 12, textAlignVertical: 'top', fontSize: 14 } });
