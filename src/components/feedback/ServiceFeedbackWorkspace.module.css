@@ -12,7 +12,8 @@
 @media(max-width:1000px){.performanceMetrics{grid-template-columns:repeat(3,minmax(0,1fr))}.employeeRow{grid-template-columns:minmax(180px,1fr) 100px 80px 20px}.dimensionGrid{grid-column:1/-1;grid-row:2}}
 @media(max-width:680px){.performanceMetrics{grid-template-columns:1fr 1fr}.employeeRow{grid-template-columns:1fr auto}.categoryChip{grid-column:1}.dimensionGrid{grid-column:1/-1;grid-template-columns:repeat(2,1fr)}.employeeScore{grid-column:2;grid-row:1/3}.rowArrow{display:none}}
 
-.historyBackdrop{position:fixed;inset:0;z-index:45;display:flex;justify-content:flex-end;background:rgba(18,22,34,.38);backdrop-filter:blur(2px)}
+.historyBackdrop{position:fixed;inset:0;z-index:900;display:flex;justify-content:flex-end;background:rgba(18,22,34,.38);backdrop-filter:blur(2px)}
+:global(#detailOverlay){z-index:910}
 .historyDrawer{display:grid;grid-template-rows:auto auto minmax(0,1fr) auto;width:min(760px,94vw);height:100%;border-left:1px solid #dfe3eb;background:#fff;box-shadow:-22px 0 64px rgba(20,25,42,.18)}
 .historyDrawerHead{display:flex;align-items:flex-start;justify-content:space-between;gap:18px;padding:22px 24px;border-bottom:1px solid #e8eaf0}.historyDrawerHead h2{margin:4px 0 5px;font-size:1.25rem}.historyDrawerHead p{margin:0;color:#7c8190;font-size:.78rem}
 .drawerClose{display:grid;place-items:center;width:36px;height:36px;border:1px solid #dfe3eb;border-radius:10px;color:#626978;background:#fff;font:inherit;font-size:1.15rem;cursor:pointer}
