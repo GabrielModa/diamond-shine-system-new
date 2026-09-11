@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { Prisma } from '@prisma/client'
 import { z } from 'zod'
-import { getAuthUser, requireCapability } from '../../../lib/auth'
+import { authUserHasCapability, getAuthUser, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { prisma } from '../../../lib/prisma'
 import { assignedVisitFilter } from '../../../modules/execution/access'
@@ -21,9 +21,8 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
-  if (user.membershipRole !== 'employee' && !parsed.data.mine) {
-    const managerAuth = await requireCapability(request, 'time.team.review')
-    if ('response' in managerAuth) return managerAuth.response
+  if (user.membershipRole !== 'employee' && !parsed.data.mine && !authUserHasCapability(user, 'time.team.review')) {
+    return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
   }
   const from = parsed.data.from ?? new Date(Date.now() - 30 * 86_400_000)
   const to = parsed.data.to ?? new Date(Date.now() + 86_400_000)
