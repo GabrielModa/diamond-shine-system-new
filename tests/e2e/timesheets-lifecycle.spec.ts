@@ -16,8 +16,8 @@ test('payroll approval and adjustment survive reload without changing recorded t
       clientMutationId: mutationId,
     },
   })
-  expect(started.ok(), await started.text()).toBeTruthy()
   const startedBody = await started.json()
+  expect(started.ok(), JSON.stringify(startedBody)).toBeTruthy()
   expect(startedBody.ok).toBe(true)
   const entry = startedBody.data as { id: string }
 
@@ -27,8 +27,9 @@ test('payroll approval and adjustment survive reload without changing recorded t
       source: 'e2e-acceptance',
     },
   })
-  expect(stopped.ok(), await stopped.text()).toBeTruthy()
-  expect((await stopped.json()).data.status).toBe('completed')
+  const stoppedBody = await stopped.json()
+  expect(stopped.ok(), JSON.stringify(stoppedBody)).toBeTruthy()
+  expect(stoppedBody.data.status).toBe('completed')
 
   async function isolateEntry() {
     await page.getByPlaceholder('Search employee, site or work…').fill(entry.id)
