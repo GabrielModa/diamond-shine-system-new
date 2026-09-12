@@ -232,9 +232,50 @@ test('schedule and health drawer stay within the viewport', async ({ page }) => 
 })
 
 test('rejected occurrence save stays failed and stale error clears when the current team changes', async ({ page }) => {
-  await page.getByRole('button', { name: 'Booked', exact: true }).click()
-  await page.getByRole('button', { name: 'Week', exact: true }).click()
+  const member = { id: 'rejected-save-worker', name: 'Aisha Khan', email: 'aisha@example.test', role: 'employee' }
+  const visit = {
+    id: 'rejected-save-visit',
+    scheduledStart: '2026-09-15T09:00:00Z',
+    scheduledEnd: '2026-09-15T11:00:00Z',
+    status: 'scheduled',
+    version: 1,
+    requiredWorkers: 1,
+    dispatchNotes: null,
+    cancellationReason: null,
+    site: { name: 'Deterministic site', city: 'Dublin', client: { displayName: 'Deterministic client' } },
+    job: { name: 'Deterministic service' },
+    assignments: [{ status: 'acknowledged', user: member }],
+  }
+  const reply = (data: unknown) => ({
+    status: 200,
+    contentType: 'application/json',
+    body: JSON.stringify({ ok: true, data }),
+  })
 
+  await page.route('**/api/schedule/bootstrap?**', (route) => route.fulfill(reply({
+    visits: [visit],
+    availability: [],
+    team: [member],
+    plans: [],
+  })))
+  await page.route('**/api/schedule-health?**', (route) => route.fulfill(reply({
+    summary: {
+      visits: 1,
+      covered: 1,
+      needsStaff: 0,
+      unassigned: 0,
+      missingSchedule: 0,
+      unscheduledServices: 0,
+      paused: 0,
+      conflicts: 0,
+      unacknowledged: 0,
+      attention: 0,
+    },
+    items: [],
+  })))
+  await page.goto('/schedule?date=2026-09-15&view=week')
+
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
   const firstVisit = page.locator('.visit-card').first()
   await expect(firstVisit).toBeVisible()
   await firstVisit.click()
