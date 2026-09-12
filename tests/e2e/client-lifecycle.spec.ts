@@ -67,8 +67,8 @@ test('client account persists through create, service, pause, resume, end and ar
   await page.getByRole('button', { name: 'New client', exact: true }).click()
   const create = page.getByRole('dialog', { name: 'New client' })
   await create.getByLabel('Client name').fill(name)
-  await create.getByLabel('Primary contact name').fill('Lifecycle Contact')
-  await create.getByLabel('Primary contact email').fill('lifecycle@example.ie')
+  await create.getByRole('textbox', { name: /^Primary contact/ }).fill('Lifecycle Contact')
+  await create.getByRole('textbox', { name: /^Contact email/ }).fill('lifecycle@example.ie')
 
   const address = create.getByRole('combobox', { name: 'Service address' })
   await address.fill('1 Lifecycle')
