@@ -18,10 +18,17 @@ export async function GET(request: NextRequest) {
   const parsed = querySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid query' }, { status: 400 })
   const search = parsed.data.search?.trim()
+  const includeArchived = parsed.data.status === 'archived'
+  const nestedCurrentWhere = includeArchived ? {} : { archivedAt: null }
+
   const clients = await prisma.client.findMany({
     where: {
       organizationId: auth.user.organizationId,
-      ...(parsed.data.status ? { status: parsed.data.status } : { archivedAt: null }),
+      ...(includeArchived
+        ? { status: 'archived' as const, archivedAt: { not: null } }
+        : parsed.data.status
+          ? { status: parsed.data.status, archivedAt: null }
+          : { archivedAt: null }),
       ...(search ? {
         OR: [
           { displayName: { contains: search, mode: 'insensitive' } },
@@ -46,12 +53,39 @@ export async function GET(request: NextRequest) {
     orderBy: { displayName: 'asc' },
     include: {
       contacts: { orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }] },
-      _count: { select: { sites: true, contracts: true } },
-      servicePauses: { where: { startsAt: { lte: new Date() }, endsAt: { gt: new Date() } } },
-      sites: { include: { servicePlans: { include: { jobs: { select: { status: true, endDate: true, recurrence: true } } } } } },
+      _count: {
+        select: {
+          sites: includeArchived ? true : { where: { archivedAt: null } },
+          contracts: includeArchived ? true : { where: { archivedAt: null } },
+        },
+      },
+      servicePauses: {
+        where: { startsAt: { lte: new Date() }, endsAt: { gt: new Date() } },
+      },
+      sites: {
+        where: nestedCurrentWhere,
+        include: {
+          servicePlans: {
+            where: nestedCurrentWhere,
+            include: {
+              jobs: {
+                where: nestedCurrentWhere,
+                select: { status: true, endDate: true, recurrence: true },
+              },
+            },
+          },
+        },
+      },
     },
   })
-  return NextResponse.json({ ok: true, data: clients.map(({ sites, servicePauses, ...client }) => ({ ...client, ...clientLifecycle({ ...client, sites }, servicePauses) })) })
+
+  return NextResponse.json({
+    ok: true,
+    data: clients.map(({ sites, servicePauses, ...client }) => ({
+      ...client,
+      ...clientLifecycle({ ...client, sites }, servicePauses),
+    })),
+  })
 }
 
 export async function POST(request: NextRequest) {
