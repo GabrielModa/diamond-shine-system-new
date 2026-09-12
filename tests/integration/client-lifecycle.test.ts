@@ -299,6 +299,24 @@ describe('client lifecycle safety', () => {
       .send({ servicePlanId: service.servicePlanId, effectiveFrom: new Date().toISOString(), reason: 'Client relationship ended' })
     expect(ended.status).toBe(200)
 
+    const scheduleFrom = new Date()
+    const scheduleTo = new Date(scheduleFrom.getTime() + 35 * 86_400_000)
+    const schedule = await request(app)
+      .get(`/api/schedule/bootstrap?from=${encodeURIComponent(scheduleFrom.toISOString())}&to=${encodeURIComponent(scheduleTo.toISOString())}`)
+      .set('Cookie', adminCookie)
+    expect(schedule.status).toBe(200)
+    expect(schedule.body.data.plans.some((plan: { id: string }) => plan.id === service.servicePlanId)).toBe(false)
+
+    const rejectedExtra = await request(app).post('/api/visits').set('Cookie', adminCookie).send({
+      servicePlanId: service.servicePlanId,
+      scheduledStart: futureStart(25).toISOString(),
+      durationMinutes: 60,
+      requiredWorkers: 1,
+      reason: 'client_request',
+    })
+    expect(rejectedExtra.status).toBe(409)
+    expect(rejectedExtra.body.code).toBe('SERVICE_ENDED')
+
     await prisma.visit.update({
       where: { id: extra.body.data.id },
       data: { status: 'cancelled', cancelledAt: new Date(), cancellationReason: 'Archive lifecycle test cleanup' },
