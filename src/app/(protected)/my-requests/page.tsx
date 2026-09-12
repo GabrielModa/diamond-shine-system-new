@@ -30,7 +30,7 @@ export default function MyRequestsPage() {
   }
 
   function repeatRequest(request: SupplyRequest) {
-    const items = request.items?.length ? request.items : request.products.map((product) => ({ product, quantity: 1 }))
+    const items = request.items?.length ? request.items : request.products.map((product) => ({ catalogItemId: null, product, quantity: 1 }))
     localStorage.setItem('ds-supplies-draft', JSON.stringify({
       name: request.employeeName,
       location: request.clientLocation,
