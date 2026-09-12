@@ -47,7 +47,7 @@ test('repeat request restores the original context and own cancellation persists
     // Repeat must restore the previous request into the actual form, not merely navigate.
     await expect(page.getByRole('heading', { name: 'Manual material request' })).toBeVisible()
     await expect(page.getByRole('combobox', { name: 'Client site' })).toContainText(location)
-    await expect(page.getByLabel(`${material.name} requested quantity`, { exact: true })).toHaveValue('3')
+    await expect(page.locator(`input[data-catalog-id="${material.id}"]`)).toHaveValue('3')
     await expect(page.getByRole('button', { name: 'Low', exact: true })).toHaveAttribute('aria-pressed', 'true')
     await expect(page.getByLabel('Reason / delivery note', { exact: true })).toHaveValue(note)
 
