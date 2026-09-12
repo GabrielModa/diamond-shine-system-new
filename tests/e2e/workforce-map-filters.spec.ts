@@ -47,6 +47,8 @@ test('coverage map opens useful, keeps site filters truthful and excludes inacti
   await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible()
 
   await needsMarkers.first().dispatchEvent('click')
+  await expect(page.getByTestId('map-site-card')).toHaveCount(0)
+  await needsMarkers.first().dispatchEvent('dblclick')
   await expect(page.getByTestId('map-site-card')).toBeVisible()
   await needsStaff.click()
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'false')

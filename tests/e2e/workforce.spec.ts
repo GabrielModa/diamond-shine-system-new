@@ -35,6 +35,13 @@ async function chooseEmployee(page: Page, name: string) {
   await option.click()
 }
 
+async function openSelectedEmployeeMapDetail(page: Page) {
+  const marker = page.locator('[data-workforce-employee-marker]').filter({ has: page.locator('.wf-person-pin.selected') })
+  await expect(marker).toHaveCount(1)
+  await marker.dispatchEvent('dblclick')
+  await expect(page.getByTestId('map-employee-card')).toBeVisible()
+}
+
 test.beforeEach(async ({ page }) => {
   await loginAsAdmin(page)
 })
@@ -98,6 +105,46 @@ test('workforce performance supports custom dates and operational filters', asyn
   await expect(page.getByText('Daily hours')).toBeVisible()
 })
 
+test('future coverage sends one Schedule capacity window per selected day and redraws availability', async ({ page }) => {
+  let latestWindows: Array<{ start: string; end: string }> = []
+  await page.route('**/api/schedule-capacity', async route => {
+    const body = route.request().postDataJSON() as { windows: Array<{ start: string; end: string }>; userIds: string[] }
+    latestWindows = body.windows
+    const availableUserIds = body.userIds.slice(0, Math.max(0, body.userIds.length - 1))
+    const blockedUserId = body.userIds.at(-1)
+    await route.fulfill({
+      contentType: 'application/json',
+      body: JSON.stringify({
+        ok: true,
+        data: {
+          timezone: 'Europe/Dublin',
+          windows: body.windows.map(window => ({
+            ...window,
+            total: body.userIds.length,
+            available: availableUserIds.length,
+            blockedCount: blockedUserId ? 1 : 0,
+            blockedBy: { booked: blockedUserId ? 1 : 0, temporary_unavailability: 0, personal_leave: 0, recurring_unavailability: 0, school: 0 },
+            blocked: blockedUserId ? [{ userId: blockedUserId, user: 'Blocked employee', kind: 'booked', reason: 'Already working at another site', startsAt: window.start, endsAt: window.end }] : [],
+            availableUserIds,
+          })),
+        },
+      }),
+    })
+  })
+
+  await openCoverage(page)
+  await page.getByLabel('Planning from date').fill('2026-09-14')
+  await page.getByLabel('Planning to date').fill('2026-09-16')
+  await page.getByLabel('Planning start time').fill('14:00')
+  await page.getByLabel('Planning end time').fill('16:00')
+
+  await expect.poll(() => latestWindows.length).toBe(3)
+  expect(latestWindows.every(window => new Date(window.end).getTime() - new Date(window.start).getTime() === 2 * 60 * 60 * 1000)).toBeTruthy()
+  await expect(page.getByRole('button', { name: /Available all/ })).toBeVisible()
+  await page.getByRole('button', { name: /Unavailable/ }).click()
+  await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible()
+})
+
 test('map and route planner stay synchronized and expose walking', async ({ page }) => {
   await openCoverage(page)
 
@@ -105,13 +152,16 @@ test('map and route planner stay synchronized and expose walking', async ({ page
   await expect(page.getByRole('button', { name: '🚶 Walk' })).toBeVisible()
 
   await chooseEmployee(page, 'Aisha')
-  await expect(page.getByTestId('map-employee-card')).toBeVisible()
+  await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
+  await expect(page.locator('.wf-person-pin.selected')).toBeVisible()
 
   await expect(page.getByRole('button', { name: /Upcoming sites/ })).toHaveAttribute('aria-pressed', 'true')
   const siteMarkers = page.locator('[data-workforce-site-marker]')
   await expect(siteMarkers.first()).toBeVisible({ timeout: 15_000 })
   await siteMarkers.first().dispatchEvent('click')
   await expect(siteSelect).not.toContainText('Search service site…')
+  await expect(page.getByTestId('map-site-card')).toHaveCount(0)
+  await siteMarkers.first().dispatchEvent('dblclick')
   await expect(page.getByTestId('map-site-card')).toBeVisible()
   await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
   await page.getByRole('button', { name: 'Close selected site' }).click()
@@ -141,6 +191,7 @@ test('scenario matrix exposes routeable employees and route-origin overrides', a
   const search = page.getByLabel('Search team member')
   await search.fill('Aisha')
   await page.getByRole('listbox').getByRole('option', { name: /Aisha Khan/ }).click()
+  await openSelectedEmployeeMapDetail(page)
   await expect(page.getByTestId('map-employee-card')).toContainText(/Scenario Test College|Pearse Street/)
 
   await page.getByRole('button', { name: '⌂ Home' }).click()
@@ -197,15 +248,19 @@ test('quality filter and manager detail expose the no-feedback state', async ({ 
   await expect(dialog.getByText('Availability & school')).toBeVisible()
 })
 
-test('route planner supports type-ahead employee search', async ({ page }) => {
+test('route planner supports type-ahead employee search without forcing map detail open', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
+  await expect(page.getByRole('combobox', { name: 'Choose team member' })).toContainText('Aisha Khan')
+  await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
+  await openSelectedEmployeeMapDetail(page)
   await expect(page.getByTestId('map-employee-card')).toContainText('Aisha Khan')
 })
 
 test('map employee card shows school schedule, owns route-origin overrides and closes cleanly', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
+  await openSelectedEmployeeMapDetail(page)
 
   const card = page.getByTestId('map-employee-card')
   await expect(card).toBeVisible()
@@ -225,6 +280,7 @@ test('map employee card shows school schedule, owns route-origin overrides and c
 test('closing an employee map card keeps the route selection until explicitly cleared', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aoife')
+  await openSelectedEmployeeMapDetail(page)
   const teamPicker = page.getByRole('combobox', { name: 'Choose team member' })
   await page.getByRole('button', { name: 'Close selected employee' }).click()
   await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
@@ -239,6 +295,7 @@ test('closing an employee map card keeps the route selection until explicitly cl
 test('map background dismisses cards without losing route selection', async ({ page }) => {
   await openCoverage(page)
   await chooseEmployee(page, 'Aisha')
+  await openSelectedEmployeeMapDetail(page)
   await expect(page.getByTestId('map-employee-card')).toBeVisible()
   await page.locator('.coverage-map').dispatchEvent('click', { clientX: 12, clientY: 12 })
   await expect(page.getByTestId('map-employee-card')).toHaveCount(0)
