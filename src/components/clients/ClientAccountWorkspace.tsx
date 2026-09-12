@@ -3,6 +3,8 @@
 import Link from 'next/link'
 import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
 import { useParams, useSearchParams } from 'next/navigation'
+import ClientEndActions from './ClientEndActions'
+import ClientPauseActions, { type ClientPause } from './ClientPauseActions'
 import DetailDialog from '../ui/DetailDialog'
 import OpsIcon from '../ui/OpsIcon'
 import StandardSelect from '../ui/StandardSelect'
@@ -45,6 +47,9 @@ type Site = {
   servicePlans: ServicePlan[]
 }
 type Client = {
+  archivedAt: string | null
+  lifecycle: string
+  pauses: ClientPause[]
   id: string
   displayName: string
   legalName?: string | null
@@ -242,7 +247,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
-    if (setupHandled || !data || searchParams.get('setup') !== '1') return
+    if (setupHandled || !data || data.client.archivedAt || searchParams.get('setup') !== '1') return
     setSetupHandled(true)
     if (data.client.sites.length && canConfigureService) {
       setServiceDraft(newServiceDraft(data.client.sites[0].id))
@@ -253,6 +258,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   useEffect(() => { if (!serviceOpen) setServiceError('') }, [serviceOpen])
 
   const client = data?.client
+  const editable = !client?.archivedAt
   const primaryContact = client?.contacts.find((contact) => contact.isPrimary) ?? client?.contacts[0]
   const serviceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.length, 0) ?? 0
   const activeServiceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.filter((plan) => plan.status === 'published' && plan.jobs.some((job) => job.status === 'active')).length, 0) ?? 0
@@ -452,16 +458,19 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <div>
         <Link href="/clients" className="client-back">← Clients</Link>
         <span className="client-eyebrow">Client account</span>
-        <div className="client-title-row"><h1>{client.displayName}</h1><span className={`client-state ${client.status}`}>{client.status}</span></div>
+        <div className="client-title-row"><h1>{client.displayName}</h1><span className={`client-state ${client.status}`}>{client.lifecycle.replaceAll('_', ' ')}</span></div>
         <p>{client.type === 'residential' ? 'Residential cleaning account' : 'Commercial cleaning account'} · {client.sites.length} location{client.sites.length === 1 ? '' : 's'} · {activeServiceCount} active service{activeServiceCount === 1 ? '' : 's'}</p>
       </div>
       <div className="client-hero-actions">
-        {canManageClients ? <button className="client-button-secondary" onClick={() => setProfileOpen(true)}><OpsIcon name="user" />Edit profile</button> : null}
-        {canManageClients ? <button className="client-button-secondary" onClick={() => setLocationOpen(true)}><OpsIcon name="field" />Add location</button> : null}
-        {canConfigureService ? <button className="client-button" onClick={() => client.sites.length ? (setServiceDraft(newServiceDraft(client.sites[0].id)), setServiceError(''), setServiceOpen(true)) : setLocationOpen(true)}><OpsIcon name="calendar" />Set up service</button> : null}
+        {canManageClients && editable ? <button className="client-button-secondary" onClick={() => setProfileOpen(true)}><OpsIcon name="user" />Edit profile</button> : null}
+        {canManageClients && editable ? <button className="client-button-secondary" onClick={() => setLocationOpen(true)}><OpsIcon name="field" />Add location</button> : null}
+        {canConfigureService && editable ? <button className="client-button" onClick={() => client.sites.length ? (setServiceDraft(newServiceDraft(client.sites[0].id)), setServiceError(''), setServiceOpen(true)) : setLocationOpen(true)}><OpsIcon name="calendar" />Set up service</button> : null}
       </div>
     </header>
 
+    {canManageClients && editable ? <ClientEndActions clientId={client.id} version={client.version} refresh={() => refresh(false)} /> : null}
+    {!editable ? <p role="status">Archived client history - Read only</p> : null}
+    {canConfigureService && editable && activeServiceCount > 0 ? <ClientPauseActions clientId={client.id} pauses={client.pauses} refresh={() => refresh(false)} /> : null}
     {notice ? <div className={`client-notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">×</button></div> : null}
 
     <section className="client-account-metrics">
@@ -475,18 +484,18 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <section className="client-section client-profile-card"><div className="client-section-head"><div><span className="client-eyebrow">Profile</span><h2>Client details</h2></div></div><div className="client-facts"><div><span>Primary contact</span><strong>{primaryContact?.name ?? 'Not set'}</strong><small>{primaryContact?.email ?? primaryContact?.phone ?? 'No contact detail'}</small></div><div><span>Billing</span><strong>{client.billingEmail || 'Not set'}</strong><small>{client.phone || 'No client phone'}</small></div></div></section>
 
       <section className="client-section client-locations-section">
-        <div className="client-section-head"><div><span className="client-eyebrow">Locations</span><h2>Where we clean</h2></div>{canManageClients ? <button className="client-text-button" onClick={() => setLocationOpen(true)}>Add location</button> : null}</div>
-        <div className="client-location-list">{client.sites.map((site) => <article className="client-location-card" key={site.id}><div className="client-location-icon"><OpsIcon name="field" /></div><div className="client-location-copy"><strong>{site.name}</strong><span>{site.addressLine1}{site.addressLine2 ? `, ${site.addressLine2}` : ''}</span><small>{site.city} · {site.postalCode}</small>{site.access?.entryInstructions ? <p>{site.access.entryInstructions}</p> : null}</div><div className="client-location-meta"><span>{site.servicePlans.length} service{site.servicePlans.length === 1 ? '' : 's'}</span><small>{site.preferredAssignees.length ? `${site.preferredAssignees.length} preferred cleaner${site.preferredAssignees.length === 1 ? '' : 's'}` : 'Team managed in Schedule'}</small></div></article>)}{!client.sites.length ? <div className="client-empty"><strong>No service location yet</strong><span>Add the verified address where cleaning will happen.</span>{canManageClients ? <button className="client-button" onClick={() => setLocationOpen(true)}>Add first location</button> : null}</div> : null}</div>
+        <div className="client-section-head"><div><span className="client-eyebrow">Locations</span><h2>Where we clean</h2></div>{canManageClients && editable ? <button className="client-text-button" onClick={() => setLocationOpen(true)}>Add location</button> : null}</div>
+        <div className="client-location-list">{client.sites.map((site) => <article className="client-location-card" key={site.id}><div className="client-location-icon"><OpsIcon name="field" /></div><div className="client-location-copy"><strong>{site.name}</strong><span>{site.addressLine1}{site.addressLine2 ? `, ${site.addressLine2}` : ''}</span><small>{site.city} · {site.postalCode}</small>{site.access?.entryInstructions ? <p>{site.access.entryInstructions}</p> : null}</div><div className="client-location-meta"><span>{site.servicePlans.length} service{site.servicePlans.length === 1 ? '' : 's'}</span><small>{site.preferredAssignees.length ? `${site.preferredAssignees.length} preferred cleaner${site.preferredAssignees.length === 1 ? '' : 's'}` : 'Team managed in Schedule'}</small></div></article>)}{!client.sites.length ? <div className="client-empty"><strong>No service location yet</strong><span>Add the verified address where cleaning will happen.</span>{canManageClients && editable ? <button className="client-button" onClick={() => setLocationOpen(true)}>Add first location</button> : null}</div> : null}</div>
       </section>
 
       <section className="client-section client-services-section">
-        <div className="client-section-head"><div><span className="client-eyebrow">Service</span><h2>What we agreed to deliver</h2></div>{canConfigureService && client.sites.length ? <button className="client-text-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up another service</button> : null}</div>
+        <div className="client-section-head"><div><span className="client-eyebrow">Service</span><h2>What we agreed to deliver</h2></div>{canConfigureService && editable && client.sites.length ? <button className="client-text-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up another service</button> : null}</div>
         <div className="client-service-list">
           {client.sites.flatMap((site) => site.servicePlans.map((plan) => {
             const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
-            return <article className="client-service-card" key={plan.id}><div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'active' ? 'active' : plan.status}`}>{job?.status === 'active' ? 'active' : plan.status}</span></div><div className="client-service-summary"><div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div><div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div><div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div><div><span>Contract</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div></div><div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div><div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && plan.versions[0] ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div></article>
+            return <article className="client-service-card" key={plan.id}><div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'completed' || job?.status === 'cancelled' ? 'Ended' : client.pauses.some(p => (p.scope === 'client' || p.jobId === job?.id || p.siteId === site.id) && new Date(p.startsAt) <= new Date()) ? 'Paused' : job?.status === 'active' ? 'In service' : plan.status}`}>{job?.status === 'completed' || job?.status === 'cancelled' ? 'Ended' : client.pauses.some(p => (p.scope === 'client' || p.jobId === job?.id || p.siteId === site.id) && new Date(p.startsAt) <= new Date()) ? 'Paused' : job?.status === 'active' ? 'In service' : plan.status}</span></div><div className="client-service-summary"><div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div><div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div><div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div><div><span>Service through</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div></div><div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div><div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && editable && plan.versions[0] && job && ['active', 'paused'].includes(job.status) ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div></article>
           }))}
-          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
+          {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && editable && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
         </div>
       </section>
 
