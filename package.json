@@ -5,7 +5,7 @@
   "scripts": {
     "test": "vitest run tests/unit",
     "test:unit": "vitest run tests/unit",
-    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:client-account && npm run test:integration:scheduling && npm run test:integration:continuity && npm run test:integration:recurring-commitment && npm run test:integration:schedule-audit && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity && npm run test:integration:mobile-hardening && npm run test:integration:mobile-performance",
+    "test:integration": "npm run test:integration:supplies && npm run test:integration:feedback && npm run test:integration:dashboard && npm run test:integration:users && npm run test:integration:operations && npm run test:integration:client-account && npm run test:integration:client-lifecycle && npm run test:integration:scheduling && npm run test:integration:continuity && npm run test:integration:recurring-commitment && npm run test:integration:schedule-audit && npm run test:integration:execution && npm run test:integration:intelligence && npm run test:integration:workforce && npm run test:integration:scenarios && npm run test:integration:integrity && npm run test:integration:mobile-hardening && npm run test:integration:mobile-performance",
     "test:integration:supplies": "vitest run tests/integration/supplies.test.ts",
     "test:integration:feedback": "vitest run tests/integration/feedback.test.ts",
     "test:integration:dashboard": "vitest run tests/integration/dashboard.test.ts",
@@ -76,7 +76,8 @@
     "mobile:build:preview": "node scripts/eas.mjs build --platform android --profile preview",
     "mobile:build:production": "node scripts/eas.mjs build --platform android --profile production",
     "vercel-build": "prisma generate && npm run db:migrations:assert-applied && next build",
-    "db:migrations:assert-applied": "node scripts/assert-migrations-applied.mjs"
+    "db:migrations:assert-applied": "node scripts/assert-migrations-applied.mjs",
+    "test:integration:client-lifecycle": "vitest run tests/integration/client-lifecycle.test.ts --maxWorkers=1"
   },
   "dependencies": {
     "@prisma/client": "^6.5.0",
