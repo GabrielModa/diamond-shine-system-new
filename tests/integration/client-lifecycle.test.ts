@@ -4,6 +4,7 @@ import { createServer } from 'node:http'
 import { parse } from 'node:url'
 import next from 'next'
 import { prisma } from '../../src/lib/prisma'
+import { generateOccurrences } from '../../src/modules/scheduling/recurrence'
 import { cleanOperations, getAuthCookie, seedUsers } from './setup'
 
 let app: ReturnType<typeof createServer>
@@ -56,8 +57,12 @@ async function createAccount(name: string) {
   return response.body.data as { id: string; version: number; sites: Array<{ id: string }> }
 }
 
-async function createService(clientId: string, siteId: string, start = futureStart()) {
-  const end = new Date(start.getTime() + 30 * 86_400_000)
+async function createService(
+  clientId: string,
+  siteId: string,
+  start = futureStart(),
+  end = new Date(start.getTime() + 30 * 86_400_000),
+) {
   const response = await request(app)
     .post(`/api/client-accounts/${clientId}/service`)
     .set('Cookie', adminCookie)
@@ -188,6 +193,84 @@ describe('client lifecycle safety', () => {
       .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Boundary test' })
     expect(applied.status).toBe(409)
     expect((await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })).status).toBe('active')
+  })
+
+  it('ends beyond the current generation horizon without eager materialization or a false version conflict', async () => {
+    const client = await createAccount('Long Horizon End Client')
+    const start = futureStart(7)
+    const contractualEnd = new Date(start.getTime() + 180 * 86_400_000)
+    const service = await createService(client.id, client.sites[0].id, start, contractualEnd)
+    const before = await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })
+    const boundary = new Date(start.getTime() + 120 * 86_400_000)
+
+    expect(before.generatedThrough).not.toBeNull()
+    expect(before.generatedThrough!.getTime()).toBeLessThan(boundary.getTime())
+    const visitsBefore = await prisma.visit.count({ where: { jobId: service.jobId } })
+
+    const preview = await request(app)
+      .post(`/api/client-accounts/${client.id}/service-end?preview=true`)
+      .set('Cookie', adminCookie)
+      .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Long contract ending' })
+    expect(preview.status).toBe(200)
+    expect(preview.body.data.canApply).toBe(true)
+    expect(preview.body.data.futureRecurringVisits).toBe(0)
+    expect(preview.body.data.futureRecurringObligations).toBeGreaterThan(0)
+
+    const applied = await request(app)
+      .post(`/api/client-accounts/${client.id}/service-end`)
+      .set('Cookie', adminCookie)
+      .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Long contract ending' })
+    expect(applied.status).toBe(200)
+
+    const saved = await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })
+    expect(saved.status).toBe('active')
+    expect(saved.endDate?.toISOString()).toBe(boundary.toISOString())
+    expect(await prisma.visit.count({ where: { jobId: service.jobId } })).toBe(visitsBefore)
+  })
+
+  it('blocks an unmaterialized recurring occurrence that crosses the service end boundary', async () => {
+    const client = await createAccount('Synthetic Boundary Block Client')
+    const start = futureStart(7)
+    const contractualEnd = new Date(start.getTime() + 180 * 86_400_000)
+    const service = await createService(client.id, client.sites[0].id, start, contractualEnd)
+    const job = await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })
+    const searchFrom = new Date(start.getTime() + 120 * 86_400_000)
+    const occurrence = generateOccurrences({
+      startAt: job.startDate,
+      from: searchFrom,
+      until: new Date(searchFrom.getTime() + 7 * 86_400_000),
+      timezone: job.timezone,
+      recurrence: { frequency: 'daily', interval: 1 },
+      limit: 2,
+    })[0]
+    if (!occurrence) throw new Error('Expected a future recurring occurrence for the boundary regression.')
+    const boundary = new Date(occurrence.getTime() + 30 * 60_000)
+
+    expect(job.generatedThrough).not.toBeNull()
+    expect(job.generatedThrough!.getTime()).toBeLessThan(occurrence.getTime())
+    expect(await prisma.visit.findFirst({
+      where: {
+        jobId: service.jobId,
+        scheduledStart: { lt: boundary },
+        scheduledEnd: { gt: boundary },
+      },
+    })).toBeNull()
+
+    const preview = await request(app)
+      .post(`/api/client-accounts/${client.id}/service-end?preview=true`)
+      .set('Cookie', adminCookie)
+      .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Boundary regression' })
+    expect(preview.status).toBe(200)
+    expect(preview.body.data.canApply).toBe(false)
+    expect(preview.body.data.blockers.some((item: { id: string }) => item.id.startsWith('expected:'))).toBe(true)
+
+    const applied = await request(app)
+      .post(`/api/client-accounts/${client.id}/service-end`)
+      .set('Cookie', adminCookie)
+      .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Boundary regression' })
+    expect(applied.status).toBe(409)
+    expect((await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })).endDate?.toISOString())
+      .toBe(contractualEnd.toISOString())
   })
 
   it('refuses archive while work remains, then archives safely without deleting history', async () => {
