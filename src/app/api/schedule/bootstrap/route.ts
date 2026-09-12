@@ -56,7 +56,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.servicePlan.findMany({
-      where: { organizationId, archivedAt: null, status: 'published' },
+      where: { organizationId, archivedAt: null, status: 'published', site: { archivedAt: null, client: { archivedAt: null } } },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
