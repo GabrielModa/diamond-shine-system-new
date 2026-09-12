@@ -1,10 +1,10 @@
-import { afterEach, expect, test } from '@playwright/test'
+import { expect, test } from '@playwright/test'
 import { prisma } from '../../src/lib/prisma'
 import { loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
 const createdEntryIds: string[] = []
 
-afterEach(async () => {
+test.afterEach(async () => {
   if (createdEntryIds.length) {
     await prisma.timeEntry.deleteMany({ where: { id: { in: createdEntryIds.splice(0) } } })
   }
@@ -16,16 +16,16 @@ test.afterAll(async () => {
 
 test('payroll approval and adjustment survive reload without changing recorded time', async ({ page }) => {
   await loginAsAdmin(page)
-  const employee = await prisma.user.findUniqueOrThrow({
-    where: { email: 'employee@ds.ie' },
-    include: { memberships: { where: { status: 'active' }, take: 1 } },
+  const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+  const membership = await prisma.membership.findFirstOrThrow({
+    where: { userId: employee.id, status: 'active' },
   })
   const marker = uniqueLabel('Acceptance payroll')
   const endedAt = new Date(Date.now() - 60 * 60_000)
   const startedAt = new Date(endedAt.getTime() - 60 * 60_000)
   const entry = await prisma.timeEntry.create({
     data: {
-      organizationId: employee.memberships[0].organizationId,
+      organizationId: membership.organizationId,
       userId: employee.id,
       kind: 'office',
       status: 'completed',
