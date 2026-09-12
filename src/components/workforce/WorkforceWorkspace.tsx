@@ -53,7 +53,7 @@ function planningWeekday(dateKey:string){
 function planningWindows(selectedDays:number[],lookaheadDays:number,startTime:string,endTime:string,timezone:string){
  const windows:Array<{start:string;end:string}>=[]
  if(!selectedDays.length||!/^\d{2}:\d{2}$/.test(startTime)||!/^\d{2}:\d{2}$/.test(endTime))return windows
- const first=operationalDateKey(new Date(),timezone)
+ const first=addOperationalDays(operationalDateKey(new Date(),timezone),1)
  for(let offset=0;offset<lookaheadDays&&windows.length<28;offset+=1){
   const day=addOperationalDays(first,offset)
   if(!selectedDays.includes(planningWeekday(day)))continue
