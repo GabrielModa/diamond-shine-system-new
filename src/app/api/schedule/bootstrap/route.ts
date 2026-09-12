@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authUserHasCapability, requireCapability } from '../../../../lib/auth'
 import { prisma } from '../../../../lib/prisma'
+import { isManualExtraRecurrence } from '../../../../modules/operations/client-lifecycle'
 
 const querySchema = z.object({
   from: z.coerce.date(),
@@ -72,6 +73,10 @@ export async function GET(request: NextRequest) {
             client: { select: { id: true, displayName: true } },
           },
         },
+        jobs: {
+          where: { archivedAt: null, status: { in: ['active', 'paused'] } },
+          select: { status: true, endDate: true, recurrence: true },
+        },
       },
     }),
     prisma.membership.findMany({
@@ -107,7 +112,11 @@ export async function GET(request: NextRequest) {
     ok: true,
     data: {
       visits,
-      plans,
+      plans: plans
+        .filter((plan) => plan.jobs.some((job) =>
+          !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > new Date()),
+        ))
+        .map(({ jobs: _jobs, ...plan }) => plan),
       team: memberships.map((membership) => ({ ...membership.user, role: membership.role })),
       availability,
     },
