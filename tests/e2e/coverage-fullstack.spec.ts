@@ -40,7 +40,7 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
 
     await page.getByLabel('Planning start time').fill('15:00')
     await page.getByLabel('Planning end time').fill('18:00')
-    await page.getByRole('button', { name: '7 days', exact: true }).click()
+    await page.getByRole('button', { name: 'Next 7 days', exact: true }).click()
 
     await expect(page.locator('.coverage-pattern-summary')).toContainText('1 schedule slot')
     await expect(page.getByText('Checking schedule…')).toBeHidden({ timeout: 15_000 })
