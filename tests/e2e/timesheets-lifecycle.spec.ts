@@ -35,7 +35,7 @@ test('payroll approval and adjustment survive reload without changing recorded t
 
   let dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('1h')
-  await dialog.getByRole('button', { name: 'Approve full', exact: true }).click()
+  await dialog.getByRole('button', { name: /^Approve full/ }).click()
   await dialog.getByRole('button', { name: 'Save payroll decision', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('full recorded time is payable')
 
@@ -47,7 +47,7 @@ test('payroll approval and adjustment survive reload without changing recorded t
   await expect(dialog).toContainText('Already payroll-ready')
   await expect(dialog).toContainText('1h')
 
-  await dialog.getByRole('button', { name: 'Adjust & approve', exact: true }).click()
+  await dialog.getByRole('button', { name: /^Adjust & approve/ }).click()
   await dialog.getByLabel('Hours').fill('0')
   await dialog.getByLabel('Minutes').fill('30')
 

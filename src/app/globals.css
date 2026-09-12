@@ -2840,4 +2840,5 @@ textarea {
 
 /* Quality action text must never widen the document on narrow screens. */
 .quality-workspace,.quality-actions,.quality-action-grid,.quality-action-card{min-width:0;max-width:100%}
+.quality-workspace{width:100%;overflow-x:clip}
 .quality-action-card h3,.quality-action-card p,.quality-action-card small,.quality-action-head{min-width:0;overflow-wrap:anywhere;word-break:break-word}

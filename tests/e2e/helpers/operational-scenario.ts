@@ -37,10 +37,10 @@ export async function createOperationalClient(page: Page, name = uniqueLabel('Ac
   })
 }
 
-export async function createClientWithPublishedService(page: Page, name = uniqueLabel('Service client')) {
+export async function createClientWithPublishedService(page: Page, name = uniqueLabel('Service client'), startHourUtc = 9) {
   const client = await createOperationalClient(page, name)
   const start = new Date(Date.now() + 21 * 86_400_000)
-  start.setUTCHours(9, 0, 0, 0)
+  start.setUTCHours(startHourUtc, 0, 0, 0)
   const service = await api<{ servicePlanId: string; jobId: string }>(page, `/api/client-accounts/${client.id}/service`, {
     siteId: client.sites[0].id, serviceName: 'Acceptance cleaning', startAt: start.toISOString(),
     expectedDurationMinutes: 60, requiredWorkers: 1, tasks: ['Clean floors'],

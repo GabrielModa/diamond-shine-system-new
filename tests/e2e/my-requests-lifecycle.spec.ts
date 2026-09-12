@@ -49,7 +49,7 @@ test('repeat request restores the original context and own cancellation persists
     await expect(page.getByRole('combobox', { name: 'Client site' })).toContainText(location)
     await expect(page.locator(`input[data-catalog-id="${material.id}"]`)).toHaveValue('3')
     await expect(page.getByRole('button', { name: 'Low', exact: true })).toHaveAttribute('aria-pressed', 'true')
-    await expect(page.getByLabel('Reason / delivery note', { exact: true })).toHaveValue(note)
+    await expect(page.getByLabel('Reason / delivery note')).toHaveValue(note)
 
     // Repeating is a draft action; it must not create a second request until submitted.
     await page.goto('/my-requests')

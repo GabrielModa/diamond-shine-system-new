@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { api, cookieHeader, createClientWithPublishedService, loginAsAdmin, loginAsEmployee, uniqueLabel } from './helpers/operational-scenario'
 
-test('incident acknowledgement, progress and resolution persist', async ({ page }) => {
+test('incident acknowledgement, progress and resolution persist', async ({ page }, testInfo) => {
   await loginAsAdmin(page)
-  const scenario = await createClientWithPublishedService(page)
+  const startHourUtc = testInfo.project.name === 'mobile-chrome' ? 14 : 9
+  const scenario = await createClientWithPublishedService(page, uniqueLabel('Field control client'), startHourUtc)
   const account = await api<{ upcomingVisits: Array<{ id: string }> }>(page, `/api/client-accounts/${scenario.client.id}`)
   const visitId = account.upcomingVisits[0].id
   const users = await api<Array<{ id: string; email: string }>>(page, '/api/users')
