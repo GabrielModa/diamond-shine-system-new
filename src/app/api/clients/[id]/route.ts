@@ -56,11 +56,27 @@ export async function DELETE(request: NextRequest, { params }: { params: Promise
   const parsed = z.coerce.number().int().min(1).safeParse(request.nextUrl.searchParams.get('version'))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Version is required' }, { status: 400 })
 
-  const updated = await prisma.client.updateMany({
-    where: { id, organizationId: auth.user.organizationId, version: parsed.data, archivedAt: null },
-    data: { status: 'archived', archivedAt: new Date(), version: { increment: 1 } },
-  })
-  if (!updated.count) return NextResponse.json({ ok: false, error: 'Not found or version conflict' }, { status: 409 })
-  await logAudit(auth.user.email, 'archive_client', 'client', id, undefined, auth.user.organizationId)
-  return NextResponse.json({ ok: true, data: { id, archived: true } })
+  try {
+    await prisma.$transaction(async tx => {
+      await tx.$queryRaw`SELECT id FROM clients WHERE id = ${id} AND "organizationId" = ${auth.user.organizationId} FOR UPDATE`
+      const client = await tx.client.findFirst({ where: { id, organizationId: auth.user.organizationId, version: parsed.data, archivedAt: null } })
+      if (!client) throw new Error('Client changed. Refresh and try again.')
+      const [jobs, visits] = await Promise.all([
+        tx.job.count({ where: { organizationId: auth.user.organizationId, site: { clientId: id }, status: { in: ['draft', 'active', 'paused'] }, archivedAt: null } }),
+        tx.visit.count({ where: { organizationId: auth.user.organizationId, site: { clientId: id }, status: { in: ['scheduled', 'dispatched', 'acknowledged', 'in_progress', 'completion_blocked'] } } }),
+      ])
+      if (jobs || visits) throw new Error('End all active services and complete or cancel outstanding visits, including manual extras, before archiving this client.')
+      const now = new Date()
+      await tx.client.update({ where: { id }, data: { status: 'archived', archivedAt: now, version: { increment: 1 } } })
+      await tx.site.updateMany({ where: { clientId: id, organizationId: auth.user.organizationId, archivedAt: null }, data: { archivedAt: now, version: { increment: 1 } } })
+      await tx.servicePlan.updateMany({ where: { site: { clientId: id }, organizationId: auth.user.organizationId, archivedAt: null }, data: { archivedAt: now, version: { increment: 1 } } })
+      await tx.contract.updateMany({ where: { clientId: id, organizationId: auth.user.organizationId, archivedAt: null }, data: { archivedAt: now, version: { increment: 1 } } })
+      await tx.job.updateMany({ where: { site: { clientId: id }, organizationId: auth.user.organizationId, archivedAt: null }, data: { archivedAt: now, version: { increment: 1 } } })
+      await tx.auditLog.create({ data: { organizationId: auth.user.organizationId, actorEmail: auth.user.email,
+        action: 'archive_client', targetType: 'client', targetId: id, metadata: JSON.stringify({ historicalRecordsPreserved: true }) } })
+    }, { isolationLevel: 'Serializable' })
+    return NextResponse.json({ ok: true, data: { id, archived: true } })
+  } catch (error) {
+    return NextResponse.json({ ok: false, error: error instanceof Error && !('code' in error) ? error.message : 'Operational work changed. Refresh and retry.' }, { status: 409 })
+  }
 }
