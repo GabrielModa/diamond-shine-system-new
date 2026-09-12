@@ -20,7 +20,7 @@ export async function GET(request: NextRequest) {
       take: 200,
     }),
     prisma.correctiveAction.findMany({
-      where: { organizationId, status: { notIn: ['verified', 'waived'] } },
+      where: { organizationId },
       include: {
         site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
         assignedTo: { select: { id: true, name: true, email: true } },
