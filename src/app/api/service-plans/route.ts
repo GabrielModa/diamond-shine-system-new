@@ -51,7 +51,7 @@ export async function GET(request: NextRequest) {
   const auth = await requireCapability(request, 'service_plans.read')
   if ('response' in auth) return auth.response
   const plans = await prisma.servicePlan.findMany({
-    where: { organizationId: auth.user.organizationId, archivedAt: null },
+    where: { organizationId: auth.user.organizationId, archivedAt: null, site: { archivedAt: null, client: { archivedAt: null } } },
     orderBy: { updatedAt: 'desc' },
     include: {
       site: { include: { client: { select: { id: true, displayName: true } }, preferredAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } } } },
