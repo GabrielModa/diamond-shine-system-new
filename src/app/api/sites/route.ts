@@ -18,6 +18,7 @@ export async function GET(request: NextRequest) {
     where: {
       organizationId: auth.user.organizationId,
       archivedAt: null,
+      client: { archivedAt: null },
       ...(parsed.data.clientId ? { clientId: parsed.data.clientId } : {}),
       ...(parsed.data.search
         ? {
