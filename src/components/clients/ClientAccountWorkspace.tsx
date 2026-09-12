@@ -280,6 +280,10 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   const primaryContact = client?.contacts.find((contact) => contact.isPrimary) ?? client?.contacts[0]
   const serviceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.length, 0) ?? 0
   const activeServiceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.filter((plan) => plan.status === 'published' && Boolean(currentServiceJob(plan))).length, 0) ?? 0
+  const currentAgreement = client?.contracts.find((contract) =>
+    contract.status === 'active' && (!contract.endDate || new Date(contract.endDate) > new Date()))
+  const agreementState = !editable ? 'Archived' : currentAgreement ? 'Active' : client?.contracts.length ? 'Ended' : 'Setup'
+  const agreementEndDate = currentAgreement?.endDate ?? client?.contracts[0]?.endDate
 
   function toggleWeekday(day: number, mode: 'new' | 'change') {
     const setter = mode === 'new' ? setServiceDraft : setChangeDraft
@@ -495,7 +499,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <article><span>Locations</span><strong>{client.sites.length}</strong><small>Where your team delivers service</small></article>
       <article><span>Services</span><strong>{serviceCount}</strong><small>{activeServiceCount} currently active</small></article>
       <article><span>Upcoming</span><strong>{data.upcomingVisits.length}</strong><small>Next visits in the generated horizon</small></article>
-      <article><span>Agreement</span><strong>{client.contracts.some((contract) => contract.status === 'active') ? 'Active' : 'Setup'}</strong><small>{client.contracts[0]?.endDate ? `Through ${formatDate(client.contracts[0].endDate)}` : 'No fixed end date'}</small></article>
+      <article><span>Agreement</span><strong>{agreementState}</strong><small>{agreementEndDate ? `Through ${formatDate(agreementEndDate)}` : agreementState === 'Setup' ? 'No agreement yet' : 'No fixed end date'}</small></article>
     </section>
 
     <div className="client-account-grid">
