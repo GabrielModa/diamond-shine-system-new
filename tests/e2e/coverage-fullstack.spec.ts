@@ -1,11 +1,11 @@
 import { expect, test } from '@playwright/test'
 import { addOperationalDays, operationalDateKey, operationalInputToUtc } from '../../src/lib/operational-time'
-import { api, loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
+import { api, cookieHeader, loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
 test('Plan Coverage uses the real Schedule capacity engine for a real temporary restriction', async ({ page }) => {
   await loginAsAdmin(page)
 
-  const users = await api<Array<{ id: string; email: string; name: string | null }>>(page.request, '/api/users')
+  const users = await api<Array<{ id: string; email: string; name: string | null }>>(page, '/api/users')
   const employee = users.find((user) => user.email === 'employee@ds.ie')
   expect(employee, 'Seeded employee must exist for the real capacity acceptance path.').toBeTruthy()
   if (!employee) return
@@ -15,7 +15,7 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
   const blockStart = operationalInputToUtc(`${targetDate}T14:00`, timezone)
   const blockEnd = operationalInputToUtc(`${targetDate}T19:00`, timezone)
   const reason = uniqueLabel('Capacity acceptance restriction')
-  const availability = await api<{ id: string }>(page.request, '/api/availability', {
+  const availability = await api<{ id: string }>(page, '/api/availability', {
     userId: employee.id,
     startsAt: blockStart.toISOString(),
     endsAt: blockEnd.toISOString(),
@@ -64,6 +64,9 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
     await unavailable.click()
     await expect(page.getByRole('combobox', { name: 'Choose team member' })).toContainText(employeeLabel)
   } finally {
-    await page.request.delete(`/api/availability/${availability.id}`)
+    const cleanup = await page.request.delete(`/api/availability/${availability.id}`, {
+      headers: { Cookie: await cookieHeader(page) },
+    })
+    expect(cleanup.ok()).toBeTruthy()
   }
 })
