@@ -162,6 +162,14 @@ describe('client lifecycle safety', () => {
     expect(rejectedPostEndExtra.status).toBe(409)
     expect(rejectedPostEndExtra.body.code).toBe('SERVICE_ENDED')
 
+    const postEndFrom = new Date(boundary.getTime() + 86_400_000)
+    const postEndTo = new Date(boundary.getTime() + 5 * 86_400_000)
+    const postEndSchedule = await request(app)
+      .get(`/api/schedule/bootstrap?from=${encodeURIComponent(postEndFrom.toISOString())}&to=${encodeURIComponent(postEndTo.toISOString())}`)
+      .set('Cookie', adminCookie)
+    expect(postEndSchedule.status).toBe(200)
+    expect(postEndSchedule.body.data.plans.some((plan: { id: string }) => plan.id === service.servicePlanId)).toBe(false)
+
     const job = await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })
     expect(job.status).toBe('active')
     expect(job.endDate?.toISOString()).toBe(boundary.toISOString())
