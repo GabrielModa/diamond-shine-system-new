@@ -192,6 +192,24 @@ function serviceLocationLabel(site: Site) {
   return `${site.addressLine1}${site.addressLine2 ? `, ${site.addressLine2}` : ''}, ${site.city} · ${site.postalCode}`
 }
 
+function currentServiceJob(plan: ServicePlan, now = new Date()) {
+  return plan.jobs.find((job) =>
+    ['active', 'paused'].includes(job.status)
+    && (!job.endDate || new Date(job.endDate) > now),
+  ) ?? null
+}
+
+function serviceLifecycle(job: Job | null, siteId: string, pauses: ClientPause[], now = new Date()) {
+  if (!job) return 'ended'
+  const pausedByWindow = pauses.some((pause) =>
+    (pause.scope === 'client' || pause.jobId === job.id || (pause.scope === 'site' && pause.siteId === siteId))
+    && new Date(pause.startsAt) <= now
+    && new Date(pause.endsAt) > now,
+  )
+  if (pausedByWindow || job.status === 'paused') return 'paused'
+  return 'in_service'
+}
+
 function newServiceDraft(siteId = ''): ServiceDraft {
   return {
     siteId, serviceName: 'Regular cleaning', startDate: localDateInput(), endDate: '', frequency: 'weekly',
@@ -261,7 +279,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
   const editable = !client?.archivedAt
   const primaryContact = client?.contacts.find((contact) => contact.isPrimary) ?? client?.contacts[0]
   const serviceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.length, 0) ?? 0
-  const activeServiceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.filter((plan) => plan.status === 'published' && plan.jobs.some((job) => job.status === 'active')).length, 0) ?? 0
+  const activeServiceCount = client?.sites.reduce((sum, site) => sum + site.servicePlans.filter((plan) => plan.status === 'published' && Boolean(currentServiceJob(plan))).length, 0) ?? 0
 
   function toggleWeekday(day: number, mode: 'new' | 'change') {
     const setter = mode === 'new' ? setServiceDraft : setChangeDraft
@@ -458,7 +476,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
       <div>
         <Link href="/clients" className="client-back">← Clients</Link>
         <span className="client-eyebrow">Client account</span>
-        <div className="client-title-row"><h1>{client.displayName}</h1><span className={`client-state ${client.status}`}>{client.lifecycle.replaceAll('_', ' ')}</span></div>
+        <div className="client-title-row"><h1>{client.displayName}</h1><span className={`client-state ${client.lifecycle}`}>{client.lifecycle.replaceAll('_', ' ')}</span></div>
         <p>{client.type === 'residential' ? 'Residential cleaning account' : 'Commercial cleaning account'} · {client.sites.length} location{client.sites.length === 1 ? '' : 's'} · {activeServiceCount} active service{activeServiceCount === 1 ? '' : 's'}</p>
       </div>
       <div className="client-hero-actions">
@@ -469,7 +487,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
     </header>
 
     {canManageClients && editable ? <ClientEndActions clientId={client.id} version={client.version} refresh={() => refresh(false)} /> : null}
-    {!editable ? <p role="status">Archived client history - Read only</p> : null}
+    {!editable ? <div className="client-readonly-banner" role="status"><strong>Archived client</strong><span>This account is read only. Locations, services and service history are preserved for reference.</span></div> : null}
     {canConfigureService && editable && activeServiceCount > 0 ? <ClientPauseActions clientId={client.id} pauses={client.pauses} refresh={() => refresh(false)} /> : null}
     {notice ? <div className={`client-notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">×</button></div> : null}
 
@@ -492,8 +510,34 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
         <div className="client-section-head"><div><span className="client-eyebrow">Service</span><h2>What we agreed to deliver</h2></div>{canConfigureService && editable && client.sites.length ? <button className="client-text-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up another service</button> : null}</div>
         <div className="client-service-list">
           {client.sites.flatMap((site) => site.servicePlans.map((plan) => {
-            const job = plan.jobs.find((item) => item.status === 'active') ?? plan.jobs[0]
-            return <article className="client-service-card" key={plan.id}><div className="client-service-top"><div><strong>{plan.name}</strong><span>{site.name}</span></div><span className={`client-state ${job?.status === 'completed' || job?.status === 'cancelled' ? 'Ended' : client.pauses.some(p => (p.scope === 'client' || p.jobId === job?.id || p.siteId === site.id) && new Date(p.startsAt) <= new Date()) ? 'Paused' : job?.status === 'active' ? 'In service' : plan.status}`}>{job?.status === 'completed' || job?.status === 'cancelled' ? 'Ended' : client.pauses.some(p => (p.scope === 'client' || p.jobId === job?.id || p.siteId === site.id) && new Date(p.startsAt) <= new Date()) ? 'Paused' : job?.status === 'active' ? 'In service' : plan.status}</span></div><div className="client-service-summary"><div><span>Frequency</span><strong>{job ? recurrenceLabel(job.recurrence) : 'Not scheduled yet'}</strong></div><div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div><div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div><div><span>Service through</span><strong>{plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div></div><div className="client-service-instructions"><span>Cleaning instructions</span>{plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}{plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}</div><div className="client-service-foot"><span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {job ? `${job._count.visits} generated visits` : 'No visits generated'}</span>{canConfigureService && editable && plan.versions[0] && job && ['active', 'paused'].includes(job.status) ? <button className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button> : null}</div></article>
+            const currentJob = currentServiceJob(plan)
+            const displayJob = currentJob ?? plan.jobs[0] ?? null
+            const state = currentJob ? serviceLifecycle(currentJob, site.id, client.pauses) : 'ended'
+            return <article className="client-service-card" key={plan.id}>
+              <div className="client-service-top">
+                <div><strong>{plan.name}</strong><span>{site.name}</span></div>
+                <span className={`client-state ${state}`}>{state.replaceAll('_', ' ')}</span>
+              </div>
+              <div className="client-service-summary">
+                <div><span>Frequency</span><strong>{displayJob ? recurrenceLabel(displayJob.recurrence) : 'Not scheduled yet'}</strong></div>
+                <div><span>People required</span><strong>{plan.requiredWorkers} cleaner{plan.requiredWorkers === 1 ? '' : 's'}</strong></div>
+                <div><span>Expected duration</span><strong>{durationLabel(plan.expectedDurationMinutes)}</strong></div>
+                <div><span>Service through</span><strong>{displayJob?.endDate ? `to ${formatDate(displayJob.endDate)}` : plan.contract?.endDate ? `to ${formatDate(plan.contract.endDate)}` : 'Ongoing'}</strong></div>
+              </div>
+              <div className="client-service-instructions">
+                <span>Cleaning instructions</span>
+                {plan.tasks.slice(0, 6).map((task) => <p key={task.id}>✓ {task.title}</p>)}
+                {plan.tasks.length > 6 ? <small>+ {plan.tasks.length - 6} more tasks</small> : null}
+              </div>
+              <div className="client-service-foot">
+                <span>{plan.versions[0] ? `Service version ${plan.versions[0].versionNumber}` : 'Draft service'} · {displayJob ? `${displayJob._count.visits} generated visits` : 'No visits generated'}</span>
+                {canConfigureService && editable && plan.versions[0] && currentJob ? <div className="client-service-actions">
+                  <button type="button" className="client-text-button" onClick={() => openServiceChange(site, plan)}>Change service</button>
+                  <ClientPauseActions clientId={client.id} jobId={currentJob.id} siteId={site.id} pauses={client.pauses} refresh={() => refresh(false)} />
+                  <ClientEndActions clientId={client.id} version={client.version} servicePlanId={plan.id} refresh={() => refresh(false)} />
+                </div> : null}
+              </div>
+            </article>
           }))}
           {!serviceCount ? <div className="client-empty"><strong>No cleaning service configured</strong><span>Define frequency, People required, Expected duration and Cleaning instructions in one setup.</span>{canConfigureService && editable && client.sites.length ? <button className="client-button" onClick={() => { setServiceDraft(newServiceDraft(client.sites[0].id)); setServiceError(''); setServiceOpen(true) }}>Set up first service</button> : null}</div> : null}
         </div>
@@ -501,7 +545,7 @@ export default function ClientAccountWorkspace({ canManageClients, canConfigureS
 
       <section className="client-section client-schedule-section"><div className="client-section-head"><div><span className="client-eyebrow">Schedule</span><h2>Upcoming work</h2></div></div><div className="client-visit-list">{data.upcomingVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><div><span>{visit.assignments?.length ?? 0}/{visit.requiredWorkers ?? 0} cleaners</span><small>{visit.status.replaceAll('_', ' ')}</small></div></article>)}{!data.upcomingVisits.length ? <div className="client-empty compact"><strong>No upcoming visits</strong><span>Set up a service here, or add an extra Visit from Schedule.</span></div> : null}</div></section>
 
-      <section className="client-section client-activity-section"><div className="client-section-head"><div><span className="client-eyebrow">Activity</span><h2>Recent completed work</h2></div></div><div className="client-visit-list">{data.recentVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><span className="client-state active">completed</span></article>)}{!data.recentVisits.length ? <div className="client-empty compact"><strong>No completed visits yet</strong><span>Completed work will build the client history here.</span></div> : null}</div></section>
+      <section className="client-section client-activity-section"><div className="client-section-head"><div><span className="client-eyebrow">Activity</span><h2>Recent service history</h2></div></div><div className="client-visit-list">{data.recentVisits.map((visit) => <article key={visit.id}><div><strong>{formatDateTime(visit.scheduledStart)}</strong><span>{visit.site.name}</span></div><span className={`client-state ${visit.status}`}>{visit.status.replaceAll('_', ' ')}</span></article>)}{!data.recentVisits.length ? <div className="client-empty compact"><strong>No service history yet</strong><span>Completed, cancelled and missed work will appear here.</span></div> : null}</div></section>
     </div>
 
     <DetailDialog open={profileOpen} title="Edit client profile" eyebrow="Client account" onClose={() => setProfileOpen(false)}>
