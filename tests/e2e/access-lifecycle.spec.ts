@@ -12,7 +12,13 @@ test('disposable invitation role persists and can be deleted without touching co
   await page.getByLabel('Full name', { exact: true }).fill(name)
   await page.getByLabel('Work email', { exact: true }).fill(email)
   await page.locator('.access-invite').locator('select').selectOption('employee')
+  const invited = page.waitForResponse(
+    (response) => response.url().endsWith('/api/users') && response.request().method() === 'POST',
+    { timeout: 45_000 },
+  )
   await page.getByRole('button', { name: 'Send invitation', exact: true }).click()
+  const inviteResponse = await invited
+  expect(inviteResponse.status()).toBe(201)
 
   const row = page.locator('.access-user-row').filter({ hasText: email })
   await expect(row).toHaveCount(1, { timeout: 15_000 })
