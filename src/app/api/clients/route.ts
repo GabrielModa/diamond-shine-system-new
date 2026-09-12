@@ -5,6 +5,8 @@ import { requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { clientCreateSchema } from '../../../modules/operations/schemas'
 
+import { clientLifecycle } from '../../../modules/operations/client-lifecycle'
+
 const querySchema = z.object({
   search: z.string().trim().max(200).optional(),
   status: z.enum(['draft', 'active', 'paused', 'ended', 'archived']).optional(),
@@ -45,9 +47,11 @@ export async function GET(request: NextRequest) {
     include: {
       contacts: { orderBy: [{ isPrimary: 'desc' }, { name: 'asc' }] },
       _count: { select: { sites: true, contracts: true } },
+      servicePauses: { where: { startsAt: { lte: new Date() }, endsAt: { gt: new Date() } } },
+      sites: { include: { servicePlans: { include: { jobs: { select: { status: true, endDate: true, recurrence: true } } } } } },
     },
   })
-  return NextResponse.json({ ok: true, data: clients })
+  return NextResponse.json({ ok: true, data: clients.map(({ sites, servicePauses, ...client }) => ({ ...client, ...clientLifecycle({ ...client, sites }, servicePauses) })) })
 }
 
 export async function POST(request: NextRequest) {
