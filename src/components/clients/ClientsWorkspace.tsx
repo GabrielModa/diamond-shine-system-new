@@ -16,6 +16,9 @@ type Client = {
   legalName?: string | null
   type: string
   status: string
+  lifecycle: string
+  serviceCount: number
+  activeServiceCount: number
   billingEmail?: string | null
   phone?: string | null
   contacts: Contact[]
@@ -48,12 +51,12 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
   const router = useRouter()
   const [clients, setClients] = useState<Client[]>([])
   const [query, setQuery] = useState('')
+  const [lifecycleFilter, setLifecycleFilter] = useState('current')
   const [typeFilter, setTypeFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [createOpen, setCreateOpen] = useState(false)
-  const [createdClientId, setCreatedClientId] = useState<string | null>(null)
   const [clientDraft, setClientDraft] = useState({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
   const [locationDraft, setLocationDraft] = useState({ name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
   const [addressQuery, setAddressQuery] = useState('')
@@ -63,23 +66,22 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     setLoading(true)
     try {
       const search = query.trim()
-      const rows = await api<Client[]>(`/api/clients${search ? `?search=${encodeURIComponent(search)}` : ''}`)
+      const rows = await api<Client[]>(`/api/clients?search=${encodeURIComponent(search)}${lifecycleFilter === 'archived' ? '&status=archived' : ''}`)
       setClients(rows)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load clients.' })
     } finally { setLoading(false) }
-  }, [query])
+  }, [query, lifecycleFilter])
 
   useEffect(() => { const timer = window.setTimeout(() => void refresh(), 180); return () => window.clearTimeout(timer) }, [refresh])
 
-  const visible = useMemo(() => clients.filter((client) => typeFilter === 'all' || client.type === typeFilter), [clients, typeFilter])
-  const active = clients.filter((client) => client.status === 'active').length
+  const visible = useMemo(() => clients.filter((client) => (typeFilter === 'all' || client.type === typeFilter) && (lifecycleFilter === 'current' || client.lifecycle === lifecycleFilter)), [clients, typeFilter, lifecycleFilter])
+  const active = clients.filter((client) => client.lifecycle === 'in_service').length
   const locations = clients.reduce((total, client) => total + client._count.sites, 0)
-  const agreements = clients.reduce((total, client) => total + client._count.contracts, 0)
+  const agreements = clients.reduce((total, client) => total + client.serviceCount, 0)
   const residential = clients.filter((client) => client.type === 'residential').length
 
   function resetCreate() {
-    setCreatedClientId(null)
     setClientDraft({ displayName: '', legalName: '', type: 'commercial', contactName: '', contactEmail: '', contactPhone: '', billingEmail: '' })
     setLocationDraft({ name: '', addressLine1: '', addressLine2: '', city: '', region: '', postalCode: '', countryCode: 'IE', entryInstructions: '' })
     setAddressQuery('')
@@ -113,51 +115,25 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     }
 
     setBusy(true)
-    let clientId = createdClientId
     try {
-      if (!clientId) {
-        const client = await api<{ id: string }>('/api/clients', {
-          method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-            displayName: clientDraft.displayName,
-            legalName: clientDraft.legalName || null,
-            type: clientDraft.type,
-            billingEmail: clientDraft.billingEmail || null,
-            phone: clientDraft.contactPhone || null,
-            contacts: clientDraft.contactName ? [{
-              name: clientDraft.contactName,
-              email: clientDraft.contactEmail || null,
-              phone: clientDraft.contactPhone || null,
-              isPrimary: true,
-            }] : [],
-          }),
-        })
-        clientId = client.id
-        setCreatedClientId(client.id)
-      }
-
-      await api('/api/sites', {
+      const client = await api<{ id: string }>('/api/client-accounts', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({
-          clientId,
-          name: clientDraft.type === 'residential' ? 'Home' : locationDraft.name.trim() || clientDraft.displayName,
-          addressLine1: locationDraft.addressLine1,
-          addressLine2: locationDraft.addressLine2 || null,
-          city: locationDraft.city,
-          region: locationDraft.region || null,
-          postalCode: locationDraft.postalCode,
-          countryCode: locationDraft.countryCode || 'IE',
-          timezone: 'Europe/Dublin',
-          latitude: selectedPlace.latitude,
-          longitude: selectedPlace.longitude,
-          coordinateSource: 'geocoded',
-          geofenceVerifiedM: 150,
-          geofenceNearM: 250,
-          geofenceSuspiciousM: 700,
-          access: { entryInstructions: locationDraft.entryInstructions || null },
-          areas: [{ name: 'Main area', type: 'zone', sortOrder: 0 }],
-          preferredAssigneeIds: [],
-          contractIds: [],
+          client: {
+            displayName: clientDraft.displayName, legalName: clientDraft.legalName || null,
+            type: clientDraft.type, billingEmail: clientDraft.billingEmail || null,
+            phone: clientDraft.contactPhone || null,
+            contacts: clientDraft.contactName ? [{ name: clientDraft.contactName,
+              email: clientDraft.contactEmail || null, phone: clientDraft.contactPhone || null, isPrimary: true }] : [],
+          },
+          location: {
+            ...locationDraft,
+            name: clientDraft.type === 'residential' ? 'Home' : locationDraft.name.trim() || clientDraft.displayName,
+            timezone: 'Europe/Dublin', latitude: selectedPlace.latitude, longitude: selectedPlace.longitude,
+            coordinateSource: 'geocoded', access: { entryInstructions: locationDraft.entryInstructions || null },
+          },
         }),
       })
+      const clientId = client.id
 
       const destination = `/clients/${clientId}?setup=1`
       resetCreate()
@@ -166,7 +142,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     } catch (error) {
       setNotice({
         kind: 'error',
-        text: `${error instanceof Error ? error.message : 'Could not finish the client account.'}${clientId ? ' The client account is already saved; retry will only finish the service location.' : ''}`,
+        text: error instanceof Error ? error.message : 'Could not finish the client account.',
       })
       await refresh()
     } finally { setBusy(false) }
@@ -181,9 +157,9 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
     {notice ? <div className={`client-notice ${notice.kind}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss">×</button></div> : null}
 
     <section className="clients-summary" aria-label="Client portfolio summary">
-      <article><span>Active clients</span><strong>{active}</strong><small>Customer accounts in service</small></article>
+      <article><span>Clients in service</span><strong>{active}</strong><small>Customer accounts in service</small></article>
       <article><span>Locations</span><strong>{locations}</strong><small>Addresses where cleaning is delivered</small></article>
-      <article><span>Service agreements</span><strong>{agreements}</strong><small>Commercial records linked behind the scenes</small></article>
+      <article><span>Services</span><strong>{agreements}</strong><small>Configured cleaning services</small></article>
       <article><span>Residential</span><strong>{residential}</strong><small>{Math.max(0, clients.length - residential)} commercial / other</small></article>
     </section>
 
@@ -196,6 +172,10 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         ariaLabel="Client type"
         options={[{ value: 'all', label: 'All client types' }, ...CLIENT_TYPE_OPTIONS]}
       />
+      <StandardSelect ariaLabel="Client lifecycle" value={lifecycleFilter} onChange={setLifecycleFilter}
+        options={[{ value: 'current', label: 'Current clients' }, { value: 'setup_needed', label: 'Setup needed' },
+          { value: 'in_service', label: 'In service' }, { value: 'paused', label: 'Paused' },
+          { value: 'ended', label: 'Ended' }, { value: 'archived', label: 'Archived' }]} />
     </section>
 
     <section className="clients-list" aria-label="Client accounts">
@@ -203,8 +183,8 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
         const contact = client.contacts.find((item) => item.isPrimary) ?? client.contacts[0]
         return <Link className="client-list-card" href={`/clients/${client.id}`} key={client.id}>
           <div className="client-list-main"><div className="client-avatar">{client.displayName.slice(0, 2).toUpperCase()}</div><div><strong>{client.displayName}</strong><span>{client.type === 'residential' ? 'Residential' : client.type === 'commercial' ? 'Commercial' : client.type.replaceAll('_', ' ')} · {contact?.name ?? client.billingEmail ?? 'Contact not set'}</span></div></div>
-          <div className="client-list-meta"><div><strong>{client._count.sites}</strong><span>location{client._count.sites === 1 ? '' : 's'}</span></div><div><strong>{client._count.contracts}</strong><span>service agreement{client._count.contracts === 1 ? '' : 's'}</span></div></div>
-          <div><span className={`client-state ${client.status}`}>{client.status}</span><span className="client-list-arrow">→</span></div>
+          <div className="client-list-meta"><div><strong>{client._count.sites}</strong><span>location{client._count.sites === 1 ? '' : 's'}</span></div><div><strong>{client.serviceCount}</strong><span>service{client.serviceCount === 1 ? '' : 's'}</span></div></div>
+          <div><span className={`client-state ${client.status}`}>{client.lifecycle.replaceAll('_', ' ')}</span><span className="client-list-arrow">→</span></div>
         </Link>
       })}
       {!loading && !visible.length ? <div className="client-empty"><strong>No clients match this view</strong><span>Clear the search or add the first customer account.</span>{canManageClients ? <button className="client-button" onClick={() => { resetCreate(); setCreateOpen(true) }}>New client</button> : null}</div> : null}
@@ -213,7 +193,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
 
     <DetailDialog open={createOpen} title="New client" eyebrow="Client setup" onClose={() => setCreateOpen(false)}>
       <form className="client-dialog-form" onSubmit={createClient}>
-        {createdClientId ? <div className="client-setup-note"><OpsIcon name="check" /><div><strong>Client account saved</strong><span>Finish the service location below. Retrying will not create the client twice.</span></div></div> : null}
+        {notice?.kind === 'error' ? <div role="alert">{notice.text}</div> : null}
 
         <section className="client-create-section">
           <div className="client-create-section-head"><span>Client</span><p>Who we are cleaning for.</p></div>
@@ -248,7 +228,7 @@ export default function ClientsWorkspace({ canManageClients }: { canManageClient
           <label>Entry notes <small>Optional</small><textarea rows={3} value={locationDraft.entryInstructions} onChange={(event) => setLocationDraft({ ...locationDraft, entryInstructions: event.target.value })} placeholder="Reception, keys, parking or access instructions…" /></label>
         </section>
 
-        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Saving…' : createdClientId ? 'Retry service location' : 'Create client & continue to service setup'}</button></div>
+        <div className="client-dialog-actions"><button type="button" className="client-button-secondary" onClick={() => setCreateOpen(false)}>Cancel</button><button className="client-button" disabled={busy}>{busy ? 'Saving…' : 'Create client & continue to service setup'}</button></div>
       </form>
     </DetailDialog>
   </main>
