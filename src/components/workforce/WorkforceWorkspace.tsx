@@ -42,16 +42,24 @@ function inWorkedBand(m:number,b:string){const h=m/60;if(b==='all')return true;i
 function inCapacityBand(m:number,b:string){const h=m/60;if(b==='all')return true;if(b==='0-5')return h>=0&&h<5;if(b==='5-10')return h>=5&&h<10;if(b==='10-20')return h>=10&&h<20;return h>=20}
 function contextLabel(employee:Employee){return employee.context.state==='school'?'Expected at school':employee.context.state==='personal_leave'?'Personal leave':employee.context.state==='recurring_unavailability'?'Recurring unavailable':employee.context.state==='temporary_unavailability'?'Temporarily unavailable':'Expected home'}
 function defaultDates(days:number,timezone='Europe/Dublin'){const to=operationalDateKey(new Date(),timezone);return{from:addOperationalDays(to,1-days),to}}
-function planningDates(days:number,timezone='Europe/Dublin'){const from=addOperationalDays(operationalDateKey(new Date(),timezone),1);return{from,to:addOperationalDays(from,days-1)}}
-function planningWindows(from:string,to:string,startTime:string,endTime:string,timezone:string){
+const planningDayOptions=[
+ {value:1,label:'Mon',long:'Monday'},{value:2,label:'Tue',long:'Tuesday'},{value:3,label:'Wed',long:'Wednesday'},
+ {value:4,label:'Thu',long:'Thursday'},{value:5,label:'Fri',long:'Friday'},{value:6,label:'Sat',long:'Saturday'},{value:7,label:'Sun',long:'Sunday'},
+] as const
+function planningWeekday(dateKey:string){
+ const jsDay=new Date(`${dateKey}T12:00:00Z`).getUTCDay()
+ return jsDay===0?7:jsDay
+}
+function planningWindows(selectedDays:number[],lookaheadDays:number,startTime:string,endTime:string,timezone:string){
  const windows:Array<{start:string;end:string}>=[]
- if(!/^\d{4}-\d{2}-\d{2}$/.test(from)||!/^\d{4}-\d{2}-\d{2}$/.test(to)||!/^\d{2}:\d{2}$/.test(startTime)||!/^\d{2}:\d{2}$/.test(endTime))return windows
- let day=from
- while(day<=to&&windows.length<12){
+ if(!selectedDays.length||!/^\d{2}:\d{2}$/.test(startTime)||!/^\d{2}:\d{2}$/.test(endTime))return windows
+ const first=operationalDateKey(new Date(),timezone)
+ for(let offset=0;offset<lookaheadDays&&windows.length<28;offset+=1){
+  const day=addOperationalDays(first,offset)
+  if(!selectedDays.includes(planningWeekday(day)))continue
   const start=operationalInputToUtc(`${day}T${startTime}`,timezone)
   const end=operationalInputToUtc(`${day}T${endTime}`,timezone)
   if(!Number.isNaN(start.getTime())&&!Number.isNaN(end.getTime())&&end>start)windows.push({start:start.toISOString(),end:end.toISOString()})
-  day=addOperationalDays(day,1)
  }
  return windows
 }
@@ -99,8 +107,8 @@ export default function WorkforceWorkspace({initialTab='performance',showViewTab
  const [routeMode,setRouteMode]=useState<TravelMode>('driving'),[route,setRoute]=useState<any>(null),[routeError,setRouteError]=useState('')
  const [originMode,setOriginMode]=useState<RouteOriginMode>('auto')
  const coverageLayoutRef=useRef<HTMLElement>(null)
- const initialPlanning=planningDates(1)
- const [planningFrom,setPlanningFrom]=useState(initialPlanning.from),[planningTo,setPlanningTo]=useState(initialPlanning.to)
+ const [planningDays,setPlanningDays]=useState<number[]>([1,2,3,4,5])
+ const [planningLookahead,setPlanningLookahead]=useState<7|14|28>(7)
  const [planningStart,setPlanningStart]=useState('09:00'),[planningEnd,setPlanningEnd]=useState('17:00')
  const [planningFilter,setPlanningFilter]=useState<'all'|PlanningStatus>('available')
  const [capacity,setCapacity]=useState<CapacityResponse|null>(null),[capacityLoading,setCapacityLoading]=useState(false),[capacityError,setCapacityError]=useState('')
@@ -111,7 +119,7 @@ export default function WorkforceWorkspace({initialTab='performance',showViewTab
  useEffect(()=>()=>requestRef.current?.abort(),[requestUrl])
  useEffect(()=>{void refresh()},[refresh])
  useEffect(()=>{const refreshVisible=()=>{if(document.visibilityState==='visible')void refresh()};const timer=window.setInterval(refreshVisible,60000);window.addEventListener('focus',refreshVisible);document.addEventListener('visibilitychange',refreshVisible);return()=>{window.clearInterval(timer);window.removeEventListener('focus',refreshVisible);document.removeEventListener('visibilitychange',refreshVisible)}},[refresh])
- const requestedPlanningWindows=useMemo(()=>planningWindows(planningFrom,planningTo,planningStart,planningEnd,data?.timezone??'Europe/Dublin'),[planningFrom,planningTo,planningStart,planningEnd,data?.timezone])
+ const requestedPlanningWindows=useMemo(()=>planningWindows(planningDays,planningLookahead,planningStart,planningEnd,data?.timezone??'Europe/Dublin'),[planningDays,planningLookahead,planningStart,planningEnd,data?.timezone])
  useEffect(()=>{if(tab!=='coverage'||!data||!requestedPlanningWindows.length){setCapacity(null);setCapacityError('');return}const controller=new AbortController();setCapacityLoading(true);setCapacityError('');void clientApi<CapacityResponse>('/api/schedule-capacity',{method:'POST',signal:controller.signal,headers:{'Content-Type':'application/json'},body:JSON.stringify({windows:requestedPlanningWindows,userIds:data.employees.filter(employee=>!employee.profile.setupRequired).map(employee=>employee.id)})},'Could not evaluate future coverage').then(result=>{if(!controller.signal.aborted)setCapacity(result)}).catch(cause=>{if(!controller.signal.aborted){setCapacity(null);setCapacityError(cause instanceof Error?cause.message:'Could not evaluate future coverage.')}}).finally(()=>{if(!controller.signal.aborted)setCapacityLoading(false)});return()=>controller.abort()},[tab,data,requestedPlanningWindows])
  const planningByEmployee=useMemo(()=>{const result=new Map<string,{status:PlanningStatus;availableWindows:number;totalWindows:number;blocks:CapacityBlock[]}>();if(!data)return result;for(const employee of data.employees){const total=capacity?.windows.length??0;const available=capacity?.windows.filter(window=>window.availableUserIds.includes(employee.id)).length??0;const blocks=capacity?.windows.flatMap(window=>window.blocked.filter(block=>block.userId===employee.id))??[];result.set(employee.id,{status:total===0?'blocked':available===total?'available':available>0?'partial':'blocked',availableWindows:available,totalWindows:total,blocks})}return result},[data,capacity])
 
@@ -136,8 +144,9 @@ export default function WorkforceWorkspace({initialTab='performance',showViewTab
  }
  function changeTab(next:WorkforceView,preserveEmployee=false){if(next===tab)return;if(!preserveEmployee)clearOperationalSelection();else{setSiteId('');setRoute(null);setRouteError('');setOriginMode('auto')}setTab(next)}
  function choosePreset(value:keyof typeof presets){const days=value==='week'?7:value==='fortnight'?14:value==='month'?30:90;const d=defaultDates(days,data?.timezone);setPreset(value);setFrom(d.from);setTo(d.to)}
- function choosePlanningDays(days:number){const next=planningDates(days,data?.timezone);setPlanningFrom(next.from);setPlanningTo(next.to)}
+ function togglePlanningDay(day:number){setPlanningDays(current=>current.includes(day)?current.filter(value=>value!==day):[...current,day].sort((a,b)=>a-b))}
  const planningCounts=useMemo(()=>{const counts={available:0,partial:0,blocked:0};if(!capacity)return counts;for(const value of planningByEmployee.values())counts[value.status]+=1;return counts},[planningByEmployee,capacity])
+ const planningPatternLabel=`${planningDayOptions.filter(day=>planningDays.includes(day.value)).map(day=>day.label).join(' + ')||'Choose days'} · ${planningStart}–${planningEnd} · next ${planningLookahead} days`
  return <main className="page-shell workforce-page wf4">
   {showHeader?<header className="workforce-hero"><div><span className="eyebrow">{tab==='coverage'?'Workforce planning':'Workforce intelligence'}</span><h1>{tab==='coverage'?'Coverage & routing':'Team performance'}</h1><p>{tab==='coverage'?'Match capacity and realistic employee origins to service sites before work becomes a scheduling problem.':'Understand worked hours, planned workload and remaining capacity across the team.'}</p></div><button className="btn-secondary" onClick={()=>void refresh()}>↻ Refresh</button></header>:null}
   {error?<div className="toast error">{error}</div>:null}
