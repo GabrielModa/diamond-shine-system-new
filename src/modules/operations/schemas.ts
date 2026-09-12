@@ -94,6 +94,14 @@ function validateSiteBands(
 
 export const siteCreateSchema = siteBaseSchema.superRefine(validateSiteBands)
 
+export const operationalLocationSchema = siteBaseSchema.omit({ clientId: true, contractIds: true, preferredAssigneeIds: true, areas: true, access: true }).extend({
+  latitude: z.number().min(-90).max(90),
+  longitude: z.number().min(-180).max(180),
+  coordinateSource: z.literal('geocoded'),
+  timezone: z.string().refine(value => { try { new Intl.DateTimeFormat('en', { timeZone: value }); return true } catch { return false } }, 'Invalid timezone').default('Europe/Dublin'),
+  access: z.object({ entryInstructions: optionalText }).default({}),
+}).superRefine(validateSiteBands)
+
 export const siteUpdateSchema = siteBaseSchema.omit({ clientId: true, areas: true }).partial().extend({
   version: z.number().int().min(1),
 }).superRefine(validateSiteBands)

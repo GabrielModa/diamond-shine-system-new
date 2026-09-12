@@ -478,7 +478,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       {canManage ? <button className={tab === 'payroll' ? 'active' : ''} onClick={() => setTab('payroll')}><OpsIcon name="payroll" size={16} />Payroll preview</button> : null}
     </nav>
 
-    {notice ? <div className={`ts-toast ${notice.kind === 'error' ? 'error' : ''}`} role="status"><span>{notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss message">×</button></div> : null}
+    {notice ? <div className={`ts-toast ${notice.kind === 'error' ? 'error' : ''}`} role={notice.kind === 'error' ? 'alert' : 'status'}><span>{notice.text}</span><button onClick={() => setNotice(null)} aria-label="Dismiss message">×</button></div> : null}
 
     <section className="ts-period">
       <div className="ts-period-copy">

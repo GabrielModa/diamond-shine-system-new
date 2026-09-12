@@ -402,6 +402,63 @@ describe('PATCH /api/users/:id/status', () => {
     expect(res.status).toBe(409)
     expect(res.body.error).toContain('own account')
   })
+
+  it('revokes and restores live access when a disposable membership is deactivated, reactivated, then removed', async () => {
+    const email = 'access-lifecycle@test.io'
+    const password = 'AccessLifecycle123!'
+    const user = await prisma.user.create({
+      data: {
+        email,
+        name: 'Access Lifecycle',
+        role: 'viewer',
+        status: 'active',
+        password: await bcrypt.hash(password, 12),
+      },
+    })
+    await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'viewer',
+        status: 'active',
+      },
+    })
+
+    const login = await request(app)
+      .post('/api/auth/login')
+      .set('x-forwarded-for', '203.0.113.77')
+      .send({ email, password })
+    expect(login.status).toBe(200)
+    const userCookie = login.headers['set-cookie']?.[0]
+    expect(userCookie).toContain('ds-session=')
+    if (!userCookie) throw new Error('Expected the disposable user login to issue a session cookie.')
+
+    const before = await request(app).get('/api/clients').set('Cookie', userCookie)
+    expect(before.status).toBe(200)
+
+    const deactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'inactive' })
+    expect(deactivated.status).toBe(200)
+    expect((await request(app).get('/api/clients').set('Cookie', userCookie)).status).toBe(401)
+
+    const reactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(reactivated.status).toBe(200)
+    expect((await request(app).get('/api/clients').set('Cookie', userCookie)).status).toBe(200)
+
+    const removed = await request(app)
+      .delete(`/api/users/${user.id}`)
+      .set('Cookie', adminCookie)
+      .send({ confirmEmail: email })
+    expect(removed.status).toBe(200)
+    expect(removed.body.data.mode).toBe('removed')
+    expect(removed.body.data.message).toContain('Historical operational records were preserved')
+    expect((await request(app).get('/api/clients').set('Cookie', userCookie)).status).toBe(401)
+  })
 })
 
 describe('PATCH /api/users/:id/role', () => {

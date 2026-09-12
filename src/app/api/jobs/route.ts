@@ -42,7 +42,7 @@ export async function POST(request: NextRequest) {
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
 
   const plan = await prisma.servicePlan.findFirst({
-    where: { id: parsed.data.servicePlanId, organizationId: auth.user.organizationId, archivedAt: null },
+    where: { id: parsed.data.servicePlanId, organizationId: auth.user.organizationId, archivedAt: null, site: { archivedAt: null, client: { archivedAt: null } } },
     include: {
       site: { include: { client: { select: { displayName: true } }, preferredAssignees: { orderBy: { priority: 'asc' } } } },
       versions: { orderBy: { versionNumber: 'desc' }, take: 1 },

@@ -7,6 +7,7 @@ import { enqueueNotification } from '../../../lib/notification-queue'
 import { addOperationalDays, zonedDateTimeToUtc } from '../../../lib/operational-time'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 import { generateOccurrences, generationKey } from '../../../modules/scheduling/recurrence'
+import { cancelVisits } from '../../../modules/scheduling/cancel-visits'
 import { recurrenceSchema, servicePauseCreateSchema } from '../../../modules/scheduling/schemas'
 
 const CANCELLABLE = ['scheduled', 'dispatched', 'acknowledged'] as const
@@ -336,25 +337,13 @@ export async function POST(request: NextRequest) {
       })
 
       if (impact.affectedVisits.length) {
-        const updated = await tx.visit.updateMany({
-          where: {
-            id: { in: impact.affectedVisits.map((visit) => visit.id) },
-            status: { in: [...CANCELLABLE] },
-          },
-          data: {
-            status: 'cancelled',
-            cancelledAt: now,
-            cancellationReason: `Service pause: ${parsed.data.reason}`,
-            servicePauseId: created.id,
-            version: { increment: 1 },
-          },
-        })
-        if (updated.count !== impact.affectedVisits.length) {
-          throw new PauseApplyConflict(
-            'SERVICE_PAUSE_CHANGED',
-            'Affected work changed while the pause was being applied. Refresh the preview and try again.',
-            impact.consequence,
-          )
+        try {
+          await cancelVisits(tx, { organizationId: auth.user.organizationId,
+            ids: impact.affectedVisits.map(visit => visit.id), now,
+            reason: `Service pause: ${parsed.data.reason}`, servicePauseId: created.id })
+        } catch {
+          throw new PauseApplyConflict('SERVICE_PAUSE_CHANGED',
+            'Affected work changed while the pause was being applied. Refresh the preview and try again.', impact.consequence)
         }
       }
 

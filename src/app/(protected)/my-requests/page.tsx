@@ -30,12 +30,13 @@ export default function MyRequestsPage() {
   }
 
   function repeatRequest(request: SupplyRequest) {
-    const items = request.items?.length ? request.items : request.products.map((product) => ({ product, quantity: 1 }))
+    const items = request.items?.length ? request.items : request.products.map((product) => ({ catalogItemId: null, product, quantity: 1 }))
     localStorage.setItem('ds-supplies-draft', JSON.stringify({
       name: request.employeeName,
       location: request.clientLocation,
       priority: request.priority,
       notes: request.notes ?? '',
+      items: items.map((item) => ({ catalogItemId: item.catalogItemId ?? null, product: item.product, quantity: item.quantity })),
       selected: items.map((item) => item.product),
       quantities: Object.fromEntries(items.map((item) => [item.product, item.quantity])),
     }))

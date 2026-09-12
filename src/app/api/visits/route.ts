@@ -6,6 +6,7 @@ import { requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { enqueueNotification } from '../../../lib/notification-queue'
 import { asInputJson } from '../../../modules/operations/json'
+import { isManualExtraRecurrence } from '../../../modules/operations/client-lifecycle'
 import { ACTIVE_ASSIGNMENT_STATUSES, NON_OPERATIONAL_VISIT_STATUSES } from '../../../modules/scheduling/assignment-lifecycle'
 import { workforceConstraintForWindow } from '../../../modules/scheduling/workforce-constraints'
 
@@ -89,17 +90,31 @@ export async function POST(request: NextRequest) {
 
   const organizationId = auth.user.organizationId
   const plan = await prisma.servicePlan.findFirst({
-    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, status: 'published' },
+    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, status: 'published', site: { archivedAt: null, client: { archivedAt: null } } },
     include: {
       site: { include: { client: { select: { id: true, displayName: true } } } },
       versions: { orderBy: { versionNumber: 'desc' }, take: 1 },
+      jobs: {
+        where: { archivedAt: null, status: { in: ['active', 'paused'] } },
+        select: { status: true, endDate: true, recurrence: true },
+      },
     },
   })
   if (!plan) return NextResponse.json({ ok: false, error: 'Choose an active configured service before adding a visit.' }, { status: 400 })
   const version = plan.versions[0]
   if (!version) return NextResponse.json({ ok: false, error: 'This service must be activated before visits can be scheduled.' }, { status: 409 })
-
   const start = parsed.data.scheduledStart
+  const hasRecurringServiceAtVisitTime = plan.jobs.some((job) =>
+    !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > start),
+  )
+  if (!hasRecurringServiceAtVisitTime) {
+    return NextResponse.json({
+      ok: false,
+      error: 'This service has ended for the selected time. Choose a visit time before the service end or configure a current service.',
+      code: 'SERVICE_ENDED',
+    }, { status: 409 })
+  }
+
   const durationMinutes = parsed.data.durationMinutes ?? version.expectedDurationMinutes
   const requiredWorkers = parsed.data.requiredWorkers ?? version.requiredWorkers
   const end = new Date(start.getTime() + durationMinutes * 60_000)

@@ -1,0 +1,61 @@
+import { expect, test } from '@playwright/test'
+import { api, createClientWithPublishedService, loginAsAdmin } from './helpers/operational-scenario'
+
+test('extra visit survives reload, edits and cancellation with retained reason', async ({ page }, testInfo) => {
+  await loginAsAdmin(page)
+  const scenario = await createClientWithPublishedService(page)
+  const extraVisitHour = testInfo.project.name === 'mobile-chrome' ? '5' : '3'
+  await page.goto(`/schedule?date=${scenario.date}&view=day`)
+  await page.getByRole('button', { name: 'Booked', exact: true }).click()
+  await page.locator('.schedule-hero').getByRole('button', { name: '+ Add visit', exact: true }).click()
+  const add = page.getByRole('dialog', { name: 'Add visit', exact: true })
+  await add.getByRole('combobox', { name: 'Client service' }).click()
+  await page.getByRole('option').filter({ hasText: scenario.name }).click()
+  await add.getByLabel('Visit start date', { exact: true }).fill(scenario.date)
+  await add.getByLabel('Visit start time hour', { exact: true }).selectOption(extraVisitHour)
+  await add.getByLabel('Visit start time am or pm', { exact: true }).selectOption('pm')
+  await add.getByLabel('Dispatch note').fill('Acceptance extra visit')
+  const created = page.waitForResponse(r => r.url().endsWith('/api/visits') && r.request().method() === 'POST')
+  await add.getByRole('button', { name: 'Add visit', exact: true }).click()
+  const response = await created
+  expect(response.ok()).toBe(true)
+  const { data: visit } = await response.json()
+  await expect(add).toBeHidden()
+  await page.reload()
+  const cards = page.locator('.visit-card').filter({ hasText: scenario.name })
+  await expect(cards).toHaveCount(2)
+  // The added afternoon occurrence is the last visit for this isolated client.
+  await cards.last().click()
+  const edit = page.locator('.schedule-edit-sheet')
+  await expect(edit.getByLabel('Dispatch note', { exact: true })).toHaveValue('Acceptance extra visit')
+  await edit.getByLabel('Start time minute', { exact: true }).selectOption('15')
+  await edit.getByLabel('End time minute', { exact: true }).selectOption('15')
+  await edit.getByLabel('Dispatch note', { exact: true }).fill('Use side entrance')
+
+  // Assignment is part of the occurrence lifecycle and must persist independently
+  // from the recurring client service.
+  await edit.getByRole('button', { name: '+ Select team', exact: true }).click()
+  const team = page.getByRole('dialog', { name: 'Assigned cleaning team' })
+  await team.getByPlaceholder('Search cleaner by name...').fill('employee@ds.ie')
+  await team.getByRole('checkbox', { name: /employee@ds.ie/ }).check()
+  await team.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(edit).toContainText('1/1 currently covered')
+
+  await edit.getByRole('button', { name: 'Save occurrence', exact: true }).click()
+  await expect(page.locator('.toast.success[role="status"]')).toContainText('Visit updated and the assigned team has been notified.')
+  await page.reload()
+  await cards.last().click()
+  await expect(edit.getByLabel('Dispatch note', { exact: true })).toHaveValue('Use side entrance')
+  await expect(edit.getByLabel('Start time minute', { exact: true })).toHaveValue('15')
+  await expect(edit).toContainText('1/1 currently covered')
+  await expect(edit.getByRole('button', { name: /Change team · 1/ })).toBeVisible()
+  await edit.getByLabel('Cancellation reason').fill('Client requested cancellation of extra visit')
+  await edit.getByRole('button', { name: 'Cancel visit', exact: true }).click()
+  await page.reload()
+  await expect(cards).toHaveCount(1)
+  await page.getByRole('button', { name: 'Cancelled / missed', exact: true }).click()
+  await page.locator('.visit-card').filter({ hasText: scenario.name }).click()
+  await expect(edit.getByLabel('Cancellation reason')).toHaveValue('Client requested cancellation of extra visit')
+  const persisted = await api<{ status: string }>(page, `/api/visits/${visit.id}`)
+  expect(persisted.status).toBe('cancelled')
+})

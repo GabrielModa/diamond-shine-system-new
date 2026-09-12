@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
 import { authUserHasCapability, requireCapability } from '../../../../lib/auth'
 import { prisma } from '../../../../lib/prisma'
+import { isManualExtraRecurrence } from '../../../../modules/operations/client-lifecycle'
 
 const querySchema = z.object({
   from: z.coerce.date(),
@@ -56,7 +57,7 @@ export async function GET(request: NextRequest) {
       },
     }),
     prisma.servicePlan.findMany({
-      where: { organizationId, archivedAt: null, status: 'published' },
+      where: { organizationId, archivedAt: null, status: 'published', site: { archivedAt: null, client: { archivedAt: null } } },
       orderBy: { updatedAt: 'desc' },
       select: {
         id: true,
@@ -71,6 +72,10 @@ export async function GET(request: NextRequest) {
             city: true,
             client: { select: { id: true, displayName: true } },
           },
+        },
+        jobs: {
+          where: { archivedAt: null, status: { in: ['active', 'paused'] } },
+          select: { endDate: true, recurrence: true },
         },
       },
     }),
@@ -103,11 +108,24 @@ export async function GET(request: NextRequest) {
     }),
   ])
 
+  const planReference = new Date(Math.max(Date.now(), parsed.data.from.getTime()))
+
   return NextResponse.json({
     ok: true,
     data: {
       visits,
-      plans,
+      plans: plans
+        .filter((plan) => plan.jobs.some((job) =>
+          !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > planReference),
+        ))
+        .map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          status: plan.status,
+          expectedDurationMinutes: plan.expectedDurationMinutes,
+          requiredWorkers: plan.requiredWorkers,
+          site: plan.site,
+        })),
       team: memberships.map((membership) => ({ ...membership.user, role: membership.role })),
       availability,
     },
