@@ -36,7 +36,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   const organizationId = auth.user.organizationId
 
   const site = await prisma.site.findFirst({
-    where: { id: parsed.data.siteId, clientId, organizationId, archivedAt: null },
+    where: { id: parsed.data.siteId, clientId, organizationId, archivedAt: null, client: { archivedAt: null } },
     include: {
       client: true,
       access: true,
