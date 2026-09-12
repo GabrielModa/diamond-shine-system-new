@@ -11,13 +11,13 @@ test('payroll approval and adjustment survive reload without changing recorded t
   const entry = await api<{ id: string }>(page, '/api/time-entries', {
     kind: 'office',
     startedAt: startedAt.toISOString(),
-    source: 'e2e-acceptance',
+    source: 'manual',
     clientMutationId: mutationId,
   })
 
   const stopped = await api<{ status: string }>(page, `/api/time-entries/${entry.id}/stop`, {
     endedAt: endedAt.toISOString(),
-    source: 'e2e-acceptance',
+    source: 'manual',
   })
   expect(stopped.status).toBe('completed')
 
