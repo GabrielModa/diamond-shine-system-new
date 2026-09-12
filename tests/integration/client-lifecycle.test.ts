@@ -152,6 +152,16 @@ describe('client lifecycle safety', () => {
       .send({ servicePlanId: service.servicePlanId, effectiveFrom: boundary.toISOString(), reason: 'Contract ending' })
     expect(applied.status).toBe(200)
 
+    const rejectedPostEndExtra = await request(app).post('/api/visits').set('Cookie', adminCookie).send({
+      servicePlanId: service.servicePlanId,
+      scheduledStart: new Date(boundary.getTime() + 2 * 86_400_000).toISOString(),
+      durationMinutes: 60,
+      requiredWorkers: 1,
+      reason: 'client_request',
+    })
+    expect(rejectedPostEndExtra.status).toBe(409)
+    expect(rejectedPostEndExtra.body.code).toBe('SERVICE_ENDED')
+
     const job = await prisma.job.findUniqueOrThrow({ where: { id: service.jobId } })
     expect(job.status).toBe('active')
     expect(job.endDate?.toISOString()).toBe(boundary.toISOString())
