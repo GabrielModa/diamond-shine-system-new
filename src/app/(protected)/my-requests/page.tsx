@@ -36,6 +36,7 @@ export default function MyRequestsPage() {
       location: request.clientLocation,
       priority: request.priority,
       notes: request.notes ?? '',
+      items: items.map((item) => ({ catalogItemId: item.catalogItemId ?? null, product: item.product, quantity: item.quantity })),
       selected: items.map((item) => item.product),
       quantities: Object.fromEntries(items.map((item) => [item.product, item.quantity])),
     }))
