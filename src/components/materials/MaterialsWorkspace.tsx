@@ -74,7 +74,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
               : undefined
             const selectedItems = draft.items?.length
               ? draft.items
-              : (draft.selected ?? []).map((product) => ({ product, quantity: draft.quantities?.[product] ?? 1 }))
+              : (draft.selected ?? []).map((product) => ({ catalogItemId: null, product, quantity: draft.quantities?.[product] ?? 1 }))
             const nextQuantities: Record<string, number> = {}
             let completeMaterialMatch = selectedItems.length > 0
             for (const selectedItem of selectedItems) {
