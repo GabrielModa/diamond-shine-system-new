@@ -89,7 +89,7 @@ export async function POST(request: NextRequest) {
 
   const organizationId = auth.user.organizationId
   const plan = await prisma.servicePlan.findFirst({
-    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, status: 'published' },
+    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, status: 'published', site: { archivedAt: null, client: { archivedAt: null } } },
     include: {
       site: { include: { client: { select: { id: true, displayName: true } } } },
       versions: { orderBy: { versionNumber: 'desc' }, take: 1 },
