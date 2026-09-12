@@ -71,14 +71,20 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
             const repeatedSite = location
               ? bootstrap.sites.find((site) => site.name.trim().toLowerCase() === location)
               : undefined
+            const selectedProducts = draft.selected ?? []
             const nextQuantities: Record<string, number> = {}
-            for (const product of draft.selected ?? []) {
+            let completeMaterialMatch = selectedProducts.length > 0
+            for (const product of selectedProducts) {
               const material = bootstrap.catalog.find((item) => item.name.trim().toLowerCase() === product.trim().toLowerCase())
               const quantity = Math.max(0, Number(draft.quantities?.[product] ?? 1) || 0)
-              if (material && quantity > 0) nextQuantities[material.id] = quantity
+              if (!material || quantity <= 0) {
+                completeMaterialMatch = false
+                continue
+              }
+              nextQuantities[material.id] = quantity
             }
 
-            if (repeatedSite && Object.keys(nextQuantities).length) {
+            if (repeatedSite && completeMaterialMatch && Object.keys(nextQuantities).length === selectedProducts.length) {
               setSiteId(repeatedSite.id)
               setRequestQuantities(nextQuantities)
               if (draft.priority && ['urgent', 'normal', 'low'].includes(draft.priority)) setPriority(draft.priority)
@@ -87,6 +93,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
               window.localStorage.removeItem('ds-supplies-draft')
               repeated = true
             } else {
+              window.localStorage.removeItem('ds-supplies-draft')
               setMessage({
                 kind: 'error',
                 text: 'This previous request can no longer be repeated exactly because its location or materials are no longer available.',
