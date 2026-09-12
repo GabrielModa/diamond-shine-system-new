@@ -1,9 +1,10 @@
 import { expect, test } from '@playwright/test'
 import { api, createClientWithPublishedService, loginAsAdmin } from './helpers/operational-scenario'
 
-test('extra visit survives reload, edits and cancellation with retained reason', async ({ page }) => {
+test('extra visit survives reload, edits and cancellation with retained reason', async ({ page }, testInfo) => {
   await loginAsAdmin(page)
   const scenario = await createClientWithPublishedService(page)
+  const extraVisitHour = testInfo.project.name === 'mobile-chrome' ? '5' : '3'
   await page.goto(`/schedule?date=${scenario.date}&view=day`)
   await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await page.locator('.schedule-hero').getByRole('button', { name: '+ Add visit', exact: true }).click()
@@ -11,7 +12,7 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   await add.getByRole('combobox', { name: 'Client service' }).click()
   await page.getByRole('option').filter({ hasText: scenario.name }).click()
   await add.getByLabel('Visit start date', { exact: true }).fill(scenario.date)
-  await add.getByLabel('Visit start time hour', { exact: true }).selectOption('3')
+  await add.getByLabel('Visit start time hour', { exact: true }).selectOption(extraVisitHour)
   await add.getByLabel('Visit start time am or pm', { exact: true }).selectOption('pm')
   await add.getByLabel('Dispatch note').fill('Acceptance extra visit')
   const created = page.waitForResponse(r => r.url().endsWith('/api/visits') && r.request().method() === 'POST')
