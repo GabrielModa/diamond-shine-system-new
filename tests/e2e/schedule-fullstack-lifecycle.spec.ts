@@ -6,7 +6,7 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   const scenario = await createClientWithPublishedService(page)
   await page.goto(`/schedule?date=${scenario.date}&view=day`)
   await page.getByRole('button', { name: 'Booked', exact: true }).click()
-  await page.locator('header').getByRole('button', { name: '+ Add visit', exact: true }).click()
+  await page.locator('.schedule-hero').getByRole('button', { name: '+ Add visit', exact: true }).click()
   const add = page.getByRole('dialog', { name: 'Add visit', exact: true })
   await add.getByRole('combobox', { name: 'Client service' }).click()
   await page.getByRole('option').filter({ hasText: scenario.name }).click()
