@@ -41,7 +41,7 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   await expect(edit).toContainText('1/1 currently covered')
 
   await edit.getByRole('button', { name: 'Save occurrence', exact: true }).click()
-  await expect(page.getByText('Visit updated and the assigned team has been notified.', { exact: true })).toBeVisible()
+  await expect(page.locator('.toast.success[role="status"]')).toContainText('Visit updated and the assigned team has been notified.')
   await page.reload()
   await cards.last().click()
   await expect(edit.getByLabel('Dispatch note', { exact: true })).toHaveValue('Use side entrance')
