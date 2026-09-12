@@ -11,7 +11,7 @@ const windowSchema = z.object({
 }).refine((value) => value.end > value.start, { message: 'Window end must be after start.' })
 
 const requestSchema = z.object({
-  windows: z.array(windowSchema).min(1).max(12),
+  windows: z.array(windowSchema).min(1).max(28),
   userIds: z.array(z.string().min(1)).max(100).optional(),
 })
 
