@@ -2837,3 +2837,7 @@ textarea {
 .admin-temporary-list{display:grid;gap:8px}.admin-temporary-list>div{display:flex;align-items:center;justify-content:space-between;gap:12px;padding:11px 12px;border:1px solid #e2e6e4;border-radius:12px;background:#fafbfb}.admin-temporary-list span{display:grid;gap:2px}.admin-temporary-list small{color:var(--surface-muted)}
 .admin-temporary-form{display:grid;grid-template-columns:1fr 1fr 1.2fr auto;gap:10px;align-items:end}.admin-temporary-form label{display:grid;gap:5px;color:#687381;font-size:.76rem;font-weight:800}.admin-temporary-form input{width:100%}
 @media(max-width:900px){.admin-temporary-form{grid-template-columns:1fr 1fr}.admin-temporary-form label:nth-child(3){grid-column:1/-1}}@media(max-width:620px){.admin-assist-choice{align-items:stretch;flex-direction:column}.admin-assist-actions{flex-direction:column}.admin-temporary-form{grid-template-columns:1fr}.admin-temporary-form label:nth-child(3){grid-column:auto}.admin-temporary-list>div{align-items:stretch;flex-direction:column}}
+
+/* Quality action text must never widen the document on narrow screens. */
+.quality-workspace,.quality-actions,.quality-action-grid,.quality-action-card{min-width:0;max-width:100%}
+.quality-action-card h3,.quality-action-card p,.quality-action-card small,.quality-action-head{min-width:0;overflow-wrap:anywhere;word-break:break-word}
