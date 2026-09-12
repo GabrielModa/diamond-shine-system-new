@@ -5,8 +5,7 @@ import { requireCapabilities } from '../../../../../lib/auth'
 import { isManualExtraRecurrence } from '../../../../../modules/operations/client-lifecycle'
 import { ACTIVE_ASSIGNMENT_STATUSES } from '../../../../../modules/scheduling/assignment-lifecycle'
 import { cancelVisits, CANCELLABLE_VISIT_STATUSES } from '../../../../../modules/scheduling/cancel-visits'
-import { ensureJobContinuity } from '../../../../../modules/scheduling/continuity'
-import { generateOccurrences } from '../../../../../modules/scheduling/recurrence'
+import { generateOccurrences, generationKey } from '../../../../../modules/scheduling/recurrence'
 import { recurrenceSchema } from '../../../../../modules/scheduling/schemas'
 
 const schema = z.object({
@@ -67,12 +66,12 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
       const recurringJobIds = recurringJobs.map((job) => job.id)
       const manualExtraJobIds = plan.jobs.filter((job) => isManualExtraRecurrence(job.recurrence)).map((job) => job.id)
 
-      const [affected, runningBlockers, boundaryBlockers, manualExtraVisits, historicalVisits] = await Promise.all([
+      const [affected, runningBlockers, materializedBoundaryVisits, manualExtraVisits, historicalVisits] = await Promise.all([
         tx.visit.findMany({
           where: {
             organizationId,
             jobId: { in: recurringJobIds },
-            scheduledStart: { gte: effectiveFrom > now ? effectiveFrom : now },
+            scheduledStart: { gte: effectiveFrom },
             status: { in: [...CANCELLABLE_VISIT_STATUSES] },
           },
           include: {
@@ -96,11 +95,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
           where: {
             organizationId,
             jobId: { in: recurringJobIds },
-            status: { in: [...OPERATIONAL_VISIT_STATUSES] },
             scheduledStart: { lt: effectiveFrom },
             scheduledEnd: { gt: effectiveFrom },
           },
-          select: { id: true, scheduledStart: true, scheduledEnd: true, status: true },
+          select: { id: true, jobId: true, generationKey: true, scheduledStart: true, scheduledEnd: true, status: true },
         }),
         manualExtraJobIds.length
           ? tx.visit.count({ where: { organizationId, jobId: { in: manualExtraJobIds } } })
@@ -114,7 +112,41 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         }),
       ])
 
-      const blockerMap = new Map([...runningBlockers, ...boundaryBlockers].map((visit) => [visit.id, visit]))
+      const boundaryBlockers = materializedBoundaryVisits.filter((visit) =>
+        OPERATIONAL_VISIT_STATUSES.includes(visit.status as (typeof OPERATIONAL_VISIT_STATUSES)[number]))
+      const materializedBoundaryKeys = new Set(
+        materializedBoundaryVisits.map((visit) => `${visit.jobId}:${visit.generationKey}`),
+      )
+      const syntheticBoundaryBlockers = recurringJobs.flatMap((job) => {
+        const rule = recurrenceSchema.safeParse(job.recurrence)
+        if (!rule.success) return []
+
+        const durationMs = job.defaultDurationMin * 60_000
+        const from = new Date(Math.max(job.startDate.getTime(), effectiveFrom.getTime() - durationMs))
+        const until = job.endDate && job.endDate < effectiveFrom ? job.endDate : effectiveFrom
+        if (until <= from) return []
+
+        return generateOccurrences({
+          startAt: job.startDate,
+          from,
+          until,
+          timezone: job.timezone,
+          recurrence: rule.data,
+          limit: 8,
+        })
+          .filter((date) => date < effectiveFrom && date.getTime() + durationMs > effectiveFrom.getTime())
+          .filter((date) => !materializedBoundaryKeys.has(`${job.id}:${generationKey(date)}`))
+          .map((date) => ({
+            id: `expected:${job.id}:${generationKey(date)}`,
+            scheduledStart: date,
+            scheduledEnd: new Date(date.getTime() + durationMs),
+            status: 'expected' as const,
+          }))
+      })
+
+      const blockerMap = new Map(
+        [...runningBlockers, ...boundaryBlockers, ...syntheticBoundaryBlockers].map((visit) => [visit.id, visit]),
+      )
       const blockers = [...blockerMap.values()]
 
       const horizon = new Date(effectiveFrom.getTime() + 90 * 86_400_000)
@@ -149,18 +181,10 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
         throw new Error('A visit crosses the service end boundary or is already in progress. Finish it or choose a later end time.')
       }
 
-      // A future end boundary must not make the service terminal today. Materialize
-      // obligations up to the boundary, then keep the Job active/paused with endDate set.
-      // Once the boundary is reached, continuity naturally stops because endDate is authoritative.
+      // endDate is the authoritative recurrence boundary. Do not eagerly materialize
+      // months of visits here: normal continuity will keep generating work before this
+      // boundary and will never generate an occurrence starting at/after it.
       for (const job of recurringJobs) {
-        if (job.status === 'active' && effectiveFrom > now) {
-          for (let from = now; from < effectiveFrom;) {
-            const to = new Date(Math.min(effectiveFrom.getTime(), from.getTime() + 90 * 86_400_000))
-            await ensureJobContinuity(tx, job.id, organizationId, from, to)
-            from = to
-          }
-        }
-
         const immediate = effectiveFrom <= now
         const nextEnd = job.endDate && job.endDate < effectiveFrom ? job.endDate : effectiveFrom
         const changed = await tx.job.updateMany({
