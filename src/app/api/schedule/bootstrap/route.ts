@@ -75,7 +75,7 @@ export async function GET(request: NextRequest) {
         },
         jobs: {
           where: { archivedAt: null, status: { in: ['active', 'paused'] } },
-          select: { status: true, endDate: true, recurrence: true },
+          select: { endDate: true, recurrence: true },
         },
       },
     }),
@@ -116,7 +116,14 @@ export async function GET(request: NextRequest) {
         .filter((plan) => plan.jobs.some((job) =>
           !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > new Date()),
         ))
-        .map(({ jobs: _jobs, ...plan }) => plan),
+        .map((plan) => ({
+          id: plan.id,
+          name: plan.name,
+          status: plan.status,
+          expectedDurationMinutes: plan.expectedDurationMinutes,
+          requiredWorkers: plan.requiredWorkers,
+          site: plan.site,
+        })),
       team: memberships.map((membership) => ({ ...membership.user, role: membership.role })),
       availability,
     },
