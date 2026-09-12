@@ -28,6 +28,7 @@ type RepeatDraft = {
   location?: string
   priority?: 'urgent' | 'normal' | 'low'
   notes?: string
+  items?: Array<{ catalogItemId?: string | null; product: string; quantity: number }>
   selected?: string[]
   quantities?: Record<string, number>
 }
@@ -71,12 +72,16 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
             const repeatedSite = location
               ? bootstrap.sites.find((site) => site.name.trim().toLowerCase() === location)
               : undefined
-            const selectedProducts = draft.selected ?? []
+            const selectedItems = draft.items?.length
+              ? draft.items
+              : (draft.selected ?? []).map((product) => ({ product, quantity: draft.quantities?.[product] ?? 1 }))
             const nextQuantities: Record<string, number> = {}
-            let completeMaterialMatch = selectedProducts.length > 0
-            for (const product of selectedProducts) {
-              const material = bootstrap.catalog.find((item) => item.name.trim().toLowerCase() === product.trim().toLowerCase())
-              const quantity = Math.max(0, Number(draft.quantities?.[product] ?? 1) || 0)
+            let completeMaterialMatch = selectedItems.length > 0
+            for (const selectedItem of selectedItems) {
+              const material = selectedItem.catalogItemId
+                ? bootstrap.catalog.find((item) => item.id === selectedItem.catalogItemId)
+                : bootstrap.catalog.find((item) => item.name.trim().toLowerCase() === selectedItem.product.trim().toLowerCase())
+              const quantity = Math.max(0, Number(selectedItem.quantity) || 0)
               if (!material || quantity <= 0) {
                 completeMaterialMatch = false
                 continue
@@ -84,7 +89,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
               nextQuantities[material.id] = quantity
             }
 
-            if (repeatedSite && completeMaterialMatch && Object.keys(nextQuantities).length === selectedProducts.length) {
+            if (repeatedSite && completeMaterialMatch && Object.keys(nextQuantities).length === selectedItems.length) {
               setSiteId(repeatedSite.id)
               setRequestQuantities(nextQuantities)
               if (draft.priority && ['urgent', 'normal', 'low'].includes(draft.priority)) setPriority(draft.priority)
@@ -203,7 +208,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
 
     {!busy && tab === 'count' ? <form className="card materials-form" onSubmit={submitCount}><div className="section-heading"><div><h2>Fast site count</h2><p className="muted">Enter reality once. Shortages create one request automatically.</p></div></div><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} />{groupedStock.map(([category, items]) => <fieldset className="stock-category" key={category}><legend>{category}</legend>{items.map((item) => <label className="stock-count-row" key={item.id}><span><strong>{item.name}</strong><small>{item.sku} · par {item.parLevel}</small></span><input type="number" min="0" inputMode="numeric" value={quantities[item.id] ?? '0'} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} aria-label={`${item.name} on hand`} /></label>)}</fieldset>)}{!sites.length ? <p className="muted">Create a client site before counting stock.</p> : null}<label>Count note<textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="Delivery received, damaged stock, locked cupboard…" /></label><button type="submit" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count & evaluate replenishment'}</button></form> : null}
 
-    {!busy && tab === 'request' ? <form className="card materials-form" onSubmit={submitRequest}><div className="section-heading"><div><h2>Manual material request</h2><p className="muted">For unexpected needs outside the regular stock count.</p></div></div><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /><div className="priority-segment" role="group" aria-label="Request priority">{(['urgent','normal','low'] as const).map((item) => <button type="button" key={item} className={`priority-choice ${item} ${priority === item ? 'active' : ''}`} aria-pressed={priority === item} onClick={() => setPriority(item)}><span aria-hidden="true">{item === 'urgent' ? '!' : item === 'normal' ? '•' : '↓'}</span>{item === 'urgent' ? 'Urgent' : item === 'normal' ? 'Normal' : 'Low'}</button>)}</div><div className="request-material-grid">{catalog.map((item) => <label className={requestQuantities[item.id] ? 'selected' : ''} key={item.id}><span><strong>{item.name}</strong><small>{item.category}</small></span><input type="number" min="0" max="999" value={requestQuantities[item.id] ?? 0} onChange={(event) => setRequestQuantities((current) => ({ ...current, [item.id]: Math.max(0, Number(event.target.value) || 0) }))} aria-label={`${item.name} requested quantity`} /></label>)}</div><label>Reason / delivery note<textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} /></label><button type="submit" disabled={saving || !selectedRequestItems.length}>{saving ? 'Creating request…' : `Request ${selectedRequestItems.length || ''} material${selectedRequestItems.length === 1 ? '' : 's'}`}</button></form> : null}
+    {!busy && tab === 'request' ? <form className="card materials-form" onSubmit={submitRequest}><div className="section-heading"><div><h2>Manual material request</h2><p className="muted">For unexpected needs outside the regular stock count.</p></div></div><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /><div className="priority-segment" role="group" aria-label="Request priority">{(['urgent','normal','low'] as const).map((item) => <button type="button" key={item} className={`priority-choice ${item} ${priority === item ? 'active' : ''}`} aria-pressed={priority === item} onClick={() => setPriority(item)}><span aria-hidden="true">{item === 'urgent' ? '!' : item === 'normal' ? '•' : '↓'}</span>{item === 'urgent' ? 'Urgent' : item === 'normal' ? 'Normal' : 'Low'}</button>)}</div><div className="request-material-grid">{catalog.map((item) => <label className={requestQuantities[item.id] ? 'selected' : ''} key={item.id}><span><strong>{item.name}</strong><small>{item.category}</small></span><input type="number" min="0" max="999" data-catalog-id={item.id} value={requestQuantities[item.id] ?? 0} onChange={(event) => setRequestQuantities((current) => ({ ...current, [item.id]: Math.max(0, Number(event.target.value) || 0) }))} aria-label={`${item.name} requested quantity`} /></label>)}</div><label>Reason / delivery note<textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} /></label><button type="submit" disabled={saving || !selectedRequestItems.length}>{saving ? 'Creating request…' : `Request ${selectedRequestItems.length || ''} material${selectedRequestItems.length === 1 ? '' : 's'}`}</button></form> : null}
 
     {!busy && tab === 'history' ? <section className="card"><div className="section-heading"><div><h2>{canManage ? 'Request history' : 'My requests'}</h2><p className="muted">{canManage ? 'Search the full request lifecycle without leaving Supplies.' : 'Track what you asked for and where it is in the process.'}</p></div><span className="section-icon" aria-hidden="true">▤</span></div><ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site, status or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><RequestList requests={visibleRequests} canManage={canManage} onAdvance={moveRequest} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></section> : null}
     <SupplyDetailSheet
