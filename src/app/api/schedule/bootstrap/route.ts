@@ -108,13 +108,15 @@ export async function GET(request: NextRequest) {
     }),
   ])
 
+  const planReference = new Date(Math.max(Date.now(), parsed.data.from.getTime()))
+
   return NextResponse.json({
     ok: true,
     data: {
       visits,
       plans: plans
         .filter((plan) => plan.jobs.some((job) =>
-          !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > new Date()),
+          !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > planReference),
         ))
         .map((plan) => ({
           id: plan.id,
