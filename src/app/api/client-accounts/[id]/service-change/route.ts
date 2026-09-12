@@ -44,7 +44,7 @@ export async function POST(request: NextRequest, { params }: { params: Promise<{
   }
 
   const current = await prisma.servicePlan.findFirst({
-    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, site: { clientId } },
+    where: { id: parsed.data.servicePlanId, organizationId, archivedAt: null, site: { clientId, archivedAt: null, client: { archivedAt: null } } },
     include: {
       site: { include: { client: true, access: true, areas: { orderBy: { sortOrder: 'asc' } } } },
       contract: true,
