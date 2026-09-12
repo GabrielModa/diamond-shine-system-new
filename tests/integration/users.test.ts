@@ -431,6 +431,7 @@ describe('PATCH /api/users/:id/status', () => {
     expect(login.status).toBe(200)
     const userCookie = login.headers['set-cookie']?.[0]
     expect(userCookie).toContain('ds-session=')
+    if (!userCookie) throw new Error('Expected the disposable user login to issue a session cookie.')
 
     const before = await request(app).get('/api/clients').set('Cookie', userCookie)
     expect(before.status).toBe(200)
