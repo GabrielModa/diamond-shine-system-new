@@ -18,7 +18,7 @@ test('temporary unavailability saves, survives reload and can be removed', async
   await page.goto('/profile')
   await page.getByRole('button', { name: '+ Add temporary change', exact: true }).click()
   await page.getByLabel('Unavailable from date', { exact: true }).fill(localDate(8))
-  await page.getByLabel('Until date', { exact: true }).fill(localDate(8))
+  await page.getByLabel('Until date', { exact: true }).fill(localDate(9))
   await page.getByLabel('Reason (optional)', { exact: true }).fill(reason)
   await page.getByRole('button', { name: 'Save temporary change', exact: true }).click()
 
