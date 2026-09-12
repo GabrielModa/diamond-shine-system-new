@@ -1,5 +1,5 @@
 import { expect, test } from '@playwright/test'
-import { loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
+import { api, loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
 test('payroll approval and adjustment survive reload without changing recorded time', async ({ page }) => {
   await loginAsAdmin(page)
@@ -8,28 +8,18 @@ test('payroll approval and adjustment survive reload without changing recorded t
   const startedAt = new Date(endedAt.getTime() - 60 * 60_000)
   const mutationId = uniqueLabel('acceptance-payroll').replaceAll(' ', '-').toLowerCase()
 
-  const started = await page.request.post('/api/time-entries', {
-    data: {
-      kind: 'office',
-      startedAt: startedAt.toISOString(),
-      source: 'e2e-acceptance',
-      clientMutationId: mutationId,
-    },
+  const entry = await api<{ id: string }>(page, '/api/time-entries', {
+    kind: 'office',
+    startedAt: startedAt.toISOString(),
+    source: 'e2e-acceptance',
+    clientMutationId: mutationId,
   })
-  const startedBody = await started.json()
-  expect(started.ok(), JSON.stringify(startedBody)).toBeTruthy()
-  expect(startedBody.ok).toBe(true)
-  const entry = startedBody.data as { id: string }
 
-  const stopped = await page.request.post(`/api/time-entries/${entry.id}/stop`, {
-    data: {
-      endedAt: endedAt.toISOString(),
-      source: 'e2e-acceptance',
-    },
+  const stopped = await api<{ status: string }>(page, `/api/time-entries/${entry.id}/stop`, {
+    endedAt: endedAt.toISOString(),
+    source: 'e2e-acceptance',
   })
-  const stoppedBody = await stopped.json()
-  expect(stopped.ok(), JSON.stringify(stoppedBody)).toBeTruthy()
-  expect(stoppedBody.data.status).toBe('completed')
+  expect(stopped.status).toBe('completed')
 
   async function isolateEntry() {
     await page.getByPlaceholder('Search employee, site or work…').fill(entry.id)
@@ -79,9 +69,10 @@ test('payroll approval and adjustment survive reload without changing recorded t
   await expect(dialog.getByLabel('Hours')).toHaveValue('0')
   await expect(dialog.getByLabel('Minutes')).toHaveValue('30')
 
-  const persistedResponse = await page.request.get(`/api/time-entries/${entry.id}`)
-  expect(persistedResponse.ok()).toBe(true)
-  const persisted = (await persistedResponse.json()).data
+  const persisted = await api<{ durationSeconds: number; payableSeconds: number; status: string }>(
+    page,
+    `/api/time-entries/${entry.id}`,
+  )
   expect(persisted.durationSeconds).toBe(3600)
   expect(persisted.payableSeconds).toBe(1800)
   expect(persisted.status).toBe('approved')
