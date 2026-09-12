@@ -1,4 +1,4 @@
-import { expect, test } from '@playwright/test'
+import { expect, test, type Page } from '@playwright/test'
 import { loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
 function dateInput(offsetDays = 0) {
@@ -17,8 +17,8 @@ function localDateTime(offsetMinutes = 0) {
   return local.toISOString().slice(0, 16)
 }
 
-async function mockVerifiedAddress(page: Parameters<typeof test>[0] extends never ? never : any) {
-  await page.route('**/api/places/autocomplete', async (route: any) => {
+async function mockVerifiedAddress(page: Page) {
+  await page.route('**/api/places/autocomplete', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
@@ -34,7 +34,7 @@ async function mockVerifiedAddress(page: Parameters<typeof test>[0] extends neve
       }),
     })
   })
-  await page.route('**/api/places/resolve', async (route: any) => {
+  await page.route('**/api/places/resolve', async (route) => {
     await route.fulfill({
       status: 200,
       contentType: 'application/json',
