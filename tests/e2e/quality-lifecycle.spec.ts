@@ -3,7 +3,7 @@ import { createClientWithPublishedService, loginAsAdmin, uniqueLabel } from './h
 
 test('failed inspection becomes a resolved and verified corrective action', async ({ page }) => {
   await loginAsAdmin(page)
-  const scenario = await createClientWithPublishedService(page.request)
+  const scenario = await createClientWithPublishedService(page)
   const finding = uniqueLabel('Floor residue requires cleaning')
   await page.goto('/quality')
   await page.getByRole('button', { name: /New inspection|Inspect site|Run inspection/i }).click()
