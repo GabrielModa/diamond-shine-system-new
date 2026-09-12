@@ -30,12 +30,24 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   await edit.getByLabel('Start time minute', { exact: true }).selectOption('15')
   await edit.getByLabel('End time minute', { exact: true }).selectOption('15')
   await edit.getByLabel('Dispatch note', { exact: true }).fill('Use side entrance')
+
+  // Assignment is part of the occurrence lifecycle and must persist independently
+  // from the recurring client service.
+  await edit.getByRole('button', { name: '+ Select team', exact: true }).click()
+  const team = page.getByRole('dialog', { name: 'Assigned cleaning team' })
+  await team.getByPlaceholder('Search cleaner by name...').fill('employee@ds.ie')
+  await team.getByRole('checkbox', { name: /employee@ds.ie/ }).check()
+  await team.getByRole('button', { name: 'Apply', exact: true }).click()
+  await expect(edit).toContainText('1/1 currently covered')
+
   await edit.getByRole('button', { name: 'Save occurrence', exact: true }).click()
   await expect(page.getByText('Visit updated and the assigned team has been notified.', { exact: true })).toBeVisible()
   await page.reload()
   await cards.last().click()
   await expect(edit.getByLabel('Dispatch note', { exact: true })).toHaveValue('Use side entrance')
   await expect(edit.getByLabel('Start time minute', { exact: true })).toHaveValue('15')
+  await expect(edit).toContainText('1/1 currently covered')
+  await expect(edit.getByRole('button', { name: /Change team · 1/ })).toBeVisible()
   await edit.getByLabel('Cancellation reason').fill('Client requested cancellation of extra visit')
   await edit.getByRole('button', { name: 'Cancel visit', exact: true }).click()
   await page.reload()
