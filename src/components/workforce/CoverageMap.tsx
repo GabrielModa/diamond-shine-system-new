@@ -78,7 +78,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       const plan=planningByEmployee?.get(e.id)
       const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':'home'
       const planClass=plan?.status??'available'
-      const planLabel=plan?.status==='available'?'Available all selected days':plan?.status==='partial'?`Available ${plan.availableWindows}/${plan.totalWindows} days`:plan?.blocks[0]?.reason??'Unavailable'
+      const planLabel=plan?.status==='available'?'Available every selected slot':plan?.status==='partial'?`Available ${plan.availableWindows}/${plan.totalWindows} days`:plan?.blocks[0]?.reason??'Unavailable'
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls} planning-${planClass} ${e.id===selectedEmployee?.id?'selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
         .bindTooltip(`<strong>${e.name}</strong><br>${planLabel} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`}`,{direction:'top',className:'wf-map-tooltip'})
       marker.on('click',()=>{setActiveCard(null);onEmployee(e);map.panTo([lat,lng],{animate:true})})
