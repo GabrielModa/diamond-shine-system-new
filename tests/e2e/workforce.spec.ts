@@ -105,7 +105,7 @@ test('workforce performance supports custom dates and operational filters', asyn
   await expect(page.getByText('Daily hours')).toBeVisible()
 })
 
-test('future coverage sends one Schedule capacity window per selected day and redraws availability', async ({ page }) => {
+test('future coverage checks selected weekdays and hours through Schedule capacity', async ({ page }) => {
   let latestWindows: Array<{ start: string; end: string }> = []
   await page.route('**/api/schedule-capacity', async route => {
     const body = route.request().postDataJSON() as { windows: Array<{ start: string; end: string }>; userIds: string[] }
@@ -133,14 +133,25 @@ test('future coverage sends one Schedule capacity window per selected day and re
   })
 
   await openCoverage(page)
-  await page.getByLabel('Planning from date').fill('2026-09-14')
-  await page.getByLabel('Planning to date').fill('2026-09-16')
-  await page.getByLabel('Planning start time').fill('14:00')
-  await page.getByLabel('Planning end time').fill('16:00')
 
-  await expect.poll(() => latestWindows.length).toBe(3)
-  expect(latestWindows.every(window => new Date(window.end).getTime() - new Date(window.start).getTime() === 2 * 60 * 60 * 1000)).toBeTruthy()
-  await expect(page.getByRole('button', { name: /Available all/ })).toBeVisible()
+  // Default is Mon-Fri. Keep only Monday + Thursday.
+  await page.getByRole('button', { name: 'Planning day Tuesday' }).click()
+  await page.getByRole('button', { name: 'Planning day Wednesday' }).click()
+  await page.getByRole('button', { name: 'Planning day Friday' }).click()
+  await page.getByLabel('Planning start time').fill('15:00')
+  await page.getByLabel('Planning end time').fill('18:00')
+  await page.getByRole('button', { name: '2 weeks' }).click()
+
+  await expect.poll(() => latestWindows.length).toBe(4)
+  expect(latestWindows.every(window => new Date(window.end).getTime() - new Date(window.start).getTime() === 3 * 60 * 60 * 1000)).toBeTruthy()
+  const weekdays = latestWindows.map(window => {
+    const day = new Date(window.start).toLocaleDateString('en-US', { timeZone: 'Europe/Dublin', weekday: 'short' })
+    return day
+  })
+  expect(new Set(weekdays)).toEqual(new Set(['Mon', 'Thu']))
+
+  await expect(page.getByText(/Mon \+ Thu · 15:00–18:00 · next 14 days/)).toBeVisible()
+  await expect(page.getByRole('button', { name: /Available every slot/ })).toBeVisible()
   await page.getByRole('button', { name: /Unavailable/ }).click()
   await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible()
 })
