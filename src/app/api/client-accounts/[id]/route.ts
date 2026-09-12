@@ -2,14 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../../lib/prisma'
 import { requireCapability } from '../../../../lib/auth'
 
-import { clientLifecycle } from '../../../../modules/operations/client-lifecycle'
+import { clientLifecycle, isManualExtraRecurrence } from '../../../../modules/operations/client-lifecycle'
 
 const TERMINAL_VISIT_STATUSES = ['cancelled', 'missed'] as const
-
-function isManualExtraRecurrence(value: unknown) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return false
-  return (value as { source?: unknown }).source === 'manual_extra'
-}
 
 export async function GET(request: NextRequest, { params }: { params: Promise<{ id: string }> }) {
   const auth = await requireCapability(request, 'clients.read')
@@ -28,7 +23,7 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
         },
         contracts: {
           orderBy: [{ status: 'asc' }, { createdAt: 'desc' }],
-          select: { id: true, status: true, startDate: true, endDate: true },
+          select: { id: true, status: true, startDate: true, endDate: true, archivedAt: true },
         },
         sites: {
           orderBy: { name: 'asc' },
@@ -39,13 +34,13 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
               include: { user: { select: { id: true, name: true, email: true } } },
             },
             servicePlans: {
-                  orderBy: { updatedAt: 'desc' },
+              orderBy: { updatedAt: 'desc' },
               include: {
                 contract: { select: { id: true, name: true, startDate: true, endDate: true, status: true } },
                 tasks: { where: { active: true }, orderBy: { sortOrder: 'asc' }, select: { id: true, title: true } },
                 versions: { orderBy: { versionNumber: 'desc' }, take: 1, select: { id: true, versionNumber: true, publishedAt: true } },
                 jobs: {
-                          orderBy: { startDate: 'desc' },
+                  orderBy: { startDate: 'desc' },
                   include: {
                     defaultAssignees: { orderBy: { priority: 'asc' }, include: { user: { select: { id: true, name: true, email: true } } } },
                     _count: { select: { visits: true } },
@@ -99,19 +94,33 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
       { scope: 'job', job: { site: { clientId: id } } },
     ] }, orderBy: { startsAt: 'asc' },
   })
+  const archived = Boolean(client.archivedAt)
+  const visibleContracts = archived ? client.contracts : client.contracts.filter((contract) => !contract.archivedAt)
+  const visibleSites = (archived ? client.sites : client.sites.filter((site) => !site.archivedAt)).map((site) => ({
+    ...site,
+    servicePlans: (archived ? site.servicePlans : site.servicePlans.filter((plan) => !plan.archivedAt)).map((plan) => ({
+      ...plan,
+      // Manual extra visits are operational occurrences, not a manager-facing Service.
+      jobs: (archived ? plan.jobs : plan.jobs.filter((job) => !job.archivedAt))
+        .filter((job) => !isManualExtraRecurrence(job.recurrence)),
+    })),
+  }))
+
+  const lifecycleSource = { ...client, sites: visibleSites }
   const serviceClient = {
     ...client,
-    ...clientLifecycle(client, pauses, now),
+    contracts: visibleContracts,
+    sites: visibleSites,
+    ...clientLifecycle(lifecycleSource, pauses, now),
     pauses,
-    sites: client.sites.map((site) => ({
-      ...site,
-      servicePlans: site.servicePlans.map((plan) => ({
-        ...plan,
-        // Manual extra visits are operational occurrences, not a new service rule.
-        jobs: plan.jobs.filter((job) => !isManualExtraRecurrence(job.recurrence)),
-      })),
-    })),
   }
 
-  return NextResponse.json({ ok: true, data: { client: serviceClient, upcomingVisits, recentVisits } })
+  return NextResponse.json({
+    ok: true,
+    data: {
+      client: serviceClient,
+      upcomingVisits: archived ? [] : upcomingVisits,
+      recentVisits,
+    },
+  })
 }
