@@ -9,7 +9,7 @@ test('repeat request restores the original context and own cancellation persists
   const adminPage = await adminContext.newPage()
   await loginAsAdmin(adminPage)
   const location = uniqueLabel('Requests acceptance site')
-  const client = await createOperationalClient(adminPage.request, location)
+  const client = await createOperationalClient(adminPage, location)
   await adminContext.close()
 
   const employeeContext = await browser.newContext({ baseURL })
@@ -20,7 +20,7 @@ test('repeat request restores the original context and own cancellation persists
     const bootstrap = await api<{
       sites: Array<{ id: string; name: string }>
       catalog: Array<{ id: string; name: string }>
-    }>(page.request, '/api/supplies/bootstrap')
+    }>(page, '/api/supplies/bootstrap')
     const site = bootstrap.sites.find((item) => item.id === client.sites[0].id)
     expect(site, 'The unique Client site must be available to the employee supplies flow.').toBeTruthy()
     const material = bootstrap.catalog[0]
@@ -28,7 +28,7 @@ test('repeat request restores the original context and own cancellation persists
     if (!site || !material) return
 
     const note = uniqueLabel('Repeat request note')
-    await api(page.request, '/api/supplies', {
+    await api(page, '/api/supplies', {
       siteId: site.id,
       priority: 'low',
       notes: note,
