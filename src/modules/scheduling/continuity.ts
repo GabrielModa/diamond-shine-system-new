@@ -13,7 +13,7 @@ export type ContinuityResult = {
   staffingGaps: number
 }
 
-async function ensureJobContinuity(
+export async function ensureJobContinuity(
   db: Prisma.TransactionClient,
   jobId: string,
   organizationId: string,
