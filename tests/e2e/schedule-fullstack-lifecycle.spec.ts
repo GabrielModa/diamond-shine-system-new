@@ -1,9 +1,9 @@
 import { expect, test } from '@playwright/test'
-import { createClientWithPublishedService, loginAsAdmin } from './helpers/operational-scenario'
+import { api, createClientWithPublishedService, loginAsAdmin } from './helpers/operational-scenario'
 
 test('extra visit survives reload, edits and cancellation with retained reason', async ({ page }) => {
   await loginAsAdmin(page)
-  const scenario = await createClientWithPublishedService(page.request)
+  const scenario = await createClientWithPublishedService(page)
   await page.goto(`/schedule?date=${scenario.date}&view=day`)
   await page.getByRole('button', { name: 'Booked', exact: true }).click()
   await page.locator('header').getByRole('button', { name: '+ Add visit', exact: true }).click()
@@ -55,7 +55,6 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   await page.getByRole('button', { name: 'Cancelled / missed', exact: true }).click()
   await page.locator('.visit-card').filter({ hasText: scenario.name }).click()
   await expect(edit.getByLabel('Cancellation reason')).toHaveValue('Client requested cancellation of extra visit')
-  const persisted = await page.request.get(`/api/visits/${visit.id}`)
-  expect(persisted.ok()).toBe(true)
-  expect((await persisted.json()).data.status).toBe('cancelled')
+  const persisted = await api<{ status: string }>(page, `/api/visits/${visit.id}`)
+  expect(persisted.status).toBe('cancelled')
 })
