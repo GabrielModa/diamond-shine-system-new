@@ -1,6 +1,6 @@
 'use client'
 
-import { FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
 import { isSupplyOverdue } from '../../lib/business-logic'
 import { clientApi } from '../../lib/client-api'
@@ -24,6 +24,13 @@ type Assignee = { email: string; name: string | null; role: string; status: stri
 type SupplyFilter = { status?: SupplyStatus; priority?: SupplyPriority; preset?: 'all' | 'overdue' | 'unassigned' | 'month' }
 type Control = { summary: { tracked: number; outOfStock: number; needsReorder: number; openRequests: number; overdueRequests: number; sitesWithoutCount: number }; levels: Array<Material & { site: Site; daysRemaining: number | null }>; requests: Supply[] }
 type SuppliesBootstrap = { sites: Site[]; catalog: Material[]; requests: Supply[]; control: Control | null; assignees: Assignee[] }
+type RepeatDraft = {
+  location?: string
+  priority?: 'urgent' | 'normal' | 'low'
+  notes?: string
+  selected?: string[]
+  quantities?: Record<string, number>
+}
 
 const NEXT_STATUS: Record<string, string | undefined> = { Requested: 'Triaged', Triaged: 'Approved', Approved: 'Ordered', Ordered: 'In transit', 'In transit': 'Delivered' }
 const CLOSED = new Set(['Delivered', 'Rejected', 'Cancelled'])
@@ -41,6 +48,7 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
   const [emailRequest, setEmailRequest] = useState<Supply | null>(null)
   const [confirmTransition, setConfirmTransition] = useState<{ request: Supply; status: SupplyStatus } | null>(null)
   const [assignees, setAssignees] = useState<Assignee[]>([])
+  const repeatDraftChecked = useRef(false)
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -51,7 +59,46 @@ export default function MaterialsWorkspace({ canManage }: { canManage: boolean }
       setRequests(bootstrap.requests.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })))
       setControl(bootstrap.control ? { ...bootstrap.control, requests: bootstrap.control.requests.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })) } : null)
       setAssignees(bootstrap.assignees.filter((item) => item.status === 'active'))
-      setSiteId((current) => current || bootstrap.sites[0]?.id || '')
+
+      let repeated = false
+      if (!repeatDraftChecked.current) {
+        repeatDraftChecked.current = true
+        const rawDraft = window.localStorage.getItem('ds-supplies-draft')
+        if (rawDraft) {
+          try {
+            const draft = JSON.parse(rawDraft) as RepeatDraft
+            const location = draft.location?.trim().toLowerCase()
+            const repeatedSite = location
+              ? bootstrap.sites.find((site) => site.name.trim().toLowerCase() === location)
+              : undefined
+            const nextQuantities: Record<string, number> = {}
+            for (const product of draft.selected ?? []) {
+              const material = bootstrap.catalog.find((item) => item.name.trim().toLowerCase() === product.trim().toLowerCase())
+              const quantity = Math.max(0, Number(draft.quantities?.[product] ?? 1) || 0)
+              if (material && quantity > 0) nextQuantities[material.id] = quantity
+            }
+
+            if (repeatedSite && Object.keys(nextQuantities).length) {
+              setSiteId(repeatedSite.id)
+              setRequestQuantities(nextQuantities)
+              if (draft.priority && ['urgent', 'normal', 'low'].includes(draft.priority)) setPriority(draft.priority)
+              setNote(draft.notes ?? '')
+              setTab('request')
+              window.localStorage.removeItem('ds-supplies-draft')
+              repeated = true
+            } else {
+              setMessage({
+                kind: 'error',
+                text: 'This previous request can no longer be repeated exactly because its location or materials are no longer available.',
+              })
+            }
+          } catch {
+            window.localStorage.removeItem('ds-supplies-draft')
+            setMessage({ kind: 'error', text: 'The saved repeat request could not be restored.' })
+          }
+        }
+      }
+      if (!repeated) setSiteId((current) => current || bootstrap.sites[0]?.id || '')
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
     finally { setBusy(false) }
   }, [])
