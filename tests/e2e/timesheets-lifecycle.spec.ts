@@ -53,7 +53,7 @@ test('payroll approval and adjustment survive reload without changing recorded t
 
   // An adjustment without a reason must not fake success or close the decision.
   await dialog.getByRole('button', { name: 'Save payroll decision', exact: true }).click()
-  await expect(page.getByRole('alert')).toContainText('Add a reason')
+  await expect(page.locator('.ts-toast.error[role="alert"]')).toContainText('Add a reason')
   await expect(dialog).toBeVisible()
 
   await dialog.getByLabel('Reason (required)').fill('Exclude 30 minutes of non-payable waiting time.')
