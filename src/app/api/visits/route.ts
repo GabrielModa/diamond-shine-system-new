@@ -103,19 +103,18 @@ export async function POST(request: NextRequest) {
   if (!plan) return NextResponse.json({ ok: false, error: 'Choose an active configured service before adding a visit.' }, { status: 400 })
   const version = plan.versions[0]
   if (!version) return NextResponse.json({ ok: false, error: 'This service must be activated before visits can be scheduled.' }, { status: 409 })
-  const now = new Date()
-  const hasCurrentRecurringService = plan.jobs.some((job) =>
-    !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > now),
+  const start = parsed.data.scheduledStart
+  const hasRecurringServiceAtVisitTime = plan.jobs.some((job) =>
+    !isManualExtraRecurrence(job.recurrence) && (!job.endDate || job.endDate > start),
   )
-  if (!hasCurrentRecurringService) {
+  if (!hasRecurringServiceAtVisitTime) {
     return NextResponse.json({
       ok: false,
-      error: 'This service has ended. Reactivate or configure a current service before adding another visit.',
+      error: 'This service has ended for the selected time. Choose a visit time before the service end or configure a current service.',
       code: 'SERVICE_ENDED',
     }, { status: 409 })
   }
 
-  const start = parsed.data.scheduledStart
   const durationMinutes = parsed.data.durationMinutes ?? version.expectedDurationMinutes
   const requiredWorkers = parsed.data.requiredWorkers ?? version.requiredWorkers
   const end = new Date(start.getTime() + durationMinutes * 60_000)
