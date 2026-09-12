@@ -26,7 +26,7 @@ export interface SupplyRequest {
   clientLocation: string
   priority: SupplyPriority
   products: string[]
-  items?: Array<{ product: string; quantity: number }>
+  items?: Array<{ catalogItemId?: string | null; product: string; quantity: number }>
   notes?: string
   status: SupplyStatus
   submittedBy: string
