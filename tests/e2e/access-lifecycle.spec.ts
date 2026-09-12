@@ -21,7 +21,7 @@ test('disposable invitation role persists and can be deleted without touching co
   // Role mutations are intentionally performed only on this disposable invitation.
   page.once('dialog', (dialog) => dialog.accept())
   await row.getByRole('combobox', { name: `Role for ${name}` }).selectOption('viewer')
-  await expect(page.getByText('Role changed to Viewer.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('Role changed to Viewer.')
   await expect(row.getByRole('combobox', { name: `Role for ${name}` })).toHaveValue('viewer')
 
   await page.reload()
@@ -33,7 +33,7 @@ test('disposable invitation role persists and can be deleted without touching co
   const dialog = page.getByRole('dialog', { name: 'Delete this invitation?' })
   await dialog.getByLabel('Confirm work email', { exact: true }).fill(email)
   await dialog.getByRole('button', { name: 'Delete invitation permanently', exact: true }).click()
-  await expect(page.getByText('Pending invitation permanently deleted.', { exact: true })).toBeVisible()
+  await expect(page.getByRole('status')).toContainText('Pending invitation permanently deleted.')
   await expect(page.locator('.access-user-row').filter({ hasText: email })).toHaveCount(0)
 
   await page.reload()
