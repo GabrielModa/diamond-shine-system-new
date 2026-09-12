@@ -78,7 +78,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
       const plan=planningByEmployee?.get(e.id)
       const cls=e.id===selectedEmployee?.id&&originMode==='school'?'school':'home'
       const planClass=plan?.status??'available'
-      const planLabel=plan?.status==='available'?'Available every selected slot':plan?.status==='partial'?`Available ${plan.availableWindows}/${plan.totalWindows} days`:plan?.blocks[0]?.reason??'Unavailable'
+      const planLabel=plan?.status==='available'?'Available every selected slot':plan?.status==='partial'?`Available ${plan.availableWindows}/${plan.totalWindows} slots`:plan?.blocks[0]?.reason??'Unavailable'
       const marker=L.marker([lat,lng],{icon:L.divIcon({className:'',html:`<span class="wf-map-pin wf-person-pin ${cls} planning-${planClass} ${e.id===selectedEmployee?.id?'selected':''}">${initials(e.name)}</span>`,iconSize:[32,32],iconAnchor:[16,16]})})
         .bindTooltip(`<strong>${e.name}</strong><br>${planLabel} · ${e.qualityAverage==null?'No feedback':`★ ${e.qualityAverage.toFixed(1)}`}`,{direction:'top',className:'wf-map-tooltip'})
       marker.on('click',()=>{setActiveCard(null);onEmployee(e);map.panTo([lat,lng],{animate:true})})
@@ -103,7 +103,7 @@ export default function CoverageMap({employees,sites,selectedEmployee,selectedSi
     {status!=='ready'?<div className="map-loading">{status==='loading'?'Loading map…':'Map tiles unavailable.'}</div>:null}
     <button className="map-recenter" onClick={()=>mapRef.current?.setView([53.3498,-6.2603],12)}>⌖</button>
     <button type="button" className="map-expand" aria-label={expanded?'Close enlarged map':'Open map large'} onClick={toggleFullscreen}>{expanded?'×':'⤢'}</button>
-    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Available</span><span><i className="person partial"/>Some days</span><span><i className="person blocked"/>Unavailable</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
+    <div className="wf-map-legend" aria-label="Map legend"><span><i className="person home"/>Available</span><span><i className="person partial"/>Some slots</span><span><i className="person blocked"/>Unavailable</span><span><i className="site needs-staff"><b>!</b></i>Needs staff</span><span><i className="site covered"><b>✓</b></i>Covered</span></div>
     {selectedSite&&activeCard==='site'?<aside className="wf-map-site-card" data-testid="map-site-card">
       <button type="button" className="wf-map-card-close" aria-label="Close selected site" onClick={()=>setActiveCard(null)}>×</button>
       <div className="wf-map-site-title"><span className={`wf-site-avatar ${selectedSite.coverageState}`}><SiteSymbol state={selectedSite.coverageState}/></span><div><small>{selectedSite.client.displayName}</small><strong>{selectedSite.name}</strong></div></div>
