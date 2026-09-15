@@ -60,18 +60,21 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
     json: {
       ok: true,
       data: {
-        message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.',
+        message: 'SMTP verified and the sending server accepted the test message for delivery. Inbox placement is not confirmed automatically; check inbox and spam.',
         recipient: 'admin@ds.ie',
+        messageId: '<e2e-diagnostic@diamondshine.ie>',
         checks: { smtpVerified: true, recipientAccepted: true },
       },
     },
   }))
 
   await dialog.getByRole('button', { name: 'Run again', exact: true }).click()
-  const passed = page.getByRole('dialog', { name: /Delivery test passed/ })
+  const passed = page.getByRole('dialog', { name: /Email accepted for delivery/ })
   await expect(passed).toContainText('Verified successfully')
   await expect(passed).toContainText('Accepted by the mail server')
-  await expect(passed).toContainText('SMTP verified and test email accepted')
+  await expect(passed).toContainText('Not confirmed automatically')
+  await expect(passed).toContainText('<e2e-diagnostic@diamondshine.ie>')
+  await expect(passed).toContainText('does not prove Gmail placed it in the inbox')
   await passed.getByRole('button', { name: 'Close', exact: true }).click()
 
   await page.screenshot({ path: testInfo.outputPath('delivery-settings.png'), fullPage: true })

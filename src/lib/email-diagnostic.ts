@@ -24,7 +24,12 @@ export async function testEmailDelivery(recipient: string) {
         return { ok: false as const, error: 'EENVELOPE: SMTP sender or recipient rejected', checks }
       }
       checks = { ...checks, recipientAccepted: true }
-      return { ok: true as const, message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.', checks }
+      return {
+        ok: true as const,
+        message: 'SMTP verified and the sending server accepted the test message for delivery. Inbox placement is not confirmed automatically; check inbox and spam.',
+        messageId: result.messageId,
+        checks,
+      }
     } finally { transport.close() }
   } catch (error) {
     return { ok: false as const, error: sanitizeDeliveryError(error), checks }
