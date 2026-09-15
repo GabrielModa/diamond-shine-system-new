@@ -41,8 +41,11 @@ test('extra visit survives reload, edits and cancellation with retained reason',
   await team.getByRole('button', { name: 'Apply', exact: true }).click()
   await expect(edit).toContainText('1/1 currently covered')
 
+  const updated = page.waitForResponse((response) =>
+    response.url().endsWith(`/api/visits/${visit.id}`) && response.request().method() === 'PATCH')
   await edit.getByRole('button', { name: 'Save occurrence', exact: true }).click()
-  await expect(page.locator('.toast.success[role="status"]')).toContainText('Visit updated and the assigned team has been notified.')
+  expect((await updated).ok()).toBe(true)
+  await expect(edit).toBeHidden()
   await page.reload()
   await cards.last().click()
   await expect(edit.getByLabel('Dispatch note', { exact: true })).toHaveValue('Use side entrance')

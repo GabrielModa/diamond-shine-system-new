@@ -1,15 +1,48 @@
 import { expect, test } from '@playwright/test'
 import { api, cookieHeader, createClientWithPublishedService, loginAsAdmin, loginAsEmployee, uniqueLabel } from './helpers/operational-scenario'
 
+type CapacityWindow = {
+  start: string
+  end: string
+  availableUserIds: string[]
+}
+
 test('incident acknowledgement, progress and resolution persist', async ({ page }) => {
   await loginAsAdmin(page)
-  const scenario = await createClientWithPublishedService(page, uniqueLabel('Field control client'), 14)
-  const account = await api<{ upcomingVisits: Array<{ id: string }> }>(page, `/api/client-accounts/${scenario.client.id}`)
-  const visitId = account.upcomingVisits[0].id
+
   const users = await api<Array<{ id: string; email: string }>>(page, '/api/users')
   const employee = users.find((user) => user.email === 'employee@ds.ie')
   expect(employee, 'Seed employee must exist for assigned field execution.').toBeTruthy()
   if (!employee) return
+
+  // Choose a real free window instead of hard-coding one. Desktop and mobile
+  // projects share the CI database, so the second project must see work created
+  // by the first and move to another valid slot.
+  const candidateHours = [13, 14, 15, 16, 17, 18]
+  const candidateWindows = candidateHours.map((hour) => {
+    const start = new Date(Date.now() + 21 * 86_400_000)
+    start.setUTCHours(hour, 0, 0, 0)
+    const end = new Date(start.getTime() + 60 * 60_000)
+    return { hour, start, end }
+  })
+  const capacity = await api<{ windows: CapacityWindow[] }>(page, '/api/schedule-capacity', {
+    windows: candidateWindows.map((window) => ({
+      start: window.start.toISOString(),
+      end: window.end.toISOString(),
+    })),
+    userIds: [employee.id],
+  })
+  const freeIndex = capacity.windows.findIndex((window) => window.availableUserIds.includes(employee.id))
+  expect(freeIndex, 'Seed employee needs a free field-control acceptance slot.').toBeGreaterThanOrEqual(0)
+  if (freeIndex < 0) return
+
+  const scenario = await createClientWithPublishedService(
+    page,
+    uniqueLabel('Field control client'),
+    candidateWindows[freeIndex].hour,
+  )
+  const account = await api<{ upcomingVisits: Array<{ id: string }> }>(page, `/api/client-accounts/${scenario.client.id}`)
+  const visitId = account.upcomingVisits[0].id
 
   const visit = await api<{ version: number }>(page, `/api/visits/${visitId}`)
   const assigned = await page.request.patch(`/api/visits/${visitId}`, {
