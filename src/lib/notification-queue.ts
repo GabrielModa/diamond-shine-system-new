@@ -38,12 +38,17 @@ export async function enqueueNotification(input: EnqueueInput) {
   const queuedAt = new Date()
   const job = await prisma.notificationJob.create({ data: { ...input, nextAttemptAt: queuedAt } })
 
-  // On the production Next.js request path, make the first delivery attempt after
-  // the response is committed. Import request-scoped Next.js APIs lazily so CLI,
-  // Vitest and background-worker runtimes can import this shared module safely.
-  // The durable queue remains the source of truth if the post-response attempt is
-  // unavailable or delivery fails.
-  if (process.env.NODE_ENV === 'production') {
+  // Production requests make their first delivery attempt after the response is
+  // committed. Operational mobile pushes do the same in local Next.js development
+  // so a real phone receives a newly published Communications notice without a
+  // separate worker command. Other development email jobs remain queue-only to
+  // avoid surprising real email sends during local UI work.
+  //
+  // Import request-scoped Next.js APIs lazily so CLI, Vitest and background-worker
+  // runtimes can import this shared module safely. The durable queue remains the
+  // source of truth if the post-response attempt is unavailable or delivery fails.
+  const attemptAfterResponse = process.env.NODE_ENV === 'production' || input.kind === 'operational_notice_push'
+  if (attemptAfterResponse) {
     try {
       const { after } = await import('next/server')
       after(async () => {

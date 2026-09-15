@@ -84,11 +84,25 @@ describe('safe SMTP diagnostics and queue persistence', () => {
   })
   it('returns the durable job before post-response SMTP work begins', async () => {
     vi.stubEnv('NODE_ENV', 'production')
-    mocks.create.mockResolvedValue({ id: 'job', organizationId: 'org' })
+    mocks.create.mockResolvedValue({ id: 'job', organizationId: 'org', kind: 'supply_alert' })
     mocks.sendMail.mockImplementation(() => new Promise(() => {}))
-    await expect(enqueueNotification({ organizationId: 'org', kind: 'supply_alert', payload, createdBy: 'employee' })).resolves.toEqual({ id: 'job', organizationId: 'org' })
+    await expect(enqueueNotification({ organizationId: 'org', kind: 'supply_alert', payload, createdBy: 'employee' })).resolves.toEqual({ id: 'job', organizationId: 'org', kind: 'supply_alert' })
     expect(mocks.after).toHaveBeenCalledWith(expect.any(Function))
     expect(mocks.sendMail).not.toHaveBeenCalled()
+  })
+  it('attempts operational mobile push after the response in local development', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    mocks.create.mockResolvedValue({ id: 'push-job', organizationId: 'org', kind: 'operational_notice_push' })
+    const pushPayload = { userIds: ['employee'], title: 'Pay attention', body: 'New operational update', noticeId: 'notice-1', priority: 'high' }
+    await expect(enqueueNotification({ organizationId: 'org', kind: 'operational_notice_push', payload: pushPayload, createdBy: 'admin' }))
+      .resolves.toEqual({ id: 'push-job', organizationId: 'org', kind: 'operational_notice_push' })
+    expect(mocks.after).toHaveBeenCalledWith(expect.any(Function))
+  })
+  it('keeps local development email jobs queue-only', async () => {
+    vi.stubEnv('NODE_ENV', 'development')
+    mocks.create.mockResolvedValue({ id: 'email-job', organizationId: 'org', kind: 'supply_alert' })
+    await enqueueNotification({ organizationId: 'org', kind: 'supply_alert', payload, createdBy: 'employee' })
+    expect(mocks.after).not.toHaveBeenCalled()
   })
 })
 describe('cron and worker authentication', () => {

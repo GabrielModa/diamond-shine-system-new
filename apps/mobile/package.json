@@ -3,6 +3,7 @@
   "main": "expo-router/entry",
   "version": "1.0.0",
   "scripts": {
+    "postinstall": "node ../../scripts/generate-mobile-brand-assets.mjs",
     "start": "node ../../scripts/dev-all.mjs mobile",
     "android": "node ../../scripts/dev-all.mjs mobile",
     "ios": "expo start --ios",

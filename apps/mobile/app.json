@@ -27,7 +27,7 @@
         "CAMERA"
       ],
       "adaptiveIcon": {
-        "backgroundColor": "#102A43",
+        "backgroundColor": "#EEEEF9",
         "foregroundImage": "./assets/images/android-icon-foreground.png",
         "backgroundImage": "./assets/images/android-icon-background.png",
         "monochromeImage": "./assets/images/android-icon-monochrome.png"
@@ -54,7 +54,7 @@
         "expo-notifications",
         {
           "icon": "./assets/images/android-icon-monochrome.png",
-          "color": "#0F7A55",
+          "color": "#5A8ECD",
           "defaultChannel": "operations"
         }
       ],
@@ -94,7 +94,11 @@
       }
     },
     "owner": "vercel-production",
-    "runtimeVersion": { "policy": "fingerprint" },
-    "updates": { "url": "https://u.expo.dev/8aa9ac64-8d87-4aea-b2f8-79258d269e29" }
+    "runtimeVersion": {
+      "policy": "fingerprint"
+    },
+    "updates": {
+      "url": "https://u.expo.dev/8aa9ac64-8d87-4aea-b2f8-79258d269e29"
+    }
   }
 }
