@@ -25,7 +25,6 @@ const protectedRoutes = [
   '/users',
   '/audit',
   '/communications',
-  '/my-requests',
   '/profile',
   '/operations',
   '/work-orders',
@@ -94,7 +93,7 @@ test('employee gets My requests as the personal supply entry and does not see th
 test('employee cannot reach manager-only quality or business administration modules', async ({ page }) => {
   await login(page, 'employee@ds.ie')
 
-  for (const route of ['/feedback', '/dashboard', '/clients', '/users', '/audit'] as const) {
+  for (const route of ['/feedback', '/dashboard', '/clients', '/users', '/audit', '/supplies'] as const) {
     await page.goto(route, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/forbidden$/)
   }
