@@ -28,7 +28,7 @@ beforeEach(() => {
   vi.resetAllMocks()
   mocks.setting.mockResolvedValue(null)
   mocks.members.mockResolvedValue([])
-  mocks.sendMail.mockResolvedValue({ accepted: ['admin@example.org'], rejected: [] })
+  mocks.sendMail.mockResolvedValue({ accepted: ['admin@example.org'], rejected: [], messageId: '<diagnostic-123@diamondshine.ie>' })
   mocks.verify.mockResolvedValue(true)
   mocks.auth.mockResolvedValue({ user: { email: 'admin@example.org', organizationId: 'org' } })
   mocks.findFirst.mockResolvedValue({ attempts: 0, maxAttempts: 3 })
@@ -130,6 +130,7 @@ describe('admin diagnostic', () => {
       data: {
         message: expect.any(String),
         recipient: 'admin@example.org',
+        messageId: '<diagnostic-123@diamondshine.ie>',
         checks: { smtpVerified: true, recipientAccepted: true },
       },
     })

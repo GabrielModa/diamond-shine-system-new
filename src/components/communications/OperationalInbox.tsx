@@ -35,6 +35,7 @@ type DeliveryDiagnostic = {
   recipient?: string
   message?: string
   error?: string
+  messageId?: string
   checks?: { smtpVerified: boolean; recipientAccepted: boolean }
 }
 
@@ -281,7 +282,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     try {
       const response = await fetch('/api/notifications/test', { method: 'POST', credentials: 'include', cache: 'no-store' })
       const payload = await response.json().catch(() => null) as {
-        data?: { message?: string; recipient?: string; checks?: { smtpVerified: boolean; recipientAccepted: boolean } }
+        data?: { message?: string; recipient?: string; messageId?: string; checks?: { smtpVerified: boolean; recipientAccepted: boolean } }
         error?: string
       } | null
       if (!response.ok) {
@@ -289,6 +290,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
           status: 'failure',
           recipient: payload?.data?.recipient,
           checks: payload?.data?.checks,
+          messageId: payload?.data?.messageId,
           error: payload?.error ?? 'Email delivery test failed.',
         })
         return
@@ -297,6 +299,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         status: 'success',
         recipient: payload?.data?.recipient,
         message: payload?.data?.message,
+        messageId: payload?.data?.messageId,
         checks: payload?.data?.checks,
       })
     } catch (cause) {
@@ -505,15 +508,19 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       </section>
     </section> : null}
     {deliveryTest ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && deliveryTest.status !== 'running') setDeliveryTest(null) }}><section className="card delivery-test-dialog" role="dialog" aria-modal="true" aria-labelledby="delivery-test-title">
-      <div className="delivery-test-head"><span className={`communications-icon-tile ${deliveryTest.status === 'failure' ? 'danger' : deliveryTest.status === 'success' ? '' : 'violet'}`}><OpsIcon name={deliveryTest.status === 'failure' ? 'alert' : deliveryTest.status === 'success' ? 'check' : 'activity'} size={21} /></span><div><span className="eyebrow">Email diagnostic</span><h2 id="delivery-test-title">{deliveryTest.status === 'running' ? 'Testing delivery…' : deliveryTest.status === 'success' ? 'Delivery test passed' : 'Delivery test needs attention'}</h2></div></div>
+      <div className="delivery-test-head"><span className={`communications-icon-tile ${deliveryTest.status === 'failure' ? 'danger' : deliveryTest.status === 'success' ? '' : 'violet'}`}><OpsIcon name={deliveryTest.status === 'failure' ? 'alert' : deliveryTest.status === 'success' ? 'check' : 'activity'} size={21} /></span><div><span className="eyebrow">Email diagnostic</span><h2 id="delivery-test-title">{deliveryTest.status === 'running' ? 'Testing delivery…' : deliveryTest.status === 'success' ? 'Email accepted for delivery' : 'Delivery test needs attention'}</h2></div></div>
       {deliveryTest.status === 'running' ? <div className="delivery-test-running"><span className="delivery-test-spinner" /><p>Checking SMTP connection and sending one controlled test email.</p></div> : <>
         <div className="delivery-test-checks">
           <div className={deliveryTest.checks?.smtpVerified ? 'pass' : 'fail'}><span><OpsIcon name={deliveryTest.checks?.smtpVerified ? 'check' : 'alert'} size={17} /></span><div><strong>SMTP connection</strong><small>{deliveryTest.checks?.smtpVerified ? 'Verified successfully' : 'Could not verify'}</small></div></div>
           <div className={deliveryTest.checks?.recipientAccepted ? 'pass' : 'fail'}><span><OpsIcon name={deliveryTest.checks?.recipientAccepted ? 'check' : 'alert'} size={17} /></span><div><strong>Recipient acceptance</strong><small>{deliveryTest.checks?.recipientAccepted ? 'Accepted by the mail server' : 'Not accepted by the mail server'}</small></div></div>
-          <div className="manual"><span><OpsIcon name="review" size={17} /></span><div><strong>Inbox arrival</strong><small>Confirm manually in inbox or spam</small></div></div>
+          <div className="manual"><span><OpsIcon name="review" size={17} /></span><div><strong>Inbox arrival</strong><small>Not confirmed automatically — check inbox and spam</small></div></div>
         </div>
-        {deliveryTest.recipient ? <div className="delivery-test-recipient"><span>Test recipient</span><strong>{deliveryTest.recipient}</strong></div> : null}
+        <div className="delivery-test-meta">
+          {deliveryTest.recipient ? <div className="delivery-test-recipient"><span>Test recipient</span><strong>{deliveryTest.recipient}</strong></div> : null}
+          {deliveryTest.messageId ? <div className="delivery-test-recipient"><span>Message ID</span><strong title={deliveryTest.messageId}>{deliveryTest.messageId}</strong></div> : null}
+        </div>
         <p className={deliveryTest.status === 'failure' ? 'delivery-test-message error' : 'delivery-test-message'}>{deliveryTest.error || deliveryTest.message || 'Diagnostic completed.'}</p>
+        {deliveryTest.status === 'success' ? <p className="delivery-test-caveat"><OpsIcon name="info" size={15} /> SMTP acceptance means the sending server accepted the message. It does not prove Gmail placed it in the inbox.</p> : null}
         <div className="ops-confirm-actions"><button type="button" className="secondary" onClick={() => setDeliveryTest(null)}>Close</button><button type="button" disabled={busy} onClick={() => void testDelivery()}><OpsIcon name="refresh" size={16} /> Run again</button></div>
       </>}
     </section></div> : null}
