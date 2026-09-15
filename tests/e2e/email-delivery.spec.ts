@@ -49,6 +49,9 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
   await expect(metrics).toContainText('3')
   await expect(metrics).toContainText('Exhausted')
   await expect(page.locator('.delivery-latest-failure')).toContainText('SMTP 535')
+  await expect(page.locator('.delivery-jobs')).toContainText('Supply alert')
+  await expect(page.locator('.delivery-jobs')).toContainText('Retry scheduled · attempt 1 of 5')
+  await expect(page.locator('.delivery-jobs')).not.toContainText('1/5')
 
   await page.getByRole('button', { name: /Test delivery/ }).click()
   const dialog = page.getByRole('dialog', { name: /Delivery test needs attention/ })

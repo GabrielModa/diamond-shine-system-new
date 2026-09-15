@@ -50,6 +50,27 @@ function when(value: string) {
   return new Intl.DateTimeFormat('en-IE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
+function deliveryJobLabel(kind: string) {
+  const labels: Record<string, string> = {
+    operational_notice_push: 'Mobile notification',
+    operational_email: 'Operational email',
+    client_supply: 'Client supplies',
+    supply_alert: 'Supply alert',
+    profile_change_alert: 'Profile change alert',
+  }
+  return labels[kind] ?? kind.replaceAll('_', ' ')
+}
+
+function deliveryJobStatus(job: Job) {
+  if (job.status === 'sent') return 'Sent'
+  if (job.status === 'queued') return job.attempts > 0
+    ? `Retry scheduled · attempt ${job.attempts} of ${job.maxAttempts}`
+    : 'Waiting to send'
+  if (job.status === 'failed') return `Retry scheduled · attempt ${job.attempts} of ${job.maxAttempts}`
+  if (job.status === 'exhausted') return `Failed after ${job.attempts} attempt${job.attempts === 1 ? '' : 's'}`
+  return job.status.replaceAll('_', ' ')
+}
+
 const NOTICE_TYPES = [
   { value: 'schedule_change', label: 'Schedule change' },
   { value: 'site_instruction', label: 'Site instruction' },
@@ -494,7 +515,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <div className="section-heading"><div className="communications-section-title"><span className="communications-icon-tile soft"><OpsIcon name="activity" size={19} /></span><div><span className="eyebrow">Background delivery</span><h2>Delivery queue</h2></div></div><button type="button" className="secondary" onClick={() => void processQueue()} disabled={busy}><OpsIcon name="refresh" size={16} /> Process due</button></div>
         <div className="delivery-queue-metrics"><span><b>{queue.counts.queued ?? 0}</b><small>Queued</small></span><span><b>{queue.counts.failed ?? 0}</b><small>Failed</small></span><span><b>{queue.counts.exhausted ?? 0}</b><small>Exhausted</small></span><span><b>{queue.counts.sent ?? 0}</b><small>Sent</small></span></div>
         {queue.latestFailure ? <div className="delivery-latest-failure" role="status"><OpsIcon name="alert" size={17} /><div><strong>Latest failure</strong><span>{queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</span></div></div> : null}
-        <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span className={`delivery-job-status ${job.status}`}>{job.status} · {job.attempts}/{job.maxAttempts}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
+        <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{deliveryJobLabel(job.kind)}</strong><span className={`delivery-job-status ${job.status}`}>{deliveryJobStatus(job)}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
         {!queue.items.length ? <div className="delivery-empty"><OpsIcon name="check" size={19} /><span>No recent delivery jobs need inspection.</span></div> : null}
       </article>
 
