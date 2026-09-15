@@ -27,6 +27,31 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
     },
   } }))
 
+  await page.route('**/api/notifications/test-push', async (route) => {
+    if (route.request().method() === 'GET') {
+      await route.fulfill({ json: { ok: true, data: { targets: [{
+        id: 'employee-id',
+        name: 'Employee',
+        email: 'employee@ds.ie',
+        deviceCount: 1,
+        platforms: ['android'],
+        lastRegisteredAt: '2026-09-15T15:00:00.000Z',
+      }] } } })
+      return
+    }
+    await route.fulfill({ json: { ok: true, data: {
+      target: { id: 'employee-id', name: 'Employee', email: 'employee@ds.ie' },
+      registered: 1,
+      accepted: 1,
+      failed: 0,
+      invalidated: 0,
+      ticketIds: ['expo-ticket-e2e'],
+      platforms: ['android'],
+      lastRegisteredAt: '2026-09-15T15:00:00.000Z',
+      message: 'Expo accepted 1 of 1 registered device notification. Confirm the banner on the phone.',
+    } } })
+  })
+
   // Exercise the client flow without sending real email from browser tests.
   await page.route('**/api/notifications/test', (route) => route.fulfill({
     status: 502,
@@ -53,7 +78,15 @@ test('admin can inspect delivery failures and run the email diagnostic', async (
   await expect(page.locator('.delivery-jobs')).toContainText('Retry scheduled · attempt 1 of 5')
   await expect(page.locator('.delivery-jobs')).not.toContainText('1/5')
 
-  await page.getByRole('button', { name: /Test delivery/ }).click()
+  await page.getByRole('button', { name: /Send test notification/ }).click()
+  const pushDialog = page.getByRole('dialog', { name: /Test mobile notifications/ })
+  await expect(pushDialog).toContainText('employee@ds.ie')
+  await pushDialog.getByRole('button', { name: 'Send test notification', exact: true }).click()
+  await expect(page.getByRole('dialog', { name: /Push accepted for delivery/ })).toContainText('1 accepted · 0 failed')
+  await expect(page.getByRole('dialog', { name: /Push accepted for delivery/ })).toContainText('expo-ticket-e2e')
+  await page.getByRole('dialog', { name: /Push accepted for delivery/ }).getByRole('button', { name: 'Close', exact: true }).click()
+
+  await page.getByRole('button', { name: /Send test email/ }).click()
   const dialog = page.getByRole('dialog', { name: /Delivery test needs attention/ })
   await expect(dialog).toContainText('EAUTH')
   await expect(dialog).toContainText('Could not verify')
