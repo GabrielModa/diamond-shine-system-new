@@ -2,6 +2,12 @@ import { expect, test } from '@playwright/test'
 import { addOperationalDays, operationalDateKey, operationalInputToUtc } from '../../src/lib/operational-time'
 import { api, cookieHeader, loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
+type CapacityWindow = {
+  start: string
+  end: string
+  availableUserIds: string[]
+}
+
 test('Plan Coverage uses the real Schedule capacity engine for a real temporary restriction', async ({ page }) => {
   await loginAsAdmin(page)
 
@@ -11,14 +17,36 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
   if (!employee) return
 
   const timezone = 'Europe/Dublin'
-  const targetDate = addOperationalDays(operationalDateKey(new Date(), timezone), 1)
-  const blockStart = operationalInputToUtc(`${targetDate}T14:00`, timezone)
-  const blockEnd = operationalInputToUtc(`${targetDate}T19:00`, timezone)
+  const today = operationalDateKey(new Date(), timezone)
+  const candidateTimes = [
+    ['12:30', '13:30'],
+    ['15:00', '16:00'],
+    ['18:00', '19:00'],
+  ] as const
+  const candidates = Array.from({ length: 7 }, (_, index) => addOperationalDays(today, index + 1))
+    .flatMap((date) => candidateTimes.map(([startTime, endTime]) => ({
+      date,
+      startTime,
+      endTime,
+      start: operationalInputToUtc(`${date}T${startTime}`, timezone),
+      end: operationalInputToUtc(`${date}T${endTime}`, timezone),
+    })))
+
+  const capacity = await api<{ windows: CapacityWindow[] }>(page, '/api/schedule-capacity', {
+    windows: candidates.map((candidate) => ({ start: candidate.start.toISOString(), end: candidate.end.toISOString() })),
+    userIds: [employee.id],
+  })
+  const candidateIndex = capacity.windows.findIndex((window) => window.availableUserIds.includes(employee.id))
+  expect(candidateIndex, 'The seeded employee needs one genuinely free slot in the next seven days.').toBeGreaterThanOrEqual(0)
+  if (candidateIndex < 0) return
+
+  const selected = candidates[candidateIndex]
+  const targetDate = selected.date
   const reason = uniqueLabel('Capacity acceptance restriction')
   const availability = await api<{ id: string }>(page, '/api/availability', {
     userId: employee.id,
-    startsAt: blockStart.toISOString(),
-    endsAt: blockEnd.toISOString(),
+    startsAt: selected.start.toISOString(),
+    endsAt: selected.end.toISOString(),
     reason,
   })
 
@@ -34,14 +62,12 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
     const weekdays = ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday', 'Sunday']
     for (const day of weekdays) {
       const button = page.getByRole('button', { name: `Planning day ${day}` })
-      const selected = await button.getAttribute('aria-pressed') === 'true'
-      if (day === weekdayLong ? !selected : selected) await button.click()
+      const isSelected = await button.getAttribute('aria-pressed') === 'true'
+      if (day === weekdayLong ? !isSelected : isSelected) await button.click()
     }
 
-    await page.getByLabel('Planning start time').fill('15:00')
-    await page.getByLabel('Planning end time').fill('18:00')
-    // Keep the planner on its seven-day lookahead; with only tomorrow's weekday selected,
-    // this yields exactly the one real slot covered by the blocker created above.
+    await page.getByLabel('Planning start time').fill(selected.startTime)
+    await page.getByLabel('Planning end time').fill(selected.endTime)
     await page.getByRole('button', { name: '7 days', exact: true }).click()
 
     await expect(page.locator('.coverage-pattern-summary')).toContainText('1 schedule slot')
@@ -58,7 +84,8 @@ test('Plan Coverage uses the real Schedule capacity engine for a real temporary 
     await expect(status).toContainText(reason)
 
     // Full-stack contract: the browser calls the real /api/schedule-capacity endpoint,
-    // which reads the Availability created above through the public product API.
+    // which now reads the exact temporary Availability created above in a slot that
+    // was verified free before the blocker was inserted.
     const unavailable = page.getByRole('button', { name: /Unavailable/ })
     await expect(unavailable).toContainText(/1|2|3|4|5|6|7|8|9/)
     await unavailable.click()
