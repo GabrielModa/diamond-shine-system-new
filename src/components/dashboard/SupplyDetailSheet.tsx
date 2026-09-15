@@ -13,6 +13,7 @@ type SupplyDetailSheetProps = {
   onTransition: (status: SupplyStatus) => void
   assignees: Array<{ email: string; name: string | null }>
   onAssign: (email: string | null) => Promise<void>
+  canManageActions?: boolean
 }
 
 export function SupplyDetailSheet({
@@ -24,6 +25,7 @@ export function SupplyDetailSheet({
   onTransition,
   assignees,
   onAssign,
+  canManageActions = true,
 }: SupplyDetailSheetProps) {
   const dialogRef = useDialogFocus(active, onClose)
   if (!request) return null
@@ -56,16 +58,21 @@ export function SupplyDetailSheet({
             <div className="detail-value">{request.id}</div>
           </div>
           <div className="detail-item">
-            <label className="detail-label" htmlFor="supplyAssignee">Responsible</label>
-            <select
-              id="supplyAssignee"
-              value={request.assignedTo ?? ''}
-              disabled={request.status === 'Delivered' || request.status === 'Rejected' || request.status === 'Cancelled'}
-              onChange={(event) => void onAssign(event.target.value || null)}
-            >
-              <option value="">Unassigned</option>
-              {assignees.map((assignee) => <option key={assignee.email} value={assignee.email}>{assignee.name ?? assignee.email}</option>)}
-            </select>
+            {canManageActions ? <>
+              <label className="detail-label" htmlFor="supplyAssignee">Responsible</label>
+              <select
+                id="supplyAssignee"
+                value={request.assignedTo ?? ''}
+                disabled={request.status === 'Delivered' || request.status === 'Rejected' || request.status === 'Cancelled'}
+                onChange={(event) => void onAssign(event.target.value || null)}
+              >
+                <option value="">Unassigned</option>
+                {assignees.map((assignee) => <option key={assignee.email} value={assignee.email}>{assignee.name ?? assignee.email}</option>)}
+              </select>
+            </> : <>
+              <div className="detail-label">Responsible</div>
+              <div className="detail-value">{request.assignedTo ?? 'Operations team'}</div>
+            </>}
           </div>
           <div className="detail-item">
             <div className="detail-label">SLA due</div>
@@ -132,10 +139,10 @@ export function SupplyDetailSheet({
         </section>
 
         <div className="row action-row">
-          {!['Delivered', 'Rejected', 'Cancelled'].includes(request.status) ? (
+          {canManageActions && !['Delivered', 'Rejected', 'Cancelled'].includes(request.status) ? (
             <button type="button" className="btn-success" onClick={onSendEmail}>📧 Notify client</button>
           ) : null}
-          {getSupplyNextStatuses(request.status).map((status) => (
+          {canManageActions ? getSupplyNextStatuses(request.status).map((status) => (
             <button
               key={status}
               type="button"
@@ -144,7 +151,7 @@ export function SupplyDetailSheet({
             >
               {status === 'Delivered' ? '✅' : status === 'Rejected' || status === 'Cancelled' ? '⛔' : '→'} {status}
             </button>
-          ))}
+          )) : null}
           <button type="button" className="btn-secondary" onClick={onClose}>
             Close
           </button>
