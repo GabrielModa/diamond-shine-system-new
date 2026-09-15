@@ -1,9 +1,9 @@
 import { createContext, PropsWithChildren, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { InteractionManager } from 'react-native';
+import { AppState, InteractionManager } from 'react-native';
 import { normalizeBaseUrl, registerUnauthorizedHandler } from './api';
 import { getDeviceId } from './device';
 import { claimOfflineWorkspace } from './offline';
-import { registerForPushNotifications } from './push';
+import { PushRegistrationError, PushRegistrationStage, registerForPushNotifications } from './push';
 import {
   biometricSecureDelete,
   biometricSecureGet,
@@ -34,6 +34,21 @@ type SignInResult = {
   biometricSaved: boolean;
 };
 
+export type PushRegistrationState = {
+  status: 'idle' | 'registering' | 'registered' | 'unavailable' | 'permission_denied' | 'error';
+  stage: PushRegistrationStage | null;
+  message: string;
+  detail?: string;
+  lastAttemptAt: string | null;
+};
+
+const initialPushRegistration: PushRegistrationState = {
+  status: 'idle',
+  stage: null,
+  message: 'Push registration has not run yet.',
+  lastAttemptAt: null,
+};
+
 type AuthContextValue = {
   session: Session | null;
   loading: boolean;
@@ -43,6 +58,8 @@ type AuthContextValue = {
   biometricAvailable: boolean;
   biometricAccount: BiometricAccount | null;
   signOut(): Promise<void>;
+  pushRegistration: PushRegistrationState;
+  retryPushRegistration(): Promise<void>;
   defaultServerUrl: string;
 };
 
@@ -102,7 +119,11 @@ export function AuthProvider({ children }: PropsWithChildren) {
   const [defaultServerUrl, setDefaultServerUrl] = useState(fallbackUrl);
   const [biometricAvailable, setBiometricAvailable] = useState(false);
   const [biometricAccount, setBiometricAccount] = useState<BiometricAccount | null>(null);
+  const [pushRegistration, setPushRegistration] = useState<PushRegistrationState>(initialPushRegistration);
   const pushToken = useRef<string | null>(null);
+  const pushRegistrationTask = useRef<Promise<void> | null>(null);
+  const sessionRef = useRef<Session | null>(null);
+  sessionRef.current = session;
 
   const clearBiometricSignIn = useCallback(async () => {
     await Promise.all([
@@ -276,7 +297,10 @@ export function AuthProvider({ children }: PropsWithChildren) {
         headers: { Authorization: `Bearer ${session.accessToken}`, Accept: 'application/json' },
       }).catch(() => undefined);
     }
+    sessionRef.current = null;
     pushToken.current = null;
+    pushRegistrationTask.current = null;
+    setPushRegistration(initialPushRegistration);
     await secureDelete(SESSION_KEY);
     setSession(null);
   }, [session]);
@@ -286,22 +310,68 @@ export function AuthProvider({ children }: PropsWithChildren) {
     return () => registerUnauthorizedHandler(null);
   }, [signOut]);
 
+  const retryPushRegistration = useCallback(async () => {
+    if (!session) {
+      setPushRegistration(initialPushRegistration);
+      return;
+    }
+    if (pushRegistrationTask.current) return pushRegistrationTask.current;
+
+    const activeSession = session;
+    const lastAttemptAt = new Date().toISOString();
+    setPushRegistration((current) => ({
+      ...current,
+      status: 'registering',
+      message: 'Registering this phone for remote notifications…',
+      detail: undefined,
+      lastAttemptAt,
+    }));
+
+    const task = (async () => {
+      try {
+        const result = await registerForPushNotifications(activeSession);
+        if (sessionRef.current?.accessToken !== activeSession.accessToken) return;
+        pushToken.current = result.token;
+        setPushRegistration({
+          status: result.status,
+          stage: result.stage,
+          message: result.message,
+          lastAttemptAt,
+        });
+      } catch (error) {
+        if (sessionRef.current?.accessToken !== activeSession.accessToken) return;
+        const pushError = error instanceof PushRegistrationError ? error : null;
+        setPushRegistration({
+          status: 'error',
+          stage: pushError?.stage ?? 'runtime',
+          message: pushError?.message ?? 'Push registration failed unexpectedly.',
+          detail: pushError?.detail ?? (error instanceof Error ? error.message : String(error)),
+          lastAttemptAt,
+        });
+      }
+    })().finally(() => {
+      if (pushRegistrationTask.current === task) pushRegistrationTask.current = null;
+    });
+    pushRegistrationTask.current = task;
+    return task;
+  }, [session]);
+
   useEffect(() => {
     if (!session) return;
     let disposed = false;
-    // Notification registration is useful but not needed to paint Today or
-    // restore offline work. Keep it off the startup critical path.
-    const task = InteractionManager.runAfterInteractions(() => {
-      if (disposed) return;
-      void registerForPushNotifications(session)
-        .then((token) => { if (!disposed) pushToken.current = token; })
-        .catch(() => undefined);
+    // Registration stays off the startup critical path, then refreshes when
+    // the app returns to the foreground in case network or permissions changed.
+    const register = () => { if (!disposed) void retryPushRegistration(); };
+    const task = InteractionManager.runAfterInteractions(register);
+    const appState = AppState.addEventListener('change', (state) => {
+      if (state === 'active') register();
     });
     return () => {
       disposed = true;
       task.cancel();
+      appState.remove();
     };
-  }, [session]);
+  }, [retryPushRegistration, session]);
 
   const value = useMemo(() => ({
     session,
@@ -312,6 +382,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     biometricAvailable,
     biometricAccount,
     signOut,
+    pushRegistration,
+    retryPushRegistration,
     defaultServerUrl,
   }), [
     session,
@@ -322,6 +394,8 @@ export function AuthProvider({ children }: PropsWithChildren) {
     biometricAvailable,
     biometricAccount,
     signOut,
+    pushRegistration,
+    retryPushRegistration,
     defaultServerUrl,
   ]);
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
