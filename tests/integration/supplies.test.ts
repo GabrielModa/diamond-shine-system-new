@@ -103,6 +103,41 @@ describe('GET /api/supplies', () => {
     expect(res.body.data.items.every((item: { submittedBy: string }) => item.submittedBy === 'employee@ds.ie')).toBe(true)
   })
 
+  it('manager can switch to Requested by me without losing the shared management endpoint', async () => {
+    await prisma.supplyRequest.create({
+      data: { employeeName: 'Admin', clientLocation: 'Admin site', priority: 'normal', products: '["Paper towels"]', submittedBy: 'admin@ds.ie' },
+    })
+    const res = await request(app).get('/api/supplies?mine=true&limit=20').set('Cookie', adminCookie)
+    expect(res.status).toBe(200)
+    expect(res.body.data.total).toBe(1)
+    expect(res.body.data.items.every((item: { submittedBy: string }) => item.submittedBy === 'admin@ds.ie')).toBe(true)
+  })
+
+  it('paginates supply history and reports the full filtered total', async () => {
+    const first = await request(app).get('/api/supplies?page=1&limit=2').set('Cookie', adminCookie)
+    const second = await request(app).get('/api/supplies?page=2&limit=2').set('Cookie', adminCookie)
+
+    expect(first.status).toBe(200)
+    expect(first.body.data).toMatchObject({ total: 3, page: 1, limit: 2, totalPages: 2 })
+    expect(first.body.data.items).toHaveLength(2)
+    expect(second.body.data).toMatchObject({ total: 3, page: 2, limit: 2, totalPages: 2 })
+    expect(second.body.data.items).toHaveLength(1)
+  })
+
+  it('filters paged supply history by submitted date range', async () => {
+    await prisma.supplyRequest.update({ where: { id: 'gs1' }, data: { createdAt: new Date('2026-09-10T10:00:00.000Z') } })
+    await prisma.supplyRequest.update({ where: { id: 'gs2' }, data: { createdAt: new Date('2026-09-12T10:00:00.000Z') } })
+    await prisma.supplyRequest.update({ where: { id: 'gs3' }, data: { createdAt: new Date('2026-09-14T10:00:00.000Z') } })
+
+    const res = await request(app)
+      .get('/api/supplies?from=2026-09-11&to=2026-09-13&limit=20')
+      .set('Cookie', adminCookie)
+
+    expect(res.status).toBe(200)
+    expect(res.body.data.total).toBe(1)
+    expect(res.body.data.items[0].id).toBe('gs2')
+  })
+
   it('loads the supplies workspace through one bootstrap request', async () => {
     const res = await request(app).get('/api/supplies/bootstrap').set('Cookie', adminCookie)
     expect(res.status).toBe(200)
