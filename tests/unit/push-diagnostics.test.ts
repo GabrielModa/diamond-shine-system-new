@@ -21,7 +21,7 @@ vi.mock('../../src/lib/prisma', () => ({
 import { sendPushDiagnostic } from '../../src/lib/push-notifications'
 import { GET, POST } from '../../src/app/api/notifications/test-push/route'
 
-const request = (path: string, init?: RequestInit) => new NextRequest(`http://localhost${path}`, init)
+const request = (path: string, init?: ConstructorParameters<typeof NextRequest>[1]) => new NextRequest(`http://localhost${path}`, init)
 
 beforeEach(() => {
   vi.resetAllMocks()
