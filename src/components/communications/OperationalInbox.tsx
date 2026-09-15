@@ -50,6 +50,27 @@ function when(value: string) {
   return new Intl.DateTimeFormat('en-IE', { dateStyle: 'medium', timeStyle: 'short' }).format(new Date(value))
 }
 
+function deliveryJobLabel(kind: string) {
+  const labels: Record<string, string> = {
+    operational_notice_push: 'Mobile notification',
+    operational_email: 'Operational email',
+    client_supply: 'Client supplies',
+    supply_alert: 'Supply alert',
+    profile_change_alert: 'Profile change alert',
+  }
+  return labels[kind] ?? kind.replaceAll('_', ' ')
+}
+
+function deliveryJobStatus(job: Job) {
+  if (job.status === 'sent') return 'Sent'
+  if (job.status === 'queued') return job.attempts > 0
+    ? `Retry scheduled · attempt ${job.attempts} of ${job.maxAttempts}`
+    : 'Waiting to send'
+  if (job.status === 'failed') return `Retry scheduled · attempt ${job.attempts} of ${job.maxAttempts}`
+  if (job.status === 'exhausted') return `Failed after ${job.attempts} attempt${job.attempts === 1 ? '' : 's'}`
+  return job.status.replaceAll('_', ' ')
+}
+
 const NOTICE_TYPES = [
   { value: 'schedule_change', label: 'Schedule change' },
   { value: 'site_instruction', label: 'Site instruction' },
@@ -103,6 +124,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [acknowledgementNotes, setAcknowledgementNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [noticeTone, setNoticeTone] = useState<'success' | 'info'>('success')
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
@@ -222,7 +244,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   async function receipt(item: Notice, action: 'seen' | 'acknowledged') {
     const acknowledgement = action === 'acknowledged' ? acknowledgementNotes[item.id]?.trim() || null : null
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api(`/api/operational-notices/${item.id}/receipt`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
@@ -237,7 +259,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function deleteNotice(item: Notice) {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api(`/api/operational-notices/${item.id}`, { method: 'DELETE' })
       setDeleteTarget(null)
@@ -250,7 +272,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   async function publish() {
     if (!draft.title.trim() || !draft.body.trim() || !selectedUsers.length) return
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/operational-notices', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -267,7 +289,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function saveDelivery() {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alerts) })
       setNotice('Delivery recipients saved.')
@@ -277,7 +299,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function testDelivery() {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     setDeliveryTest({ status: 'running' })
     try {
       const response = await fetch('/api/notifications/test', { method: 'POST', credentials: 'include', cache: 'no-store' })
@@ -313,7 +335,13 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       const result = await api<{ processed: number }>('/api/notifications/process', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 20 }),
       })
-      setNotice(`${result.processed} delivery job${result.processed === 1 ? '' : 's'} processed.`)
+      if (result.processed === 0) {
+        setNoticeTone('info')
+        setNotice('No delivery jobs were due.')
+      } else {
+        setNoticeTone('success')
+        setNotice(`${result.processed} delivery job${result.processed === 1 ? '' : 's'} processed successfully.`)
+      }
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not process delivery jobs.')
@@ -321,7 +349,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function saveTemplate(template: Template) {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/templates', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -346,7 +374,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       <div className="communications-hero-title"><span className="communications-icon-tile"><OpsIcon name="message" size={20} /></span><div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div></div>
       <button className="secondary communications-refresh" type="button" onClick={() => void refreshPage()} disabled={busy || trackingLoading}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </section>
-    {notice ? <div className="transient-notice success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
+    {notice ? <div className={`transient-notice ${noticeTone}`} role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
     {error ? <div className="inline-message error" role="alert">{error}</div> : null}
     <nav className="materials-tabs" aria-label="Inbox views">
       {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><OpsIcon name={tabIcons[key]} size={15} />{label}</button>)}
@@ -487,7 +515,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <div className="section-heading"><div className="communications-section-title"><span className="communications-icon-tile soft"><OpsIcon name="activity" size={19} /></span><div><span className="eyebrow">Background delivery</span><h2>Delivery queue</h2></div></div><button type="button" className="secondary" onClick={() => void processQueue()} disabled={busy}><OpsIcon name="refresh" size={16} /> Process due</button></div>
         <div className="delivery-queue-metrics"><span><b>{queue.counts.queued ?? 0}</b><small>Queued</small></span><span><b>{queue.counts.failed ?? 0}</b><small>Failed</small></span><span><b>{queue.counts.exhausted ?? 0}</b><small>Exhausted</small></span><span><b>{queue.counts.sent ?? 0}</b><small>Sent</small></span></div>
         {queue.latestFailure ? <div className="delivery-latest-failure" role="status"><OpsIcon name="alert" size={17} /><div><strong>Latest failure</strong><span>{queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</span></div></div> : null}
-        <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span className={`delivery-job-status ${job.status}`}>{job.status} · {job.attempts}/{job.maxAttempts}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
+        <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{deliveryJobLabel(job.kind)}</strong><span className={`delivery-job-status ${job.status}`}>{deliveryJobStatus(job)}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
         {!queue.items.length ? <div className="delivery-empty"><OpsIcon name="check" size={19} /><span>No recent delivery jobs need inspection.</span></div> : null}
       </article>
 
