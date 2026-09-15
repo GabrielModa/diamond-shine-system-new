@@ -2919,3 +2919,18 @@ textarea {
 }
 
 .transient-notice.info{border-color:#cfdbea;color:#355d87;background:#f1f6fc}
+
+
+/* Delivery channel diagnostics */
+.delivery-overview-grid{grid-template-columns:repeat(auto-fit,minmax(210px,1fr))}
+.delivery-queue-card .communications-section-title p{margin:3px 0 0;color:var(--surface-muted);font-size:.7rem;line-height:1.4}
+.push-target-picker{display:grid;gap:10px;padding:12px;border:1px solid #e5e9e7;border-radius:12px;background:#fafbfb}
+.push-target-meta{display:flex;flex-wrap:wrap;gap:8px 14px;color:var(--surface-muted);font-size:.69rem}
+.push-target-meta span{display:inline-flex;align-items:center;gap:5px}
+.channel-test-intro{display:grid;gap:12px;padding:14px;border:1px solid #e5e9e7;border-radius:12px;background:#fff}
+.channel-test-intro p{margin:0;color:var(--surface-muted);font-size:.76rem;line-height:1.5}
+.channel-test-intro button{justify-self:start;display:inline-flex;align-items:center;gap:7px}
+.channel-test-empty{display:grid;place-items:center;gap:7px;padding:22px;border:1px dashed #d9dfdc;border-radius:12px;color:var(--surface-muted);text-align:center}
+.channel-test-empty strong{color:var(--text)}
+.channel-test-empty p{max-width:460px;margin:0;font-size:.75rem;line-height:1.5}
+@media(max-width:680px){.channel-test-intro button{width:100%;justify-content:center}.push-target-meta{display:grid}}
