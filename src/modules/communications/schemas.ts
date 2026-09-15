@@ -8,6 +8,7 @@ export const operationalNoticeCreateSchema = z.object({
   title: z.string().trim().min(1).max(200),
   body: z.string().trim().min(1).max(8000),
   requiresAcknowledgement: z.boolean().default(true),
+  sendEmail: z.boolean().default(false),
   expiresAt: z.coerce.date().optional().nullable(),
   userIds: z.array(z.string().min(1)).min(1).max(500),
 })

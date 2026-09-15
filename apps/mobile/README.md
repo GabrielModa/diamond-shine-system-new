@@ -41,9 +41,9 @@ The integration test changes the configured test database. Reseed demo data afte
 - Only actively assigned employees / field supervisors get field-execution controls. Management roles may review visit detail but do not get a mobile “start cleaning” button merely because their API role is privileged.
 - Manager/supervisor **Operations** intelligence is intentionally a separate cross-system feature so desktop and mobile consume the same schedule-health truth.
 
-## Production push
+## Future remote push
 
-Set `EXPO_PUBLIC_EAS_PROJECT_ID`, configure Android FCM v1 and iOS APNs credentials in EAS, and optionally protect Expo push calls on the server with `EXPO_PUSH_ACCESS_TOKEN`.
+The MVP uses the Team inbox, optional operational email and local visit reminders. Remote push registration is disabled unless `EXPO_PUBLIC_REMOTE_PUSH_ENABLED=true` is explicitly supplied. When this channel is promoted, set that flag, configure Android FCM v1 and iOS APNs credentials in EAS, set `REMOTE_PUSH_ENABLED=true` on the server, and optionally protect Expo push calls with `EXPO_PUSH_ACCESS_TOKEN`.
 
 ```bash
 npx eas-cli build --profile development --platform android

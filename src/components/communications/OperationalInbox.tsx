@@ -29,7 +29,7 @@ type NoticeData = {
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
 type Job = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string }
 type QueueData = { items: Job[]; counts: Record<string, number>; latestFailure?: { kind: string; lastError: string; lastAttemptAt: string | null } | null }
-type CommunicationsBootstrap = { mine: NoticeData; all: NoticeData | null; people: Person[]; sites: Site[]; canManage: boolean }
+type CommunicationsBootstrap = { mine: NoticeData; all: NoticeData | null; people: Person[]; sites: Site[]; canManage: boolean; operationalEmailOverrideActive: boolean }
 type DeliveryDiagnostic = {
   status: 'running' | 'success' | 'failure'
   recipient?: string
@@ -38,28 +38,6 @@ type DeliveryDiagnostic = {
   messageId?: string
   checks?: { smtpVerified: boolean; recipientAccepted: boolean }
 }
-type PushTarget = {
-  id: string
-  name?: string | null
-  email: string
-  deviceCount: number
-  platforms: string[]
-  lastRegisteredAt: string
-}
-type PushDiagnostic = {
-  status: 'running' | 'success' | 'failure'
-  target?: { id: string; name?: string | null; email: string }
-  registered?: number
-  accepted?: number
-  failed?: number
-  invalidated?: number
-  ticketIds?: string[]
-  platforms?: string[]
-  lastRegisteredAt?: string | null
-  message?: string
-  error?: string
-}
-
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init })
   const payload = await response.json().catch(() => null) as { data?: T; error?: string } | null
@@ -124,6 +102,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [all, setAll] = useState<NoticeData>({ items: [], summary: {} })
   const [people, setPeople] = useState<Person[]>([])
   const [sites, setSites] = useState<Site[]>([])
+  const [operationalEmailOverrideActive, setOperationalEmailOverrideActive] = useState(false)
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
   const [recipientQuery, setRecipientQuery] = useState('')
   const [recipientRole, setRecipientRole] = useState('all')
@@ -136,16 +115,12 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [trackingPage, setTrackingPage] = useState(1)
   const [trackingLoading, setTrackingLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Notice | null>(null)
-  const [draft, setDraft] = useState({ type: 'schedule_change', priority: 'high', title: '', body: '', siteId: '', requiresAcknowledgement: true })
+  const [draft, setDraft] = useState({ type: 'schedule_change', priority: 'high', title: '', body: '', siteId: '', requiresAcknowledgement: true, sendEmail: true })
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '', operationalAlerts: '' })
   const [queue, setQueue] = useState<QueueData>({ items: [], counts: {} })
   const [templates, setTemplates] = useState<Template[]>([])
   const [selectedTemplateKey, setSelectedTemplateKey] = useState('')
   const [deliveryTest, setDeliveryTest] = useState<DeliveryDiagnostic | null>(null)
-  const [pushTargets, setPushTargets] = useState<PushTarget[]>([])
-  const [selectedPushUserId, setSelectedPushUserId] = useState('')
-  const [pushTestOpen, setPushTestOpen] = useState(false)
-  const [pushTest, setPushTest] = useState<PushDiagnostic | null>(null)
   const [acknowledgementNotes, setAcknowledgementNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -158,25 +133,21 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     try {
       const bootstrap = await api<CommunicationsBootstrap>('/api/communications/bootstrap')
       setMine(bootstrap.mine)
+      setOperationalEmailOverrideActive(bootstrap.operationalEmailOverrideActive)
       if (canManage) {
         setPeople(bootstrap.people)
         setSites(bootstrap.sites)
         setSelectedUsers((current) => current.filter((id) => bootstrap.people.some((person) => person.id === id)))
       }
       if (canConfigure) {
-        const [alertData, queueData, templateData, pushTargetData] = await Promise.all([
+        const [alertData, queueData, templateData] = await Promise.all([
           api<typeof alerts>('/api/settings'),
           api<QueueData>('/api/notifications'),
           api<Template[]>('/api/templates'),
-          api<{ targets: PushTarget[] }>('/api/notifications/test-push'),
         ])
         setAlerts(alertData)
         setQueue(queueData)
         setTemplates(templateData)
-        setPushTargets(pushTargetData.targets)
-        setSelectedPushUserId((current) => pushTargetData.targets.some((target) => target.id === current)
-          ? current
-          : pushTargetData.targets[0]?.id ?? '')
       }
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not load the operational inbox.')
@@ -262,7 +233,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         ? 'Select at least one recipient.'
         : ''
   const selectedTemplate = templates.find((template) => template.key === selectedTemplateKey) ?? templates[0] ?? null
-  const selectedPushTarget = pushTargets.find((target) => target.id === selectedPushUserId) ?? null
   const queuedJobs = queue.counts.queued ?? 0
   const failedJobs = (queue.counts.failed ?? 0) + (queue.counts.exhausted ?? 0)
 
@@ -309,7 +279,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         method: 'POST', headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ ...draft, siteId: draft.siteId || null, userIds: selectedUsers }),
       })
-      setNotice(`Published to ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'}.`)
+      setNotice(`Published to ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'}${draft.sendEmail ? ' and queued for email delivery' : ''}.`)
       setDraft((current) => ({ ...current, title: '', body: '' }))
       setSelectedUsers([])
       await refresh()
@@ -357,46 +327,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       })
     } catch (cause) {
       setDeliveryTest({ status: 'failure', error: cause instanceof Error ? cause.message : 'Email delivery test failed.' })
-    } finally { setBusy(false) }
-  }
-
-  async function testPushDelivery() {
-    if (!selectedPushUserId) {
-      setPushTest({ status: 'failure', error: 'No registered mobile device is available to test.' })
-      return
-    }
-    setBusy(true); setError(''); setPushTest({ status: 'running' })
-    try {
-      const response = await fetch('/api/notifications/test-push', {
-        method: 'POST',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ userId: selectedPushUserId }),
-      })
-      const payload = await response.json().catch(() => null) as {
-        data?: {
-          target?: { id: string; name?: string | null; email: string }
-          registered?: number
-          accepted?: number
-          failed?: number
-          invalidated?: number
-          ticketIds?: string[]
-          platforms?: string[]
-          lastRegisteredAt?: string | null
-          message?: string
-        }
-        error?: string
-      } | null
-      const next: PushDiagnostic = {
-        status: response.ok ? 'success' : 'failure',
-        ...payload?.data,
-        error: response.ok ? undefined : payload?.error ?? 'Mobile push test failed.',
-      }
-      setPushTest(next)
-      if (!response.ok) await refresh()
-    } catch (cause) {
-      setPushTest({ status: 'failure', error: cause instanceof Error ? cause.message : 'Mobile push test failed.' })
     } finally { setBusy(false) }
   }
 
@@ -489,6 +419,10 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <div className="inbox-select-field"><span>Site context</span><StandardSelect searchable={sites.length > 8} value={draft.siteId} onChange={(value) => setDraft((current) => ({ ...current, siteId: value }))} ariaLabel="Site context" searchPlaceholder="Search client or site…" options={[{ value: '', label: 'Organization-wide' }, ...sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))]} /></div>
         <label className={draft.requiresAcknowledgement ? 'ack-toggle ack-toggle-card active' : 'ack-toggle ack-toggle-card'}><input type="checkbox" aria-label="Require acknowledgement" checked={draft.requiresAcknowledgement} onChange={(event) => setDraft((current) => ({ ...current, requiresAcknowledgement: event.target.checked }))} /><span><strong>{draft.requiresAcknowledgement ? 'Acknowledgement required' : 'Acknowledgement optional'}</strong><small>{draft.requiresAcknowledgement ? 'Recipients must confirm this notice.' : 'Recipients can read it without confirming.'}</small></span></label>
       </div>
+      <fieldset className="broadcast-delivery"><legend>Delivery</legend><div className="broadcast-delivery-grid">
+        <div className="broadcast-channel active"><span className="communications-mini-icon"><OpsIcon name="message" size={16} /></span><span><strong>Team inbox</strong><small>Always published in the web and mobile inbox with acknowledgement tracking.</small></span><b>Always on</b></div>
+        <label className={draft.sendEmail ? 'broadcast-channel active' : 'broadcast-channel'}><input type="checkbox" aria-label="Also send by email" checked={draft.sendEmail} onChange={(event) => setDraft((current) => ({ ...current, sendEmail: event.target.checked }))} /><span><strong>Also send by email</strong><small>Queues a separate email to every selected recipient. Useful for urgent or important updates.</small></span><b>{draft.sendEmail ? 'On' : 'Off'}</b></label>
+      </div>{operationalEmailOverrideActive && draft.sendEmail ? <p className="broadcast-delivery-warning"><OpsIcon name="alert" size={14} /> Email test override is active. Broadcast emails will be redirected to the test inbox until an administrator disables it in Delivery settings.</p> : <p>Phone push notifications are planned for a future release. Visit reminders already scheduled by the app are unchanged.</p>}</fieldset>
       <label><span>Title</span><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Tomorrow's start time changed" /></label>
       <label><span>Message</span><textarea value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="State what changed, what the team must do and who to contact…" /></label>
       <div className="recipient-picker">
@@ -507,7 +441,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         </div>
         {recipientPeople.length > 8 ? <button type="button" className="recipient-expand" onClick={() => setRecipientExpanded((current) => !current)}>{recipientExpanded ? 'Show less' : `Show all ${recipientPeople.length} recipients`}</button> : null}
       </div>
-      <div className={publishBlocker ? "publish-readiness" : "publish-readiness ready"}><span aria-hidden="true">{publishBlocker ? '○' : '✓'}</span><p>{publishBlocker || `Ready to publish to ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'}.`}</p></div>
+      <div className={publishBlocker ? "publish-readiness" : "publish-readiness ready"}><span aria-hidden="true">{publishBlocker ? '○' : '✓'}</span><p>{publishBlocker || `Ready for ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'} via Team inbox${draft.sendEmail ? ' and email' : ''}.`}</p></div>
       <button type="button" className={publishBlocker ? 'publish-action' : 'publish-action ready'} onClick={() => void publish()} disabled={busy || Boolean(publishBlocker)}>{publishBlocker ? 'Complete the required fields' : `Publish to ${selectedUsers.length} recipient${selectedUsers.length === 1 ? '' : 's'}`}</button>
     </article></section> : null}
 
@@ -566,10 +500,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
           <span className="communications-icon-tile violet"><OpsIcon name="check" size={18} /></span>
           <div><span>Email diagnostic</span><strong>Send test email</strong><small>Sends directly to the configured test inbox. It does not enter the delivery queue.</small></div><OpsIcon name="review" size={18} />
         </button>
-        <button type="button" className="card delivery-overview-card interactive" onClick={() => { setPushTestOpen(true); setPushTest(null) }}>
-          <span className="communications-icon-tile"><OpsIcon name="message" size={18} /></span>
-          <div><span>Mobile diagnostic</span><strong>Send test notification</strong><small>{pushTargets.length ? `${pushTargets.length} team member${pushTargets.length === 1 ? '' : 's'} with registered devices.` : 'No registered mobile devices found.'}</small></div><OpsIcon name="review" size={18} />
-        </button>
         <article className={`card delivery-overview-card ${failedJobs ? 'attention' : ''}`}>
           <span className={`communications-icon-tile ${failedJobs ? 'danger' : ''}`}><OpsIcon name={failedJobs ? 'alert' : 'activity'} size={18} /></span>
           <div><span>Delivery queue</span><strong>{failedJobs ? `${failedJobs} need attention` : queuedJobs ? `${queuedJobs} queued` : 'Queue healthy'}</strong><small>{queue.counts.sent ?? 0} sent · {queue.counts.failed ?? 0} failed · {queue.counts.exhausted ?? 0} exhausted</small></div>
@@ -587,7 +517,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       </article>
 
       <article className="card delivery-queue-card">
-        <div className="section-heading"><div className="communications-section-title"><span className="communications-icon-tile soft"><OpsIcon name="activity" size={19} /></span><div><span className="eyebrow">Background delivery</span><h2>Automated deliveries</h2><p>Workflow-generated email and mobile notifications. Manual channel tests above do not appear here.</p></div></div><button type="button" className="secondary" onClick={() => void processQueue()} disabled={busy}><OpsIcon name="refresh" size={16} /> Process due</button></div>
+        <div className="section-heading"><div className="communications-section-title"><span className="communications-icon-tile soft"><OpsIcon name="activity" size={19} /></span><div><span className="eyebrow">Background delivery</span><h2>Email deliveries</h2><p>Workflow-generated emails and Broadcast email escalations. The Team inbox itself is delivered immediately.</p></div></div><button type="button" className="secondary" onClick={() => void processQueue()} disabled={busy}><OpsIcon name="refresh" size={16} /> Process due</button></div>
         <div className="delivery-queue-metrics"><span><b>{queue.counts.queued ?? 0}</b><small>Queued</small></span><span><b>{queue.counts.failed ?? 0}</b><small>Failed</small></span><span><b>{queue.counts.exhausted ?? 0}</b><small>Exhausted</small></span><span><b>{queue.counts.sent ?? 0}</b><small>Sent</small></span></div>
         {queue.latestFailure ? <div className="delivery-latest-failure" role="status"><OpsIcon name="alert" size={17} /><div><strong>Latest failure</strong><span>{queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</span></div></div> : null}
         <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{deliveryJobLabel(job.kind)}</strong><span className={`delivery-job-status ${job.status}`}>{deliveryJobStatus(job)}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
@@ -610,27 +540,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         </> : <div className="delivery-empty"><OpsIcon name="spreadsheet" size={19} /><span>No email templates are configured.</span></div>}
       </section>
     </section> : null}
-    {pushTestOpen ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && pushTest?.status !== 'running') setPushTestOpen(false) }}><section className="card delivery-test-dialog" role="dialog" aria-modal="true" aria-labelledby="push-test-title">
-      <div className="delivery-test-head"><span className={`communications-icon-tile ${pushTest?.status === 'failure' ? 'danger' : pushTest?.status === 'success' ? '' : 'violet'}`}><OpsIcon name={pushTest?.status === 'failure' ? 'alert' : pushTest?.status === 'success' ? 'check' : 'message'} size={21} /></span><div><span className="eyebrow">Mobile push diagnostic</span><h2 id="push-test-title">{pushTest?.status === 'running' ? 'Sending test notification…' : pushTest?.status === 'success' ? 'Push accepted for delivery' : pushTest?.status === 'failure' ? 'Push test needs attention' : 'Test mobile notifications'}</h2></div></div>
-      {!pushTargets.length ? <div className="channel-test-empty"><OpsIcon name="alert" size={20} /><strong>No registered mobile devices</strong><p>Open the Diamond Shine development or production app on a phone, sign in and allow notifications. If the device does not appear, open About / Diagnostics in the mobile app to see the failed stage and retry registration.</p></div> : <>
-        <div className="push-target-picker"><div className="inbox-select-field"><span>Send test to</span><StandardSelect searchable={pushTargets.length > 5} value={selectedPushUserId} onChange={(value) => { setSelectedPushUserId(value); setPushTest(null) }} ariaLabel="Mobile push test user" searchPlaceholder="Search registered user…" options={pushTargets.map((target) => ({ value: target.id, label: `${target.name ?? target.email} · ${target.deviceCount} device${target.deviceCount === 1 ? '' : 's'}` }))} /></div>{selectedPushTarget ? <div className="push-target-meta"><span><OpsIcon name="user" size={15} />{selectedPushTarget.email}</span><span><OpsIcon name="message" size={15} />{selectedPushTarget.platforms.join(', ')} · last registered {when(selectedPushTarget.lastRegisteredAt)}</span></div> : null}</div>
-        {!pushTest ? <div className="channel-test-intro"><p>This sends one real push through Expo to the selected user’s active device registration. Tap the phone notification to open Team inbox.</p><button type="button" disabled={busy || !selectedPushUserId} onClick={() => void testPushDelivery()}><OpsIcon name="message" size={16} /> Send test notification</button></div> : pushTest.status === 'running' ? <div className="delivery-test-running"><span className="delivery-test-spinner" /><p>Sending a controlled notification through Expo.</p></div> : <>
-          <div className="delivery-test-checks">
-            <div className={(pushTest.registered ?? 0) > 0 ? 'pass' : 'fail'}><span><OpsIcon name={(pushTest.registered ?? 0) > 0 ? 'check' : 'alert'} size={17} /></span><div><strong>Device registration</strong><small>{pushTest.registered ?? 0} active device{(pushTest.registered ?? 0) === 1 ? '' : 's'} found</small></div></div>
-            <div className={(pushTest.accepted ?? 0) > 0 ? 'pass' : 'fail'}><span><OpsIcon name={(pushTest.accepted ?? 0) > 0 ? 'check' : 'alert'} size={17} /></span><div><strong>Expo acceptance</strong><small>{pushTest.accepted ?? 0} accepted · {pushTest.failed ?? 0} failed</small></div></div>
-            <div className="manual"><span><OpsIcon name="review" size={17} /></span><div><strong>Phone display</strong><small>Confirm the banner appeared on the selected phone</small></div></div>
-          </div>
-          <div className="delivery-test-meta">
-            {pushTest.target ? <div className="delivery-test-recipient"><span>Target user</span><strong>{pushTest.target.name ?? pushTest.target.email}</strong></div> : null}
-            {pushTest.ticketIds?.[0] ? <div className="delivery-test-recipient"><span>Expo ticket</span><strong title={pushTest.ticketIds[0]}>{pushTest.ticketIds[0]}</strong></div> : null}
-          </div>
-          <p className={pushTest.status === 'failure' ? 'delivery-test-message error' : 'delivery-test-message'}>{pushTest.error || pushTest.message || 'Push diagnostic completed.'}</p>
-          {pushTest.status === 'success' ? <p className="delivery-test-caveat"><OpsIcon name="review" size={15} /> Expo acceptance confirms the provider accepted the push request. The phone still provides the final visual confirmation.</p> : null}
-          <div className="ops-confirm-actions"><button type="button" className="secondary" onClick={() => setPushTestOpen(false)}>Close</button><button type="button" disabled={busy} onClick={() => void testPushDelivery()}><OpsIcon name="refresh" size={16} /> Send again</button></div>
-        </>}
-      </>}
-      {!pushTargets.length ? <div className="ops-confirm-actions"><button type="button" className="secondary" onClick={() => setPushTestOpen(false)}>Close</button></div> : null}
-    </section></div> : null}
     {deliveryTest ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && deliveryTest.status !== 'running') setDeliveryTest(null) }}><section className="card delivery-test-dialog" role="dialog" aria-modal="true" aria-labelledby="delivery-test-title">
       <div className="delivery-test-head"><span className={`communications-icon-tile ${deliveryTest.status === 'failure' ? 'danger' : deliveryTest.status === 'success' ? '' : 'violet'}`}><OpsIcon name={deliveryTest.status === 'failure' ? 'alert' : deliveryTest.status === 'success' ? 'check' : 'activity'} size={21} /></span><div><span className="eyebrow">Email diagnostic</span><h2 id="delivery-test-title">{deliveryTest.status === 'running' ? 'Testing delivery…' : deliveryTest.status === 'success' ? 'Email accepted for delivery' : 'Delivery test needs attention'}</h2></div></div>
       {deliveryTest.status === 'running' ? <div className="delivery-test-running"><span className="delivery-test-spinner" /><p>Checking SMTP connection and sending one controlled test email.</p></div> : <>

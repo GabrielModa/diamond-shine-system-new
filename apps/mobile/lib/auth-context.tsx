@@ -4,6 +4,7 @@ import { normalizeBaseUrl, registerUnauthorizedHandler } from './api';
 import { getDeviceId } from './device';
 import { claimOfflineWorkspace } from './offline';
 import { PushRegistrationError, PushRegistrationStage, registerForPushNotifications } from './push';
+import { remotePushEnabled } from './runtime';
 import {
   biometricSecureDelete,
   biometricSecureGet,
@@ -357,7 +358,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
   }, [session]);
 
   useEffect(() => {
-    if (!session) return;
+    if (!session || !remotePushEnabled) return;
     let disposed = false;
     // Registration stays off the startup critical path, then refreshes when
     // the app returns to the foreground in case network or permissions changed.

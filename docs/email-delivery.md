@@ -2,6 +2,8 @@
 
 Employee actions persist a notification job and return without awaiting SMTP. Production Next.js `after()` attempts the first delivery after the response. The existing lease, atomic claim, exponential backoff and attempt limit remain authoritative. A thrown delivery error now follows the same persisted failure/retry path as `{ ok: false }`.
 
+Communications broadcasts use the same durable `operational_email` path when the publisher enables **Also send by email**. The Team inbox copy is created immediately whether email is selected or not; email is an escalation channel and its queue status does not change acknowledgement tracking.
+
 ## Diagnostics
 
 All shared notification mailers return sanitized failures. Known Nodemailer codes (authentication, connection, DNS, TLS, envelope/message rejection) and numeric SMTP failure status are retained. Raw messages, responses, stacks, auth payloads and connection URLs are deliberately excluded because providers may echo credentials. Unknown failures have a safe fallback; this is not a complete SMTP transcript.

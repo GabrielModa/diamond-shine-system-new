@@ -5,6 +5,22 @@ import { requireAuth, requireCapability } from '../../../lib/auth'
 import { logAudit } from '../../../lib/audit'
 import { operationalNoticeCreateSchema, operationalNoticeQuerySchema } from '../../../modules/communications/schemas'
 import { enqueueNotification } from '../../../lib/notification-queue'
+import type { OperationalEmailTone } from '../../../lib/operational-email'
+
+const NOTICE_TYPE_LABELS = {
+  schedule_change: 'Schedule change',
+  site_instruction: 'Site instruction',
+  incident: 'Incident',
+  materials: 'Materials',
+  quality: 'Quality',
+  general: 'General update',
+} as const
+
+function emailTone(priority: 'low' | 'normal' | 'high' | 'critical'): OperationalEmailTone {
+  if (priority === 'critical') return 'danger'
+  if (priority === 'high') return 'warning'
+  return priority === 'low' ? 'neutral' : 'info'
+}
 
 export async function GET(request: NextRequest) {
   const parsed = operationalNoticeQuerySchema.safeParse(Object.fromEntries(request.nextUrl.searchParams.entries()))
@@ -157,20 +173,40 @@ export async function POST(request: NextRequest) {
     recipientCount: created.recipients.length,
     siteId: created.siteId,
     visitId: created.visitId,
+    emailEscalation: parsed.data.sendEmail,
   }, organizationId)
-  await enqueueNotification({
-    organizationId,
-    kind: 'operational_notice_push',
-    createdBy: auth.user.email,
-    entityType: 'operational_notice',
-    entityId: created.id,
-    payload: {
-      userIds,
-      title: created.title,
-      body: created.body,
-      noticeId: created.id,
-      priority: created.priority,
-    },
-  })
+  if (parsed.data.sendEmail) {
+    const priority = created.priority.charAt(0).toUpperCase() + created.priority.slice(1)
+    await enqueueNotification({
+      organizationId,
+      kind: 'operational_email',
+      createdBy: auth.user.email,
+      entityType: 'operational_notice',
+      entityId: created.id,
+      payload: {
+        userIds,
+        subject: `Diamond Shine · ${created.title}`,
+        eyebrow: NOTICE_TYPE_LABELS[created.type],
+        title: created.title,
+        message: created.body,
+        tone: emailTone(created.priority),
+        details: [
+          { label: 'Priority', value: priority },
+          ...(created.site ? [
+            { label: 'Client', value: created.site.client.displayName },
+            { label: 'Site', value: created.site.name },
+          ] : []),
+          {
+            label: 'Acknowledgement',
+            value: created.requiresAcknowledgement
+              ? 'Required in the Diamond Shine Team inbox'
+              : 'Not required',
+          },
+        ],
+        action: { label: 'Open Team inbox', path: '/communications' },
+        footer: 'Diamond Shine · Team communication',
+      } as Prisma.InputJsonValue,
+    })
+  }
   return NextResponse.json({ ok: true, data: created }, { status: 201 })
 }
