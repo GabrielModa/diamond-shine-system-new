@@ -47,7 +47,7 @@ export async function enqueueNotification(input: EnqueueInput) {
   // Import request-scoped Next.js APIs lazily so CLI, Vitest and background-worker
   // runtimes can import this shared module safely. The durable queue remains the
   // source of truth if the post-response attempt is unavailable or delivery fails.
-  const attemptAfterResponse = process.env.NODE_ENV === 'production' || input.kind === 'operational_notice_push'
+  const attemptAfterResponse = process.env.NODE_ENV === 'production'\n    || (process.env.NODE_ENV === 'development' && input.kind === 'operational_notice_push')
   if (attemptAfterResponse) {
     try {
       const { after } = await import('next/server')

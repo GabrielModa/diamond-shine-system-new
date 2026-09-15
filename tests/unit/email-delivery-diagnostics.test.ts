@@ -104,6 +104,13 @@ describe('safe SMTP diagnostics and queue persistence', () => {
     await enqueueNotification({ organizationId: 'org', kind: 'supply_alert', payload, createdBy: 'employee' })
     expect(mocks.after).not.toHaveBeenCalled()
   })
+  it('keeps integration/test operational pushes queue-only', async () => {
+    vi.stubEnv('NODE_ENV', 'test')
+    mocks.create.mockResolvedValue({ id: 'push-job', organizationId: 'org', kind: 'operational_notice_push' })
+    const pushPayload = { userIds: ['employee'], title: 'Pay attention', body: 'New operational update', noticeId: 'notice-1', priority: 'high' }
+    await enqueueNotification({ organizationId: 'org', kind: 'operational_notice_push', payload: pushPayload, createdBy: 'admin' })
+    expect(mocks.after).not.toHaveBeenCalled()
+  })
 })
 describe('cron and worker authentication', () => {
   it('rejects absent configuration, missing and invalid authorization', async () => {
