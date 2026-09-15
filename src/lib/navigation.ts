@@ -22,7 +22,7 @@ export const pageMeta: Record<string, PageMeta> = {
   people: { label: 'Plan coverage', href: '/people', section: 'control', order: 30, any: ['schedule.manage'] },
   'live-operations': { label: 'Live workforce', href: '/live-operations', section: 'control', order: 40, any: ['schedule.manage'] },
   'field-control': { label: 'Field control', href: '/field-control', section: 'control', order: 50, any: ['visits.review'] },
-  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'] },
+  supplies: { label: 'Supplies', href: '/supplies', section: 'control', order: 60, any: ['supplies.request'], excludedRoles: ['employee'] },
   timesheets: { label: 'Timesheets', href: '/timesheets', section: 'control', order: 70, any: ['time.own.manage', 'time.team.review'] },
 
   // Quality and management views explain outcomes without replacing the operational workspaces that produce them.
@@ -45,6 +45,6 @@ export const pageMeta: Record<string, PageMeta> = {
     label: 'Inbox', href: '/communications', section: 'workspace', order: 10,
     roles: ['organization_admin', 'field_supervisor', 'scheduler', 'employee', 'stock_controller', 'quality_inspector'],
   },
-  'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', order: 20, any: ['supplies.request'] },
+  'my-requests': { label: 'My requests', href: '/my-requests', section: 'workspace', order: 20, roles: ['employee'] },
   profile: { label: 'My profile', href: '/profile', section: 'workspace', order: 30, always: true },
 }
