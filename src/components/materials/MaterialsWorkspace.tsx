@@ -238,7 +238,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   function repeatRequest(request: Supply) {
     const next: Record<string, number> = {}
     for (const item of request.items) { const catalogId = item.catalogItemId ?? catalog.find((candidate) => candidate.name === item.product)?.id; if (catalogId) next[catalogId] = item.quantity }
-    setRequestQuantities(next); setPriority(request.priority); setNote(request.notes ? `Repeat: ${request.notes}` : `Repeat request ${request.id.slice(-6)}`); if (request.siteId && sites.some((site) => site.id === request.siteId)) setSiteId(request.siteId); setTab('request'); window.scrollTo({ top: 0, behavior: 'smooth' })
+    setRequestQuantities(next); setPriority(request.priority); setNote(request.notes ?? ''); if (request.siteId && sites.some((site) => site.id === request.siteId)) setSiteId(request.siteId); setTab('request'); window.scrollTo({ top: 0, behavior: 'smooth' })
   }
 
   return <main className="page-shell materials-shell">
