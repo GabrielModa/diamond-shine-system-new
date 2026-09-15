@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ApiResponse, FeedbackEntry } from '../../types'
 import StandardSelect from '../ui/StandardSelect'
+import PaginationControls from '../ui/PaginationControls'
 import { FeedbackDetailSheet } from '../dashboard/FeedbackDetailSheet'
 import styles from './ServiceFeedbackWorkspace.module.css'
 import EmployeeFeedbackOverview, { type EmployeeFeedbackSummary, type FeedbackTrend } from './EmployeeFeedbackOverview'
@@ -206,11 +207,7 @@ export default function ServiceFeedbackWorkspace() {
           </div>}
         </div>
 
-        {totalPages > 1 ? <footer className={styles.pagination}>
-          <button type="button" className="btn-secondary" disabled={historyLoading || page <= 1} onClick={() => setPage((current) => Math.max(1, current - 1))}>Previous</button>
-          <span>Page {page} of {totalPages}</span>
-          <button type="button" className="btn-secondary" disabled={historyLoading || page >= totalPages} onClick={() => setPage((current) => current + 1)}>Next</button>
-        </footer> : null}
+        <PaginationControls page={page} totalPages={Math.max(1, totalPages)} total={historyTotal} limit={PAGE_SIZE} loading={historyLoading} noun="evaluations" className={styles.pagination} onPageChange={setPage} />
       </section>
     </div> : null}
 
