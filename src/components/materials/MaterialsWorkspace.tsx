@@ -151,12 +151,12 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     } finally {
       setHistoryLoading(false)
     }
-  }, [canManage, historyPage, historyPriority, historyRevision, historyScope, historyStatus, personalView, requestFrom, requestQuery, requestTo, tab])
+  }, [canManage, historyPage, historyPriority, historyScope, historyStatus, personalView, requestFrom, requestQuery, requestTo, tab])
   useEffect(() => {
     if (tab !== 'history') return
     const timer = window.setTimeout(() => void loadHistory(), 160)
     return () => window.clearTimeout(timer)
-  }, [loadHistory, tab])
+  }, [historyRevision, loadHistory, tab])
   useEffect(() => { setHistoryPage(1) }, [historyPriority, historyScope, historyStatus, requestFrom, requestQuery, requestTo])
 
   const groupedStock = useMemo(() => Object.entries(stock.reduce<Record<string, Material[]>>((groups, item) => { (groups[item.category] ??= []).push(item); return groups }, {})), [stock])
