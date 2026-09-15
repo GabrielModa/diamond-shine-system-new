@@ -36,13 +36,13 @@ test('repeat request restores the original context and own cancellation persists
     })
 
     await page.goto('/my-requests')
-    let card = page.locator('.request-history-card').filter({ hasText: location })
+    let card = page.locator('.request-row').filter({ hasText: location })
     await expect(card).toHaveCount(1)
     await expect(card).toContainText(`${material.name} × 3`)
     await expect(card).toContainText('Requested')
 
-    await card.getByRole('button', { name: 'Repeat request', exact: true }).click()
-    await page.waitForURL(/\/supplies$/)
+    await card.getByRole('button', { name: 'Repeat', exact: true }).click()
+    await expect(page).toHaveURL(/\/my-requests$/)
 
     // Repeat must restore the previous request into the actual form, not merely navigate.
     await expect(page.getByRole('heading', { name: 'Manual material request' })).toBeVisible()
@@ -53,20 +53,21 @@ test('repeat request restores the original context and own cancellation persists
 
     // Repeating is a draft action; it must not create a second request until submitted.
     await page.goto('/my-requests')
-    card = page.locator('.request-history-card').filter({ hasText: location })
+    card = page.locator('.request-row').filter({ hasText: location })
     await expect(card).toHaveCount(1)
     await expect(card).toContainText('Requested')
 
-    page.once('dialog', (dialog) => dialog.accept())
-    await card.getByRole('button', { name: 'Cancel request', exact: true }).click()
+    await card.getByRole('button', { name: 'Cancel', exact: true }).click()
+    await page.getByRole('button', { name: 'Confirm', exact: true }).click()
+    card = page.locator('.request-row').filter({ hasText: location })
     await expect(card).toContainText('Cancelled')
-    await expect(card.getByRole('button', { name: 'Cancel request', exact: true })).toHaveCount(0)
+    await expect(card.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
 
     await page.reload()
-    card = page.locator('.request-history-card').filter({ hasText: location })
+    card = page.locator('.request-row').filter({ hasText: location })
     await expect(card).toHaveCount(1)
     await expect(card).toContainText('Cancelled')
-    await expect(card.getByRole('button', { name: 'Cancel request', exact: true })).toHaveCount(0)
+    await expect(card.getByRole('button', { name: 'Cancel', exact: true })).toHaveCount(0)
   } finally {
     await employeeContext.close()
   }
