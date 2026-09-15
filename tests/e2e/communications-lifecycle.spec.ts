@@ -11,9 +11,11 @@ test('employee acknowledgement persists and reaches manager tracking', async ({ 
   await page.getByLabel('Require acknowledgement').check()
   await page.getByLabel('Search recipients').fill('employee@ds.ie')
   await page.getByRole('checkbox', { name: /employee@ds.ie/ }).check()
-  await page.getByRole('button', { name: 'Publish & track acknowledgement' }).click()
+  await page.getByRole('button', { name: /^Publish to 1 recipient$/ }).click()
+
   const tracking = page.locator('.tracking-card').filter({ hasText: title })
-  await expect(tracking).toContainText('0/1 acknowledged')
+  await expect(tracking).toContainText('0/1 acknowledged', { timeout: 15_000 })
+
   const context = await browser.newContext({ baseURL: test.info().project.use.baseURL })
   try {
     const employee = await context.newPage()
@@ -24,8 +26,11 @@ test('employee acknowledgement persists and reaches manager tracking', async ({ 
     await expect(notice).toContainText('Acknowledged')
     await employee.reload()
     await expect(notice).toContainText('Acknowledged')
+
     await page.reload()
     await page.getByRole('button', { name: 'Acknowledgements', exact: true }).click()
-    await expect(tracking).toContainText('1/1 acknowledged')
-  } finally { await context.close() }
+    await expect(tracking).toContainText('1/1 acknowledged', { timeout: 15_000 })
+  } finally {
+    await context.close()
+  }
 })

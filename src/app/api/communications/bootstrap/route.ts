@@ -2,18 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import { authUserHasCapability, getAuthUser } from '../../../../lib/auth'
 import { prisma } from '../../../../lib/prisma'
 
-async function loadNotices(organizationId: string, userId: string, mine: boolean) {
+async function loadMine(organizationId: string, userId: string) {
   const notices = await prisma.operationalNotice.findMany({
-    where: {
-      organizationId,
-      ...(mine ? { recipients: { some: { userId } } } : {}),
-    },
+    where: { organizationId, recipients: { some: { userId } } },
     include: {
       site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
       visit: { select: { id: true, scheduledStart: true, status: true } },
       createdBy: { select: { id: true, name: true, email: true } },
       recipients: {
-        ...(mine ? { where: { userId } } : {}),
+        where: { userId },
         include: { user: { select: { id: true, name: true, email: true } } },
         orderBy: { deliveredAt: 'asc' },
       },
@@ -21,20 +18,14 @@ async function loadNotices(organizationId: string, userId: string, mine: boolean
     orderBy: [{ priority: 'desc' }, { publishedAt: 'desc' }],
     take: 100,
   })
-
-  const received = mine ? notices.map((notice) => notice.recipients[0]).filter(Boolean) : []
+  const received = notices.map((notice) => notice.recipients[0]).filter(Boolean)
   return {
     items: notices,
-    summary: mine ? {
+    summary: {
       total: notices.length,
       unread: received.filter((item) => !item.seenAt).length,
       awaitingAcknowledgement: notices.filter((notice) => notice.requiresAcknowledgement && !notice.recipients[0]?.acknowledgedAt).length,
       critical: notices.filter((notice) => notice.priority === 'critical').length,
-    } : {
-      total: notices.length,
-      recipients: notices.reduce((sum, notice) => sum + notice.recipients.length, 0),
-      seen: notices.reduce((sum, notice) => sum + notice.recipients.filter((item) => item.seenAt).length, 0),
-      acknowledged: notices.reduce((sum, notice) => sum + notice.recipients.filter((item) => item.acknowledgedAt).length, 0),
     },
   }
 }
@@ -44,9 +35,8 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   const canManage = authUserHasCapability(user, 'communications.manage')
-  const [mine, all, memberships, sites] = await Promise.all([
-    loadNotices(user.organizationId, user.id, true),
-    canManage ? loadNotices(user.organizationId, user.id, false) : Promise.resolve(null),
+  const [mine, memberships, sites] = await Promise.all([
+    loadMine(user.organizationId, user.id),
     canManage ? prisma.membership.findMany({
       where: {
         organizationId: user.organizationId,
@@ -74,7 +64,7 @@ export async function GET(request: NextRequest) {
     ok: true,
     data: {
       mine,
-      all,
+      all: null,
       people: memberships.map((membership) => ({ ...membership.user, role: membership.role })),
       sites,
       canManage,

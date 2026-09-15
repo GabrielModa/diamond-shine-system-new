@@ -800,11 +800,19 @@ describe('field execution', () => {
     expect(acknowledged.body.data.seenAt).toBeTruthy()
     expect(acknowledged.body.data.acknowledgedAt).toBeTruthy()
 
-    const tracking = await request(app).get('/api/operational-notices?scope=all').set('Cookie', adminCookie)
+    const tracking = await request(app).get('/api/operational-notices?scope=all&limit=1&page=1').set('Cookie', adminCookie)
     expect(tracking.status).toBe(200)
-    expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 2, seen: 1, acknowledged: 1 }))
-    const publishedTrackingItem = tracking.body.data.items.find((item: { id: string }) => item.id === published.body.data.id)
-    expect(publishedTrackingItem?.recipients[0].acknowledgement).toBe('Seen and confirmed.')
+    expect(tracking.body.data.summary).toEqual(expect.objectContaining({ recipients: 2, seen: 1, acknowledged: 1, complete: 1 }))
+    expect(tracking.body.data.pagination).toEqual(expect.objectContaining({ page: 1, limit: 1, total: 2, totalPages: 2 }))
+
+    const filteredTracking = await request(app)
+      .get('/api/operational-notices?scope=all&trackingState=complete&priority=high&q=Visit%20moved&limit=8&page=1')
+      .set('Cookie', adminCookie)
+    expect(filteredTracking.status).toBe(200)
+    expect(filteredTracking.body.data.pagination).toEqual(expect.objectContaining({ total: 1, totalPages: 1 }))
+    expect(filteredTracking.body.data.items).toHaveLength(1)
+    expect(filteredTracking.body.data.items[0].id).toBe(published.body.data.id)
+    expect(filteredTracking.body.data.items[0].recipients[0].acknowledgement).toBe('Seen and confirmed.')
   })
 
   it('supports secure bearer authentication for the native field app', async () => {

@@ -4,6 +4,7 @@ import { useAuth } from '@/lib/auth-context';
 import { formatOperationalDate } from '@/lib/operational-time';
 import { colors } from '@/lib/theme';
 import type { Notice } from '@/lib/types';
+import { useOperationalNotices } from '@/lib/use-operational-notices';
 import { useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-native';
@@ -11,18 +12,10 @@ import { ActivityIndicator, StyleSheet, Text, TextInput, View } from 'react-nati
 export default function InboxScreen() {
   const { session } = useAuth();
   const timezone = session?.timezone ?? 'Europe/Dublin';
-  const [items, setItems] = useState<Notice[]>([]);
-  const [loading, setLoading] = useState(true);
+  const { items, loading, error: loadError, refresh } = useOperationalNotices();
   const [notes, setNotes] = useState<Record<string, string>>({});
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
-  const refresh = useCallback(async () => {
-    if (!session) return;
-    setLoading(true); setError('');
-    try { const data = await apiFetch<{ items: Notice[] }>(session, '/api/operational-notices?scope=mine'); setItems(data.items); }
-    catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not load operational updates.'); }
-    finally { setLoading(false); }
-  }, [session]);
   useFocusEffect(useCallback(() => { void refresh(); }, [refresh]));
   async function acknowledge(item: Notice) {
     if (!session) return;
@@ -33,7 +26,7 @@ export default function InboxScreen() {
     } catch (cause) { setError(cause instanceof Error ? cause.message : 'Could not acknowledge this update.'); }
   }
   const pending = items.filter((item) => item.requiresAcknowledgement && !item.recipients[0]?.acknowledgedAt).length;
-  return <Screen><PageHeader eyebrow="Operational updates" title={pending ? `Inbox · ${pending} to confirm` : 'Inbox'} subtitle="Important changes stay linked to the right site and visit." />{message ? <Text style={styles.success}>{message}</Text> : null}{error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
+  return <Screen><PageHeader eyebrow="Operational updates" title={pending ? `Inbox · ${pending} to confirm` : 'Inbox'} subtitle="Important changes stay linked to the right site and visit." />{message ? <Text style={styles.success}>{message}</Text> : null}{error || loadError ? <Text accessibilityRole="alert" style={styles.error}>{error || loadError}</Text> : null}
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : items.length ? items.map((item) => { const receipt = item.recipients[0]; return <Card key={item.id} style={[styles.notice, item.priority === 'critical' && styles.critical, receipt?.acknowledgedAt && styles.read]}><View style={styles.meta}><Text style={[styles.priority, styles[`priority_${item.priority}`]]}>{item.priority}</Text><Text style={styles.type}>{item.type.replaceAll('_', ' ')}</Text><Text style={styles.date}>{formatOperationalDate(item.publishedAt, timezone, { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })}</Text></View><Text style={styles.title}>{item.title}</Text><Text style={styles.body}>{item.body}</Text>{item.site ? <Text style={styles.context}>{item.site.client.displayName} · {item.site.name}</Text> : null}<Text style={styles.from}>From {item.createdBy.name ?? item.createdBy.email}</Text>{item.requiresAcknowledgement && !receipt?.acknowledgedAt ? <><TextInput value={notes[item.id] ?? ''} onChangeText={(value) => setNotes((current) => ({ ...current, [item.id]: value }))} placeholder="Optional note to the manager" style={styles.input} /><Button title="Acknowledge" onPress={() => void acknowledge(item)} /></> : receipt?.acknowledgedAt ? <Text style={styles.ack}>✓ Acknowledged</Text> : null}</Card>; }) : <EmptyState title="You are all caught up" body="Important changes and instructions will appear here." />}
   </Screen>;
 }

@@ -125,17 +125,35 @@ describe('admin diagnostic', () => {
     expect(response.status).toBe(200)
     expect(mocks.verify).toHaveBeenCalledOnce()
     expect(mocks.sendMail).toHaveBeenCalledWith(expect.objectContaining({ to: 'admin@example.org' }))
+    expect(await response.json()).toEqual({
+      ok: true,
+      data: {
+        message: expect.any(String),
+        recipient: 'admin@example.org',
+        checks: { smtpVerified: true, recipientAccepted: true },
+      },
+    })
     expect(mocks.close).toHaveBeenCalledOnce()
   })
   it('reports sanitized verification failure without sending', async () => {
     mocks.verify.mockRejectedValue(smtpError)
     const response = await diagnostic(req('/test'))
     expect(response.status).toBe(502)
-    expect(await response.json()).toEqual({ ok: false, error: sanitizeDeliveryError(smtpError) })
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: sanitizeDeliveryError(smtpError),
+      data: { recipient: 'admin@example.org', checks: { smtpVerified: false, recipientAccepted: false } },
+    })
     expect(mocks.sendMail).not.toHaveBeenCalled()
   })
   it('reports rejection after verification instead of claiming delivery', async () => {
     mocks.sendMail.mockResolvedValue({ accepted: [], rejected: ['admin@example.org'] })
-    expect((await diagnostic(req('/test'))).status).toBe(502)
+    const response = await diagnostic(req('/test'))
+    expect(response.status).toBe(502)
+    expect(await response.json()).toEqual({
+      ok: false,
+      error: 'EENVELOPE: SMTP sender or recipient rejected',
+      data: { recipient: 'admin@example.org', checks: { smtpVerified: true, recipientAccepted: false } },
+    })
   })
 })

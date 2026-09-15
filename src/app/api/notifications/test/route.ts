@@ -38,6 +38,6 @@ export async function POST(request: NextRequest) {
   }
 
   const result = await testEmailDelivery(recipient)
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 502 })
-  return NextResponse.json({ ok: true, data: { message: result.message, recipient } })
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error, data: { recipient, checks: result.checks } }, { status: 502 })
+  return NextResponse.json({ ok: true, data: { message: result.message, recipient, checks: result.checks } })
 }

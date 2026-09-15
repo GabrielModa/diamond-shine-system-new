@@ -6,6 +6,7 @@ import { colors } from '@/lib/theme';
 import type { Visit } from '@/lib/types';
 import { useVisits } from '@/lib/use-visits';
 import { useWorkCommitments } from '@/lib/use-work-commitments';
+import { useOperationalNotices } from '@/lib/use-operational-notices';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { router } from 'expo-router';
 import { ActivityIndicator, Pressable, StyleSheet, Text, View } from 'react-native';
@@ -16,6 +17,7 @@ export default function HomeScreen() {
   const { session } = useAuth();
   const { visits, loading, offline, queued, issues, error, refresh } = useVisits();
   const { commitments } = useWorkCommitments();
+  const { items: operationalNotices } = useOperationalNotices();
   const timezone = session?.timezone ?? 'Europe/Dublin';
   const email = session?.email;
   const today = operationalDateKey(new Date(), timezone);
@@ -37,6 +39,12 @@ export default function HomeScreen() {
   // must show the number of responses the employee actually has to make, not
   // the number of pending occurrence rows in the 30-day offline package.
   const scheduleResponses = commitments.length;
+  const noticeAttention = operationalNotices.filter((item) => {
+    const receipt = item.recipients[0];
+    return !receipt?.seenAt || (item.requiresAcknowledgement && !receipt?.acknowledgedAt);
+  });
+  const latestNotice = noticeAttention[0];
+  const acknowledgementAttention = noticeAttention.filter((item) => item.requiresAcknowledgement && !item.recipients[0]?.acknowledgedAt).length;
 
   return <Screen>
     <PageHeader
@@ -50,6 +58,12 @@ export default function HomeScreen() {
       <Text style={styles.syncText}>{error || (issues ? `${issues} saved change${issues === 1 ? '' : 's'} need review. Successful changes remain saved.` : `${queued} change${queued === 1 ? '' : 's'} waiting safely on this device.`)}</Text>
       <Button title="Sync now" compact variant="secondary" onPress={() => void refresh()} />
     </View> : null}
+
+    {noticeAttention.length ? <Pressable accessibilityRole="button" accessibilityLabel={`${noticeAttention.length} operational update${noticeAttention.length === 1 ? '' : 's'} need attention`} onPress={() => router.push('/(tabs)/inbox')} style={({ pressed }) => [styles.noticeCard, latestNotice?.priority === 'critical' && styles.noticeCritical, pressed && styles.pressed]}>
+      <View style={[styles.noticeIcon, latestNotice?.priority === 'critical' && styles.noticeIconCritical]}><Ionicons name="notifications-outline" size={20} color={latestNotice?.priority === 'critical' ? colors.danger : colors.warning} /></View>
+      <View style={styles.responseCopy}><Text style={styles.noticeTitle}>{acknowledgementAttention ? `${acknowledgementAttention} update${acknowledgementAttention === 1 ? '' : 's'} need acknowledgement` : `${noticeAttention.length} new operational update${noticeAttention.length === 1 ? '' : 's'}`}</Text><Text style={styles.noticeSub} numberOfLines={1}>{latestNotice?.title ?? 'Open your team inbox'}</Text></View>
+      <View style={styles.noticeOpen}><Text style={styles.noticeOpenText}>Inbox</Text><Ionicons name="chevron-forward" size={18} color={colors.primary} /></View>
+    </Pressable> : null}
 
     {scheduleResponses ? <Pressable accessibilityRole="button" onPress={() => router.push('/(tabs)/work')} style={({ pressed }) => [styles.responseCard, pressed && styles.pressed]}>
       <View style={styles.responseIcon}><Ionicons name="checkmark-done-outline" size={20} color={colors.warning} /></View>
@@ -145,6 +159,14 @@ const styles = StyleSheet.create({
   syncTitle: { color: colors.warning, fontSize: 16, fontWeight: '900' },
   syncProblemTitle: { color: colors.danger },
   syncText: { color: colors.ink, fontSize: 13, lineHeight: 19 },
+  noticeCard: { minHeight: 82, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1, borderColor: '#EDCC86', borderRadius: 17, backgroundColor: '#FFF9EE' },
+  noticeCritical: { borderColor: '#F0B8B4', backgroundColor: '#FFF5F4' },
+  noticeIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0D3' },
+  noticeIconCritical: { backgroundColor: '#FDECEA' },
+  noticeTitle: { color: colors.ink, fontSize: 14, fontWeight: '900' },
+  noticeSub: { color: colors.muted, fontSize: 10, lineHeight: 15, marginTop: 3 },
+  noticeOpen: { flexDirection: 'row', alignItems: 'center', gap: 2 },
+  noticeOpenText: { color: colors.primary, fontSize: 11, fontWeight: '900' },
   responseCard: { minHeight: 82, padding: 14, flexDirection: 'row', alignItems: 'center', gap: 11, borderWidth: 1, borderColor: '#EDCC86', borderRadius: 17, backgroundColor: '#FFF9EE' },
   responseIcon: { width: 38, height: 38, borderRadius: 12, alignItems: 'center', justifyContent: 'center', backgroundColor: '#FFF0D3' },
   responseCopy: { flex: 1, minWidth: 0 },

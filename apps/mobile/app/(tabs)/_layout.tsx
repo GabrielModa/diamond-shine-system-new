@@ -1,6 +1,7 @@
 import { useAuth } from '@/lib/auth-context';
 import { colors, shadow } from '@/lib/theme';
 import { useVisits, VisitsProvider } from '@/lib/use-visits';
+import { OperationalNoticesProvider } from '@/lib/use-operational-notices';
 import Ionicons from '@expo/vector-icons/Ionicons';
 import { Redirect, router, Tabs } from 'expo-router';
 import React from 'react';
@@ -17,6 +18,7 @@ export default function TabLayout() {
   const tabBarHeight = tabBarBase + insets.bottom;
   return (
     <VisitsProvider>
+      <OperationalNoticesProvider>
       <View style={styles.shell}><Tabs
         screenOptions={{
           tabBarActiveTintColor: colors.primary,
@@ -42,6 +44,7 @@ export default function TabLayout() {
         <Tabs.Screen name="work" options={{ href: null }} />
         <Tabs.Screen name="inbox" options={{ href: null }} />
       </Tabs><ActiveVisitBar bottom={tabBarHeight + 10} /></View>
+      </OperationalNoticesProvider>
     </VisitsProvider>
   );
 }

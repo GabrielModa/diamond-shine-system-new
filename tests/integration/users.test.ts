@@ -336,13 +336,39 @@ describe('admin-assisted scheduling profile', () => {
   })
 })
 
+describe('operational notice lifecycle', () => {
+  it('lets a communications manager delete a published notice and its queued delivery', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const published = await request(app)
+      .post('/api/operational-notices')
+      .set('Cookie', adminCookie)
+      .send({
+        type: 'general',
+        priority: 'normal',
+        title: 'Disposable integration notice',
+        body: 'This notice exists only to verify managed deletion.',
+        requiresAcknowledgement: false,
+        userIds: [employee.id],
+      })
+    expect(published.status).toBe(201)
+    const noticeId = published.body.data.id as string
+    expect(await prisma.notificationJob.count({ where: { entityType: 'operational_notice', entityId: noticeId } })).toBe(1)
+
+    const removed = await request(app).delete(`/api/operational-notices/${noticeId}`).set('Cookie', adminCookie)
+    expect(removed.status).toBe(200)
+    expect(await prisma.operationalNotice.count({ where: { id: noticeId } })).toBe(0)
+    expect(await prisma.operationalNoticeRecipient.count({ where: { noticeId } })).toBe(0)
+    expect(await prisma.notificationJob.count({ where: { entityType: 'operational_notice', entityId: noticeId } })).toBe(0)
+  })
+})
+
 describe('communications bootstrap', () => {
   it('returns inbox and manager targeting data through one scoped read', async () => {
     const response = await request(app).get('/api/communications/bootstrap').set('Cookie', adminCookie)
     expect(response.status).toBe(200)
     expect(response.body.data).toEqual(expect.objectContaining({
       mine: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
-      all: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
+      all: null,
       people: expect.arrayContaining([
         expect.objectContaining({ email: 'employee@ds.ie', role: 'employee' }),
         expect.objectContaining({ email: 'super@ds.ie', role: 'field_supervisor' }),

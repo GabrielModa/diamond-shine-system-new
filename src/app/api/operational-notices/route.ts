@@ -1,3 +1,4 @@
+import type { Prisma } from '@prisma/client'
 import { NextRequest, NextResponse } from 'next/server'
 import { prisma } from '../../../lib/prisma'
 import { requireAuth, requireCapability } from '../../../lib/auth'
@@ -12,49 +13,93 @@ export async function GET(request: NextRequest) {
     ? await requireCapability(request, 'communications.manage')
     : await requireAuth(request, ['admin', 'supervisor', 'employee'])
   if ('response' in auth) return auth.response
+
   const organizationId = auth.user.organizationId
   const mine = parsed.data.scope === 'mine'
-  const notices = await prisma.operationalNotice.findMany({
-    where: {
-      organizationId,
-      ...(mine ? {
-        recipients: {
-          some: {
-            userId: auth.user.id,
-            ...(parsed.data.state === 'unread' ? { seenAt: null } : {}),
-            ...(parsed.data.state === 'unacknowledged' ? { acknowledgedAt: null } : {}),
-          },
-        },
-      } : {}),
-    },
-    include: {
-      site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
-      visit: { select: { id: true, scheduledStart: true, status: true } },
-      createdBy: { select: { id: true, name: true, email: true } },
+  const where: Prisma.OperationalNoticeWhereInput = {
+    organizationId,
+    ...(parsed.data.priority !== 'all' ? { priority: parsed.data.priority } : {}),
+    ...(parsed.data.q ? {
+      OR: [
+        { title: { contains: parsed.data.q, mode: 'insensitive' } },
+        { body: { contains: parsed.data.q, mode: 'insensitive' } },
+      ],
+    } : {}),
+    ...(mine ? {
       recipients: {
-        ...(mine ? { where: { userId: auth.user.id } } : {}),
-        include: { user: { select: { id: true, name: true, email: true } } },
-        orderBy: { deliveredAt: 'asc' },
+        some: {
+          userId: auth.user.id,
+          ...(parsed.data.state === 'unread' ? { seenAt: null } : {}),
+          ...(parsed.data.state === 'unacknowledged' ? { acknowledgedAt: null } : {}),
+        },
       },
-    },
-    orderBy: [{ priority: 'desc' }, { publishedAt: 'desc' }],
-    take: parsed.data.limit,
-  })
+    } : parsed.data.trackingState === 'awaiting' ? {
+      requiresAcknowledgement: true,
+      recipients: { some: { acknowledgedAt: null } },
+    } : parsed.data.trackingState === 'complete' ? {
+      requiresAcknowledgement: true,
+      recipients: { none: { acknowledgedAt: null } },
+    } : parsed.data.trackingState === 'informational' ? {
+      requiresAcknowledgement: false,
+    } : {}),
+  }
+
+  const skip = (parsed.data.page - 1) * parsed.data.limit
+  const [notices, filteredTotal] = await Promise.all([
+    prisma.operationalNotice.findMany({
+      where,
+      include: {
+        site: { select: { id: true, name: true, client: { select: { displayName: true } } } },
+        visit: { select: { id: true, scheduledStart: true, status: true } },
+        createdBy: { select: { id: true, name: true, email: true } },
+        recipients: {
+          ...(mine ? { where: { userId: auth.user.id } } : {}),
+          include: { user: { select: { id: true, name: true, email: true } } },
+          orderBy: { deliveredAt: 'asc' },
+        },
+      },
+      orderBy: [{ priority: 'desc' }, { publishedAt: 'desc' }],
+      skip,
+      take: parsed.data.limit,
+    }),
+    prisma.operationalNotice.count({ where }),
+  ])
+
+  const totalPages = Math.max(1, Math.ceil(filteredTotal / parsed.data.limit))
   const received = mine ? notices.map((notice) => notice.recipients[0]).filter(Boolean) : []
+
+  let summary: Record<string, number>
+  if (mine) {
+    summary = {
+      total: filteredTotal,
+      unread: received.filter((item) => !item.seenAt).length,
+      awaitingAcknowledgement: notices.filter((notice) => notice.requiresAcknowledgement && !notice.recipients[0]?.acknowledgedAt).length,
+      critical: notices.filter((notice) => notice.priority === 'critical').length,
+    }
+  } else {
+    const [total, awaiting, complete, informational, critical, recipients, seen, acknowledged] = await Promise.all([
+      prisma.operationalNotice.count({ where: { organizationId } }),
+      prisma.operationalNotice.count({ where: { organizationId, requiresAcknowledgement: true, recipients: { some: { acknowledgedAt: null } } } }),
+      prisma.operationalNotice.count({ where: { organizationId, requiresAcknowledgement: true, recipients: { none: { acknowledgedAt: null } } } }),
+      prisma.operationalNotice.count({ where: { organizationId, requiresAcknowledgement: false } }),
+      prisma.operationalNotice.count({ where: { organizationId, priority: 'critical' } }),
+      prisma.operationalNoticeRecipient.count({ where: { organizationId } }),
+      prisma.operationalNoticeRecipient.count({ where: { organizationId, seenAt: { not: null } } }),
+      prisma.operationalNoticeRecipient.count({ where: { organizationId, acknowledgedAt: { not: null } } }),
+    ])
+    summary = { total, awaiting, complete, informational, critical, recipients, seen, acknowledged }
+  }
+
   return NextResponse.json({
     ok: true,
     data: {
       items: notices,
-      summary: mine ? {
-        total: notices.length,
-        unread: received.filter((item) => !item.seenAt).length,
-        awaitingAcknowledgement: notices.filter((notice) => notice.requiresAcknowledgement && !notice.recipients[0]?.acknowledgedAt).length,
-        critical: notices.filter((notice) => notice.priority === 'critical').length,
-      } : {
-        total: notices.length,
-        recipients: notices.reduce((sum, notice) => sum + notice.recipients.length, 0),
-        seen: notices.reduce((sum, notice) => sum + notice.recipients.filter((item) => item.seenAt).length, 0),
-        acknowledged: notices.reduce((sum, notice) => sum + notice.recipients.filter((item) => item.acknowledgedAt).length, 0),
+      summary,
+      pagination: {
+        page: parsed.data.page,
+        limit: parsed.data.limit,
+        total: filteredTotal,
+        totalPages,
       },
     },
   })

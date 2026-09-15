@@ -3,7 +3,10 @@ import { SMTP_FROM } from './constants'
 import { getSmtpConfig } from './runtime-config'
 import { sanitizeDeliveryError } from './delivery-error'
 
+type DeliveryChecks = { smtpVerified: boolean; recipientAccepted: boolean }
+
 export async function testEmailDelivery(recipient: string) {
+  let checks: DeliveryChecks = { smtpVerified: false, recipientAccepted: false }
   try {
     // Deliberately use real SMTP, never the JSON transport used by test suites.
     const transport = nodemailer.createTransport({
@@ -11,17 +14,19 @@ export async function testEmailDelivery(recipient: string) {
     })
     try {
       await transport.verify()
+      checks = { ...checks, smtpVerified: true }
       const result = await transport.sendMail({
         from: SMTP_FROM, to: recipient,
         subject: 'Diamond Shine email delivery test',
         text: 'This email was requested by you from Communications delivery settings. SMTP verification succeeded. Receiving this message confirms delivery to your inbox.',
       })
       if (!result.accepted?.length || result.rejected?.length) {
-        return { ok: false, error: 'EENVELOPE: SMTP sender or recipient rejected' }
+        return { ok: false as const, error: 'EENVELOPE: SMTP sender or recipient rejected', checks }
       }
-      return { ok: true, message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.' }
+      checks = { ...checks, recipientAccepted: true }
+      return { ok: true as const, message: 'SMTP verified and test email accepted by the server. Check your inbox and spam folder to confirm receipt.', checks }
     } finally { transport.close() }
   } catch (error) {
-    return { ok: false, error: sanitizeDeliveryError(error) }
+    return { ok: false as const, error: sanitizeDeliveryError(error), checks }
   }
 }
