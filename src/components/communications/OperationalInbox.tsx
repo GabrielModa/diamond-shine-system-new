@@ -223,7 +223,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   async function receipt(item: Notice, action: 'seen' | 'acknowledged') {
     const acknowledgement = action === 'acknowledged' ? acknowledgementNotes[item.id]?.trim() || null : null
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api(`/api/operational-notices/${item.id}/receipt`, {
         method: 'PATCH', headers: { 'Content-Type': 'application/json' },
