@@ -24,6 +24,33 @@ describe('mobile transient feedback contract', () => {
   })
 })
 
+describe('mobile push registration diagnostics contract', () => {
+  it('keeps push registration failures visible and retries when the app returns to foreground', () => {
+    const auth = source('apps/mobile/lib/auth-context.tsx')
+    expect(auth).toContain('pushRegistration: PushRegistrationState')
+    expect(auth).toContain('retryPushRegistration(): Promise<void>')
+    expect(auth).toContain("AppState.addEventListener('change'")
+    expect(auth).toContain("if (state === 'active') register()")
+    expect(auth).toContain("status: 'error'")
+    expect(auth).not.toContain('registerForPushNotifications(session)\n        .then')
+  })
+
+  it('shows the failed stage and a manual retry in mobile diagnostics', () => {
+    const diagnostics = source('apps/mobile/app/diagnostics.tsx')
+    expect(diagnostics).toContain('Remote notifications')
+    expect(diagnostics).toContain('Technical detail:')
+    expect(diagnostics).toContain('Retry push registration')
+    expect(diagnostics).toContain('retryPushRegistration()')
+  })
+
+  it('classifies permission, Expo provider and server registration failures', () => {
+    const push = source('apps/mobile/lib/push.ts')
+    expect(push).toContain("status: 'permission_denied'")
+    expect(push).toContain("new PushRegistrationError('provider'")
+    expect(push).toContain("new PushRegistrationError('server'")
+  })
+})
+
 describe('operational email delivery contract', () => {
   it('exposes an optional operational recipient override in the existing delivery settings', () => {
     const api = source('src/app/api/settings/route.ts')
