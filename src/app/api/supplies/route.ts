@@ -33,6 +33,8 @@ const querySchema = z.object({
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
   mine: z.enum(['true', 'false']).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(200).default(20),
 })
@@ -150,6 +152,12 @@ export async function GET(request: NextRequest) {
       : parsed.data.status.charAt(0).toUpperCase() + parsed.data.status.slice(1)
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
+  if (parsed.data.from || parsed.data.to) {
+    where.createdAt = {
+      ...(parsed.data.from ? { gte: new Date(`${parsed.data.from}T00:00:00.000Z`) } : {}),
+      ...(parsed.data.to ? { lte: new Date(`${parsed.data.to}T23:59:59.999Z`) } : {}),
+    }
+  }
   if (parsed.data.search?.trim()) {
     where.OR = [
       { employeeName: { contains: parsed.data.search, mode: 'insensitive' } },

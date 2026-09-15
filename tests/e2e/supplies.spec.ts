@@ -20,8 +20,8 @@ async function login(page: Page, email: string) {
 test('full happy path: employee submits a supply request', async ({ page }) => {
   await login(page, 'employee@ds.ie')
   const note = `E2E supply test: ${Date.now()}`
-  await page.goto('/supplies')
-  await expect(page.getByRole('heading', { name: 'Supplies' })).toBeVisible()
+  await page.goto('/my-requests')
+  await expect(page.getByRole('heading', { name: 'My requests', exact: true })).toBeVisible()
   await page.getByRole('button', { name: 'New request', exact: true }).click()
   await expect(page.getByRole('combobox', { name: 'Client site' })).toContainText(/.+/)
   await page.getByRole('button', { name: 'Normal', exact: true }).click()
@@ -54,7 +54,7 @@ test('manager processes a field request from the consolidated Supplies control',
   await page.locator('button[data-priority="urgent"]').click()
   const request = page.locator('.request-row').filter({ hasText: 'Supply Control Employee' }).first()
   await expect(request).toBeVisible()
-  await request.getByRole('button', { name: 'Open request' }).click()
+  await request.getByRole('button', { name: 'Open', exact: true }).click()
 
   const detail = page.locator('#detailOverlay.overlay.active')
   await expect(detail).toBeVisible()

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import StandardSelect from '../ui/StandardSelect'
 import OpsIcon from '../ui/OpsIcon'
+import PaginationControls from '../ui/PaginationControls'
 
 type Person = { id: string; name?: string | null; email: string; role?: string }
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -487,7 +488,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         {!all.items.length ? <div className="card tracking-empty"><OpsIcon name="search" size={22} /><strong>No notices match these filters.</strong><span>Clear or change the filters to broaden acknowledgement tracking.</span></div> : null}
       </div>}
 
-      {(all.pagination?.totalPages ?? 1) > 1 ? <nav className="tracking-pagination" aria-label="Acknowledgement pages"><span>Showing {((all.pagination?.page ?? 1) - 1) * (all.pagination?.limit ?? 8) + 1}–{Math.min((all.pagination?.page ?? 1) * (all.pagination?.limit ?? 8), all.pagination?.total ?? 0)} of {all.pagination?.total ?? 0}</span><div><button type="button" className="secondary" disabled={trackingLoading || (all.pagination?.page ?? 1) <= 1} onClick={() => setTrackingPage((page) => Math.max(1, page - 1))}>← Previous</button><strong>Page {all.pagination?.page ?? 1} of {all.pagination?.totalPages ?? 1}</strong><button type="button" className="secondary" disabled={trackingLoading || (all.pagination?.page ?? 1) >= (all.pagination?.totalPages ?? 1)} onClick={() => setTrackingPage((page) => Math.min(all.pagination?.totalPages ?? page, page + 1))}>Next →</button></div></nav> : null}
+      <PaginationControls page={all.pagination?.page ?? trackingPage} totalPages={all.pagination?.totalPages ?? 1} total={all.pagination?.total ?? 0} limit={all.pagination?.limit ?? 8} loading={trackingLoading} noun="notices" onPageChange={setTrackingPage} />
     </section> : null}
 
     {tab === 'delivery' && canConfigure ? <section className="delivery-stack">

@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useState } from 'react'
 import type { ApiResponse } from '../../../types'
 import ListControls from '../../../components/ui/ListControls'
+import PaginationControls from '../../../components/ui/PaginationControls'
 
 type AuditLog = { id: string; actorEmail: string; action: string; targetType: string; targetId: string | null; metadata: string | null; createdAt: string }
 type AuditData = { items: AuditLog[]; total: number; page: number; limit: number; totalPages: number; targetTypes: string[] }
@@ -41,7 +42,7 @@ export default function AuditPage() {
     <section className="card">
       <div className="admin-toolbar audit-toolbar"><ListControls query={query} onQueryChange={setQuery} from={from} to={to} onFromChange={setFrom} onToChange={setTo} placeholder="Search action, actor or target…" hasActiveFilters={Boolean(query.trim() || from || to || target !== 'all')} onClear={() => { setQuery(''); setFrom(''); setTo(''); setTarget('all') }} options={[{ label: 'Target type', value: target, defaultValue: 'all', choices: [{ value: 'all', label: 'All target types' }, ...data.targetTypes.map((item) => ({ value: item, label: item }))], onChange: setTarget }]} /></div>
       {error ? <div className="toast error" role="alert">{error}</div> : null}
-      <div className="audit-result-meta"><span>{loading ? 'Loading…' : `${data.total} event${data.total === 1 ? '' : 's'}`}</span><span>Page {data.page} of {data.totalPages}</span></div>
+      <div className="audit-result-meta"><span>{loading ? 'Loading…' : `${data.total} event${data.total === 1 ? '' : 's'}`}</span></div>
       {!error && !loading && !data.items.length ? <div className="empty-state">No audit events match these filters.</div> : null}
       <div className="audit-table scroll-list" role="table" aria-label="Audit events">
         {data.items.map((log) => <article key={log.id} className="audit-row audit-row-v10" role="row">
@@ -54,7 +55,7 @@ export default function AuditPage() {
           {expanded === log.id ? <div className="audit-metadata"><strong>Change metadata</strong><pre>{formatMetadata(log.metadata)}</pre></div> : null}
         </article>)}
       </div>
-      <footer className="audit-pagination"><button className="btn-secondary" disabled={loading || data.page <= 1} onClick={() => setPage((value) => Math.max(1, value - 1))}>← Newer</button><span>{data.page} / {data.totalPages}</span><button className="btn-secondary" disabled={loading || data.page >= data.totalPages} onClick={() => setPage((value) => value + 1)}>Older →</button></footer>
+      <PaginationControls page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit} loading={loading} noun="events" onPageChange={setPage} />
     </section>
   </main>
 }

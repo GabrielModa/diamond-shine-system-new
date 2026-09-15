@@ -25,7 +25,6 @@ const protectedRoutes = [
   '/users',
   '/audit',
   '/communications',
-  '/my-requests',
   '/profile',
   '/operations',
   '/work-orders',
@@ -58,7 +57,7 @@ test('desktop navigation exposes every normal module and keeps only advanced reg
     ['Run operations', ['Command centre', 'Schedule', 'Plan coverage', 'Live workforce', 'Field control', 'Supplies', 'Timesheets']],
     ['Quality & insights', ['Operational insights', 'Team performance', 'Quality control', 'Service feedback']],
     ['Manage business', ['Clients', 'People & access', 'Audit trail']],
-    ['My workspace', ['Inbox', 'My requests', 'My profile']],
+    ['My workspace', ['Inbox', 'My profile']],
   ])
 
   for (const [section, labels] of expectedBySection) {
@@ -72,10 +71,29 @@ test('desktop navigation exposes every normal module and keeps only advanced reg
   }
 })
 
+test('employee gets My requests as the personal supply entry and does not see the management Supplies module', async ({ page }, testInfo) => {
+  test.skip(testInfo.project.name !== 'desktop-chrome', 'Desktop navigation visibility is covered once.')
+  await login(page, 'employee@ds.ie')
+
+  await page.getByRole('button', { name: /^Run operations/ }).click()
+  const operationsPanel = page.locator('.nav-workspace-panel:visible')
+  await expect(operationsPanel.getByRole('link', { name: 'Supplies', exact: true })).toHaveCount(0)
+  await page.getByRole('button', { name: /^Run operations/ }).click()
+
+  await page.getByRole('button', { name: /^My workspace/ }).click()
+  const workspacePanel = page.locator('.nav-workspace-panel:visible')
+  await expect(workspacePanel.getByRole('link', { name: 'My requests', exact: true })).toBeVisible()
+
+  await workspacePanel.getByRole('link', { name: 'My requests', exact: true }).click()
+  await expect(page).toHaveURL(/\/my-requests/)
+  await expect(page.getByRole('heading', { name: 'My requests', exact: true, level: 1 })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'New request', exact: true })).toBeVisible()
+})
+
 test('employee cannot reach manager-only quality or business administration modules', async ({ page }) => {
   await login(page, 'employee@ds.ie')
 
-  for (const route of ['/feedback', '/dashboard', '/clients', '/users', '/audit'] as const) {
+  for (const route of ['/feedback', '/dashboard', '/clients', '/users', '/audit', '/supplies'] as const) {
     await page.goto(route, { waitUntil: 'domcontentloaded' })
     await expect(page).toHaveURL(/\/forbidden$/)
   }
