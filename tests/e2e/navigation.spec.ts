@@ -86,7 +86,7 @@ test('employee gets My requests as the personal supply entry and does not see th
 
   await workspacePanel.getByRole('link', { name: 'My requests', exact: true }).click()
   await expect(page).toHaveURL(/\/my-requests/)
-  await expect(page.getByRole('heading', { name: 'My requests', exact: true })).toBeVisible()
+  await expect(page.getByRole('heading', { name: 'My requests', exact: true, level: 1 })).toBeVisible()
   await expect(page.getByRole('button', { name: 'New request', exact: true })).toBeVisible()
 })
 
