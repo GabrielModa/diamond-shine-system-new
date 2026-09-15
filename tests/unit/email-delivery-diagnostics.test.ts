@@ -90,8 +90,9 @@ describe('safe SMTP diagnostics and queue persistence', () => {
     expect(mocks.after).toHaveBeenCalledWith(expect.any(Function))
     expect(mocks.sendMail).not.toHaveBeenCalled()
   })
-  it('attempts operational mobile push after the response in local development', async () => {
+  it('attempts operational mobile push after the response in launcher-marked local development', async () => {
     vi.stubEnv('NODE_ENV', 'development')
+    vi.stubEnv('DIAMOND_LOCAL_DEV', '1')
     mocks.create.mockResolvedValue({ id: 'push-job', organizationId: 'org', kind: 'operational_notice_push' })
     const pushPayload = { userIds: ['employee'], title: 'Pay attention', body: 'New operational update', noticeId: 'notice-1', priority: 'high' }
     await expect(enqueueNotification({ organizationId: 'org', kind: 'operational_notice_push', payload: pushPayload, createdBy: 'admin' }))
@@ -104,10 +105,16 @@ describe('safe SMTP diagnostics and queue persistence', () => {
     await enqueueNotification({ organizationId: 'org', kind: 'supply_alert', payload, createdBy: 'employee' })
     expect(mocks.after).not.toHaveBeenCalled()
   })
-  it('keeps integration/test operational pushes queue-only', async () => {
-    vi.stubEnv('NODE_ENV', 'test')
-    mocks.create.mockResolvedValue({ id: 'push-job', organizationId: 'org', kind: 'operational_notice_push' })
+  it('keeps unmarked development and integration operational pushes queue-only', async () => {
     const pushPayload = { userIds: ['employee'], title: 'Pay attention', body: 'New operational update', noticeId: 'notice-1', priority: 'high' }
+
+    vi.stubEnv('NODE_ENV', 'development')
+    mocks.create.mockResolvedValueOnce({ id: 'dev-push-job', organizationId: 'org', kind: 'operational_notice_push' })
+    await enqueueNotification({ organizationId: 'org', kind: 'operational_notice_push', payload: pushPayload, createdBy: 'admin' })
+    expect(mocks.after).not.toHaveBeenCalled()
+
+    vi.stubEnv('NODE_ENV', 'test')
+    mocks.create.mockResolvedValueOnce({ id: 'test-push-job', organizationId: 'org', kind: 'operational_notice_push' })
     await enqueueNotification({ organizationId: 'org', kind: 'operational_notice_push', payload: pushPayload, createdBy: 'admin' })
     expect(mocks.after).not.toHaveBeenCalled()
   })
