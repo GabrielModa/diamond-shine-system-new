@@ -41,6 +41,9 @@ try {
   const env = address ? mobileEnvironment(process.env, address, mode === 'prod-api') : null
   console.log('\nDiamond Shine local development\n\nWeb on this PC: http://localhost:3000')
   if (env) console.log(`Web/API from phone: ${env.EXPO_PUBLIC_API_URL}\nAPI health: ${env.EXPO_PUBLIC_API_URL}/api/health/live\nMetro: http://${address}:8081\nMobile runtime: Development Client\n${mode === 'prod-api' ? '\n*** PRODUCTION API: actions affect real production data ***\n' : ''}\nIf your phone cannot connect:\n- confirm same Wi-Fi\n- test API /api/health/live and Metro /status\n- check Windows Firewall ports 3000 and 8081\n- use DIAMOND_LAN_IP to select another adapter\n`)
-  if (mode === 'all' || mode === 'web') start('Next.js', root, 'node_modules/next/dist/bin/next', ['dev', '--hostname', '0.0.0.0', '--port', '3000'], process.env, mode === 'web' ? 'inherit' : 'ignore')
+  if (mode === 'all' || mode === 'web') {
+    const webEnv = { ...process.env, DIAMOND_LOCAL_DEV: '1' }
+    start('Next.js', root, 'node_modules/next/dist/bin/next', ['dev', '--hostname', '0.0.0.0', '--port', '3000'], webEnv, mode === 'web' ? 'inherit' : 'ignore')
+  }
   if (env) start('Expo', mobileRoot, 'node_modules/expo/bin/cli', ['start', '--dev-client', '--lan', '--port', '8081'], env, 'inherit')
 } catch (error) { console.error(error.message); stop(1) }

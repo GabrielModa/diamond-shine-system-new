@@ -1,6 +1,9 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Diamond Shine">
-  <rect width="64" height="64" rx="14" fill="#102A43"/>
-  <path d="M14 25.5 23.5 14h17L50 25.5 32 51 14 25.5Z" fill="#0F7A55"/>
-  <path d="m23.5 14 8.5 37 8.5-37M14 25.5h36M23.5 14 14 25.5 32 51 50 25.5 40.5 14" fill="none" stroke="#A7E3CA" stroke-width="2.2" stroke-linejoin="round" opacity=".9"/>
-  <path d="M45.5 9.5v7M42 13h7" stroke="#fff" stroke-width="2.3" stroke-linecap="round"/>
+  <path d="M18 14h28l10 13-24 25L8 27 18 14Z" fill="#6293DE"/>
+  <path d="M18 14h14l-7 13H8L18 14Z" fill="#5A8ECD"/>
+  <path d="M32 14 25 27h14L32 14Z" fill="#93DDF6"/>
+  <path d="M32 14h14l10 13H39L32 14Z" fill="#6BADEB"/>
+  <path d="M8 27h17l7 25L8 27Z" fill="#4C6AC5"/>
+  <path d="M25 27h14l-7 25-7-25Z" fill="#89ABEB"/>
+  <path d="M39 27h17L32 52l7-25Z" fill="#6293DE"/>
 </svg>
