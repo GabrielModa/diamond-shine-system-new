@@ -24,23 +24,25 @@ describe('mobile transient feedback contract', () => {
   })
 })
 
-describe('mobile push registration diagnostics contract', () => {
-  it('keeps push registration failures visible and retries when the app returns to foreground', () => {
+describe('deferred remote push contract', () => {
+  it('keeps remote registration behind an explicit release flag', () => {
     const auth = source('apps/mobile/lib/auth-context.tsx')
+    const runtime = source('apps/mobile/lib/runtime.ts')
     expect(auth).toContain('pushRegistration: PushRegistrationState')
     expect(auth).toContain('retryPushRegistration(): Promise<void>')
+    expect(auth).toContain('if (!session || !remotePushEnabled) return')
     expect(auth).toContain("AppState.addEventListener('change'")
     expect(auth).toContain("if (state === 'active') register()")
-    expect(auth).toContain("status: 'error'")
-    expect(auth).not.toContain('registerForPushNotifications(session)\n        .then')
+    expect(runtime).toContain("process.env.EXPO_PUBLIC_REMOTE_PUSH_ENABLED === 'true'")
   })
 
-  it('shows the failed stage and a manual retry in mobile diagnostics', () => {
+  it('describes the active MVP channels without exposing a broken push diagnostic', () => {
     const diagnostics = source('apps/mobile/app/diagnostics.tsx')
-    expect(diagnostics).toContain('Remote notifications')
-    expect(diagnostics).toContain('Technical detail:')
-    expect(diagnostics).toContain('Retry push registration')
-    expect(diagnostics).toContain('retryPushRegistration()')
+    const queue = source('src/lib/notification-queue.ts')
+    expect(diagnostics).toContain('Team inbox + email')
+    expect(diagnostics).toContain('Remote push is reserved for a future release')
+    expect(diagnostics).not.toContain('Retry push registration')
+    expect(queue).toContain("process.env.REMOTE_PUSH_ENABLED !== 'true'")
   })
 
   it('classifies permission, Expo provider and server registration failures', () => {
@@ -52,6 +54,19 @@ describe('mobile push registration diagnostics contract', () => {
 })
 
 describe('operational email delivery contract', () => {
+  it('publishes Broadcast notices to the Team inbox with an explicit email escalation option', () => {
+    const schema = source('src/modules/communications/schemas.ts')
+    const route = source('src/app/api/operational-notices/route.ts')
+    const inbox = source('src/components/communications/OperationalInbox.tsx')
+    expect(schema).toContain('sendEmail: z.boolean().default(false)')
+    expect(route).toContain('if (parsed.data.sendEmail)')
+    expect(route).toContain("kind: 'operational_email'")
+    expect(route).not.toContain("kind: 'operational_notice_push'")
+    expect(inbox).toContain('Team inbox')
+    expect(inbox).toContain('Also send by email')
+    expect(inbox).toContain('Phone push notifications are planned for a future release')
+  })
+
   it('exposes an optional operational recipient override in the existing delivery settings', () => {
     const api = source('src/app/api/settings/route.ts')
     const inbox = source('src/components/communications/OperationalInbox.tsx')

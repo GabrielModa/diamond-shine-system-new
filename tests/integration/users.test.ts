@@ -348,6 +348,7 @@ describe('operational notice lifecycle', () => {
         title: 'Disposable integration notice',
         body: 'This notice exists only to verify managed deletion.',
         requiresAcknowledgement: false,
+        sendEmail: true,
         userIds: [employee.id],
       })
     expect(published.status).toBe(201)
@@ -375,6 +376,7 @@ describe('communications bootstrap', () => {
       ]),
       sites: expect.any(Array),
       canManage: true,
+      operationalEmailOverrideActive: expect.any(Boolean),
     }))
   })
 })

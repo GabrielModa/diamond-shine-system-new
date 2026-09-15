@@ -774,12 +774,13 @@ describe('field execution', () => {
       title: 'Visit moved to the morning',
       body: 'Please confirm the new arrival window before starting the visit.',
       requiresAcknowledgement: true,
+      sendEmail: true,
       userIds: [employee.id],
     })
     expect(published.status).toBe(201)
     expect(published.body.data.recipients).toHaveLength(1)
     expect(await prisma.notificationJob.count({
-      where: { kind: 'operational_notice_push', entityId: published.body.data.id, status: 'queued' },
+      where: { kind: 'operational_email', entityId: published.body.data.id, status: 'queued' },
     })).toBe(1)
 
     const inbox = await request(app).get('/api/operational-notices?scope=mine').set('Cookie', employeeCookie)

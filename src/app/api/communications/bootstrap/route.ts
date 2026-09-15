@@ -35,7 +35,7 @@ export async function GET(request: NextRequest) {
   if (!user) return NextResponse.json({ ok: false, error: 'Unauthorized' }, { status: 401 })
 
   const canManage = authUserHasCapability(user, 'communications.manage')
-  const [mine, memberships, sites] = await Promise.all([
+  const [mine, memberships, sites, operationalEmailOverride] = await Promise.all([
     loadMine(user.organizationId, user.id),
     canManage ? prisma.membership.findMany({
       where: {
@@ -58,6 +58,15 @@ export async function GET(request: NextRequest) {
         client: { select: { displayName: true } },
       },
     }) : Promise.resolve([]),
+    canManage ? prisma.notificationSetting.findUnique({
+      where: {
+        organizationId_key: {
+          organizationId: user.organizationId,
+          key: 'operational_email_override',
+        },
+      },
+      select: { recipients: true },
+    }) : Promise.resolve(null),
   ])
 
   return NextResponse.json({
@@ -68,6 +77,7 @@ export async function GET(request: NextRequest) {
       people: memberships.map((membership) => ({ ...membership.user, role: membership.role })),
       sites,
       canManage,
+      operationalEmailOverrideActive: Boolean(operationalEmailOverride?.recipients.trim()),
     },
   })
 }

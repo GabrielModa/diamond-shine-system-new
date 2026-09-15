@@ -40,6 +40,8 @@ Diamond Shine should notify the person who can act on the event, not every user 
 
 ## Current implementation notes
 
+Manual Communications broadcasts always publish to the Team inbox and retain per-recipient read/acknowledgement proof. The publisher can also select **Also send by email**; this queues one private operational email per selected recipient through the standard mailer and retry path. Remote mobile push is deferred behind explicit release flags until both Android FCM and iOS APNs are configured and physically accepted. Local visit reminders are a separate on-device channel and remain active.
+
 Operational audit emails already select concrete workflow recipients and the operational mailer applies the optional test override at final delivery. Supply and quality escalation inboxes remain explicitly configurable in Communications -> Delivery settings.
 
 Legacy `profile_change_alert` jobs historically embedded manager email addresses directly and used a separate mailer. That bypassed the operational test override and caused delivery bounces when seeded/demo manager addresses were not real mailboxes. These jobs are now delivered through the standard operational email path so the same override, privacy and SMTP diagnostics apply.

@@ -92,6 +92,7 @@ async function deliver(kind: string, payload: Prisma.JsonValue, organizationId: 
     return sendQualityNotification(payload as unknown as QualityEmailData, organizationId)
   }
   if (kind === 'operational_notice_push') {
+    if (process.env.REMOTE_PUSH_ENABLED !== 'true') return { ok: true, delivered: 0 }
     return sendOperationalPush(payload as unknown as Parameters<typeof sendOperationalPush>[0], organizationId)
   }
   if (kind === 'operational_email') {
