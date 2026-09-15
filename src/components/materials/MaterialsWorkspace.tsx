@@ -294,6 +294,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       onTransition={(status) => { if (selectedRequest) setConfirmTransition({ request: selectedRequest, status }) }}
       assignees={assignees}
       onAssign={(email) => selectedRequest ? assignRequest(selectedRequest, email) : Promise.resolve()}
+      canManageActions={canManage && !personalView}
     />
     <EmailModal open={Boolean(emailRequest)} active={Boolean(emailRequest)} request={emailRequest} onClose={() => setEmailRequest(null)} onSend={notifyClient} />
     <ConfirmModal
