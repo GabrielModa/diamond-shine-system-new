@@ -2930,3 +2930,12 @@ textarea {
   .ops-confirm-backdrop{align-items:start;padding:12px}
   .delivery-test-dialog{max-height:calc(100dvh - 24px);width:100%}
 }
+
+
+/* Shared pagination: one compact, accessible pattern for growing operational datasets. */
+.pagination-bar{display:flex;align-items:center;justify-content:space-between;gap:14px;padding:12px 2px 2px;color:var(--surface-muted);font-size:.72rem}
+.pagination-summary strong,.pagination-actions>strong{color:#4c5853}
+.pagination-actions{display:flex;align-items:center;gap:9px}
+.pagination-actions button{min-width:98px;padding:8px 10px;font-size:.7rem}
+.pagination-bar.compact{padding-top:8px}
+@media(max-width:700px){.pagination-bar{align-items:stretch;flex-direction:column}.pagination-actions{justify-content:space-between}.pagination-actions button{min-width:0;flex:1}.pagination-actions>strong{flex:0 0 auto;align-self:center}}
