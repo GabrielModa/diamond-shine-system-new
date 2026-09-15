@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react'
 import StandardSelect from '../ui/StandardSelect'
+import OpsIcon from '../ui/OpsIcon'
 
 type Person = { id: string; name?: string | null; email: string; role?: string }
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -25,6 +26,13 @@ type Template = { id: string; key: string; subject: string; body: string; update
 type Job = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string }
 type QueueData = { items: Job[]; counts: Record<string, number>; latestFailure?: { kind: string; lastError: string; lastAttemptAt: string | null } | null }
 type CommunicationsBootstrap = { mine: NoticeData; all: NoticeData | null; people: Person[]; sites: Site[]; canManage: boolean }
+type DeliveryDiagnostic = {
+  status: 'running' | 'success' | 'failure'
+  recipient?: string
+  message?: string
+  error?: string
+  checks?: { smtpVerified: boolean; recipientAccepted: boolean }
+}
 
 async function api<T>(url: string, init?: RequestInit): Promise<T> {
   const response = await fetch(url, { credentials: 'include', cache: 'no-store', ...init })
@@ -80,6 +88,8 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '', operationalAlerts: '' })
   const [queue, setQueue] = useState<QueueData>({ items: [], counts: {} })
   const [templates, setTemplates] = useState<Template[]>([])
+  const [selectedTemplateKey, setSelectedTemplateKey] = useState('')
+  const [deliveryTest, setDeliveryTest] = useState<DeliveryDiagnostic | null>(null)
   const [acknowledgementNotes, setAcknowledgementNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
@@ -158,6 +168,9 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       : !selectedUsers.length
         ? 'Select at least one recipient.'
         : ''
+  const selectedTemplate = templates.find((template) => template.key === selectedTemplateKey) ?? templates[0] ?? null
+  const queuedJobs = queue.counts.queued ?? 0
+  const failedJobs = (queue.counts.failed ?? 0) + (queue.counts.exhausted ?? 0)
 
   function toggleRecipientIds(ids: string[]) {
     if (!ids.length) return
@@ -224,11 +237,30 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   async function testDelivery() {
     setBusy(true); setError(''); setNotice('')
+    setDeliveryTest({ status: 'running' })
     try {
-      const result = await api<{ message: string }>('/api/notifications/test', { method: 'POST' })
-      setNotice(result.message)
+      const response = await fetch('/api/notifications/test', { method: 'POST', credentials: 'include', cache: 'no-store' })
+      const payload = await response.json().catch(() => null) as {
+        data?: { message?: string; recipient?: string; checks?: { smtpVerified: boolean; recipientAccepted: boolean } }
+        error?: string
+      } | null
+      if (!response.ok) {
+        setDeliveryTest({
+          status: 'failure',
+          recipient: payload?.data?.recipient,
+          checks: payload?.data?.checks,
+          error: payload?.error ?? 'Email delivery test failed.',
+        })
+        return
+      }
+      setDeliveryTest({
+        status: 'success',
+        recipient: payload?.data?.recipient,
+        message: payload?.data?.message,
+        checks: payload?.data?.checks,
+      })
     } catch (cause) {
-      setError(cause instanceof Error ? cause.message : 'Email delivery test failed.')
+      setDeliveryTest({ status: 'failure', error: cause instanceof Error ? cause.message : 'Email delivery test failed.' })
     } finally { setBusy(false) }
   }
 
@@ -264,16 +296,17 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     ...(canManage ? [['broadcast', 'Broadcast'], ['tracking', 'Acknowledgements']] : []),
     ...(canConfigure ? [['delivery', 'Delivery settings']] : []),
   ] as Array<[typeof tab, string]>
+  const tabIcons = { inbox: 'message', broadcast: 'user', tracking: 'review', delivery: 'activity' } as const
 
   return <main className="page-shell ops-inbox">
     <section className="inbox-hero">
-      <div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div>
-      <button className="secondary" type="button" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button>
+      <div className="communications-hero-title"><span className="communications-icon-tile"><OpsIcon name="message" size={20} /></span><div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div></div>
+      <button className="secondary communications-refresh" type="button" onClick={() => void refresh()} disabled={busy}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </section>
     {notice ? <div className="transient-notice success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
     {error ? <div className="inline-message error" role="alert">{error}</div> : null}
     <nav className="materials-tabs" aria-label="Inbox views">
-      {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}>{label}</button>)}
+      {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><OpsIcon name={tabIcons[key]} size={15} />{label}</button>)}
     </nav>
 
     {tab === 'inbox' ? <section className="inbox-layout">
@@ -299,15 +332,15 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         {filteredInboxItems.length === 0 ? <div className="card empty-inbox"><strong>{mine.items.length ? 'Nothing in this filter.' : 'You are all caught up.'}</strong><span>{mine.items.length ? 'Choose another Inbox health filter to see more messages.' : 'No operational notices have been sent to you.'}</span></div> : null}
       </div>
       <aside className="card inbox-summary">
-        <div className="inbox-summary-head"><h2>Inbox health</h2>{inboxFilter !== 'all' ? <button type="button" className="text-button" onClick={() => setInboxFilter('all')}>Show all</button> : null}</div>
-        <button type="button" className={inboxFilter === 'unread' ? 'active' : ''} aria-pressed={inboxFilter === 'unread'} onClick={() => setInboxFilter((current) => current === 'unread' ? 'all' : 'unread')}><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></button>
-        <button type="button" className={inboxFilter === 'awaiting' ? 'active' : ''} aria-pressed={inboxFilter === 'awaiting'} onClick={() => setInboxFilter((current) => current === 'awaiting' ? 'all' : 'awaiting')}><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></button>
-        <button type="button" className={inboxFilter === 'critical' ? 'active' : ''} aria-pressed={inboxFilter === 'critical'} onClick={() => setInboxFilter((current) => current === 'critical' ? 'all' : 'critical')}><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></button>
+        <div className="inbox-summary-head"><div className="communications-section-title"><span className="communications-mini-icon"><OpsIcon name="activity" size={16} /></span><h2>Inbox health</h2></div>{inboxFilter !== 'all' ? <button type="button" className="text-button" onClick={() => setInboxFilter('all')}>Show all</button> : null}</div>
+        <button type="button" className={inboxFilter === 'unread' ? 'active' : ''} aria-pressed={inboxFilter === 'unread'} onClick={() => setInboxFilter((current) => current === 'unread' ? 'all' : 'unread')}><OpsIcon name="message" size={17} /><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></button>
+        <button type="button" className={inboxFilter === 'awaiting' ? 'active' : ''} aria-pressed={inboxFilter === 'awaiting'} onClick={() => setInboxFilter((current) => current === 'awaiting' ? 'all' : 'awaiting')}><OpsIcon name="check" size={17} /><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></button>
+        <button type="button" className={inboxFilter === 'critical' ? 'active' : ''} aria-pressed={inboxFilter === 'critical'} onClick={() => setInboxFilter((current) => current === 'critical' ? 'all' : 'critical')}><OpsIcon name="alert" size={17} /><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></button>
       </aside>
     </section> : null}
 
     {tab === 'broadcast' && canManage ? <section className="broadcast-layout"><article className="card broadcast-form">
-      <h2>Publish operational notice</h2>
+      <div className="communications-section-heading"><span className="communications-icon-tile violet"><OpsIcon name="message" size={19} /></span><div><span className="eyebrow">Broadcast</span><h2>Publish operational notice</h2><p>Write once, target the right people and track acknowledgement.</p></div></div>
       <div className="admin-form-grid two-columns">
         <div className="inbox-select-field"><span>Type</span><StandardSelect value={draft.type} onChange={(value) => setDraft((current) => ({ ...current, type: value }))} ariaLabel="Notice type" options={NOTICE_TYPES} /></div>
         <div className="inbox-select-field"><span>Priority</span><StandardSelect value={draft.priority} onChange={(value) => setDraft((current) => ({ ...current, priority: value }))} ariaLabel="Notice priority" options={PRIORITIES} /></div>
@@ -352,29 +385,68 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     </section> : null}
 
     {tab === 'delivery' && canConfigure ? <section className="delivery-stack">
-      <article className="card">
-        <h2>Email escalation recipients</h2>
-        <p>Configure the real escalation inboxes here. Operational email can also be temporarily redirected to a test inbox without changing employee or manager accounts.</p>
-        <div className="admin-form-grid two-columns">
+      <section className="delivery-overview-grid" aria-label="Delivery status">
+        <article className="card delivery-overview-card">
+          <span className="communications-icon-tile"><OpsIcon name="message" size={18} /></span>
+          <div><span>Routing</span><strong>{alerts.operationalAlerts.trim() ? 'Test override active' : 'Real event recipients'}</strong><small>{alerts.operationalAlerts.trim() || 'Operational events use their workflow recipients.'}</small></div>
+        </article>
+        <button type="button" className="card delivery-overview-card interactive" onClick={() => void testDelivery()} disabled={busy}>
+          <span className="communications-icon-tile violet"><OpsIcon name="check" size={18} /></span>
+          <div><span>Email diagnostic</span><strong>Test delivery</strong><small>Verify SMTP and recipient acceptance.</small></div><OpsIcon name="review" size={18} />
+        </button>
+        <article className={`card delivery-overview-card ${failedJobs ? 'attention' : ''}`}>
+          <span className={`communications-icon-tile ${failedJobs ? 'danger' : ''}`}><OpsIcon name={failedJobs ? 'alert' : 'activity'} size={18} /></span>
+          <div><span>Delivery queue</span><strong>{failedJobs ? `${failedJobs} need attention` : queuedJobs ? `${queuedJobs} queued` : 'Queue healthy'}</strong><small>{queue.counts.sent ?? 0} sent · {queue.counts.failed ?? 0} failed · {queue.counts.exhausted ?? 0} exhausted</small></div>
+        </article>
+      </section>
+
+      <article className="card delivery-settings-card">
+        <div className="communications-section-heading"><span className="communications-icon-tile"><OpsIcon name="user" size={19} /></span><div><span className="eyebrow">Routing</span><h2>Email escalation recipients</h2><p>Keep normal workflow recipients untouched and use a test override only when you are validating delivery.</p></div></div>
+        <div className="admin-form-grid two-columns delivery-recipient-grid">
           <label><span>Supply alerts</span><input value={alerts.supplyAlerts} onChange={(event) => setAlerts((current) => ({ ...current, supplyAlerts: event.target.value }))} /></label>
           <label><span>Quality alerts</span><input value={alerts.feedbackAlerts} onChange={(event) => setAlerts((current) => ({ ...current, feedbackAlerts: event.target.value }))} /></label>
-          <label><span>Operational emails · test override</span><input value={alerts.operationalAlerts} onChange={(event) => setAlerts((current) => ({ ...current, operationalAlerts: event.target.value }))} placeholder="Leave blank to use real event recipients" /></label>
+          <label className="delivery-override-field"><span>Operational emails · test override</span><input value={alerts.operationalAlerts} onChange={(event) => setAlerts((current) => ({ ...current, operationalAlerts: event.target.value }))} placeholder="Leave blank to use real event recipients" /><small>{alerts.operationalAlerts.trim() ? 'Test mode: operational email is redirected here.' : 'Live routing: each workflow chooses its real recipient.'}</small></label>
         </div>
-        <p><small>When the operational override is blank, confirmations, declines and other operational emails go to the real recipients selected by each workflow. During testing, enter one or more comma-separated test inboxes here.</small></p>
-        <button type="button" onClick={() => void saveDelivery()}>Save recipients</button>
+        <div className="delivery-settings-actions"><span><OpsIcon name={alerts.operationalAlerts.trim() ? 'alert' : 'check'} size={16} />{alerts.operationalAlerts.trim() ? 'A delivery override is active.' : 'No test override is active.'}</span><button type="button" onClick={() => void saveDelivery()} disabled={busy}>Save recipients</button></div>
       </article>
-      <article className="card">
-        <h2>Test email delivery</h2>
-        <p>Verify SMTP and send a test email to your signed-in account. Check your inbox and spam folder after sending.</p>
-        <button type="button" disabled={busy} onClick={() => void testDelivery()}>Test email delivery</button>
+
+      <article className="card delivery-queue-card">
+        <div className="section-heading"><div className="communications-section-title"><span className="communications-icon-tile soft"><OpsIcon name="activity" size={19} /></span><div><span className="eyebrow">Background delivery</span><h2>Delivery queue</h2></div></div><button type="button" className="secondary" onClick={() => void processQueue()} disabled={busy}><OpsIcon name="refresh" size={16} /> Process due</button></div>
+        <div className="delivery-queue-metrics"><span><b>{queue.counts.queued ?? 0}</b><small>Queued</small></span><span><b>{queue.counts.failed ?? 0}</b><small>Failed</small></span><span><b>{queue.counts.exhausted ?? 0}</b><small>Exhausted</small></span><span><b>{queue.counts.sent ?? 0}</b><small>Sent</small></span></div>
+        {queue.latestFailure ? <div className="delivery-latest-failure" role="status"><OpsIcon name="alert" size={17} /><div><strong>Latest failure</strong><span>{queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</span></div></div> : null}
+        <div className="delivery-jobs">{queue.items.slice(0, 12).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span className={`delivery-job-status ${job.status}`}>{job.status} · {job.attempts}/{job.maxAttempts}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
+        {!queue.items.length ? <div className="delivery-empty"><OpsIcon name="check" size={19} /><span>No recent delivery jobs need inspection.</span></div> : null}
       </article>
-      <article className="card">
-        <div className="section-heading"><div><h2>Delivery queue</h2><p>Queued {queue.counts.queued ?? 0} · Failed {queue.counts.failed ?? 0} · Exhausted {queue.counts.exhausted ?? 0} · Sent {queue.counts.sent ?? 0}</p></div><button type="button" onClick={() => void processQueue()}>Process due</button></div>
-        {queue.latestFailure ? <p role="status">Latest failure: {queue.latestFailure.kind.replaceAll('_', ' ')} — {queue.latestFailure.lastError}{queue.latestFailure.lastAttemptAt ? ` · ${when(queue.latestFailure.lastAttemptAt)}` : ''}</p> : null}
-        <div className="delivery-jobs">{queue.items.slice(0, 20).map((job) => <div key={job.id}><strong>{job.kind.replaceAll('_', ' ')}</strong><span>{job.status} · {job.attempts}/{job.maxAttempts}</span>{job.lastError ? <small>{job.lastError}</small> : null}</div>)}</div>
-      </article>
-      <section><h2>Email templates</h2><div className="communication-grid">{templates.map((template) => <article className="card communication-card" key={template.id}><strong>{template.key.replaceAll('_', ' ')}</strong><label><span>Subject</span><input value={template.subject} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, subject: event.target.value } : item))} /></label><label><span>HTML body</span><textarea value={template.body} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, body: event.target.value } : item))} /></label><button type="button" onClick={() => void saveTemplate(template)}>Save template</button></article>)}</div></section>
+
+      <section className="card template-workspace">
+        <div className="communications-section-heading"><span className="communications-icon-tile violet"><OpsIcon name="spreadsheet" size={19} /></span><div><span className="eyebrow">Reusable content</span><h2>Email templates</h2><p>Select one template to edit. The rest stay out of the way until you need them.</p></div></div>
+        {templates.length ? <>
+          <div className="template-toolbar">
+            <div className="inbox-select-field"><span>Template</span><StandardSelect searchable={templates.length > 5} value={selectedTemplate?.key ?? ''} onChange={setSelectedTemplateKey} ariaLabel="Email template" searchPlaceholder="Search templates…" options={templates.map((template) => ({ value: template.key, label: template.key.replaceAll('_', ' ') }))} /></div>
+            {selectedTemplate ? <div className="template-meta"><OpsIcon name="clock" size={15} /><span>Last updated {when(selectedTemplate.updatedAt)}</span></div> : null}
+          </div>
+          {selectedTemplate ? <article className="template-editor">
+            <div className="template-editor-head"><div><span className="template-key">{selectedTemplate.key.replaceAll('_', ' ')}</span><strong>{selectedTemplate.subject || 'Untitled template'}</strong></div><span className="template-status"><OpsIcon name="check" size={14} /> Active template</span></div>
+            <label><span>Subject</span><input value={selectedTemplate.subject} onChange={(event) => setTemplates((current) => current.map((item) => item.id === selectedTemplate.id ? { ...item, subject: event.target.value } : item))} /></label>
+            <label><span>HTML body</span><textarea value={selectedTemplate.body} onChange={(event) => setTemplates((current) => current.map((item) => item.id === selectedTemplate.id ? { ...item, body: event.target.value } : item))} /></label>
+            <div className="template-editor-actions"><button type="button" disabled={busy} onClick={() => void saveTemplate(selectedTemplate)}><OpsIcon name="check" size={16} /> Save template</button></div>
+          </article> : null}
+        </> : <div className="delivery-empty"><OpsIcon name="spreadsheet" size={19} /><span>No email templates are configured.</span></div>}
+      </section>
     </section> : null}
+    {deliveryTest ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target && deliveryTest.status !== 'running') setDeliveryTest(null) }}><section className="card delivery-test-dialog" role="dialog" aria-modal="true" aria-labelledby="delivery-test-title">
+      <div className="delivery-test-head"><span className={`communications-icon-tile ${deliveryTest.status === 'failure' ? 'danger' : deliveryTest.status === 'success' ? '' : 'violet'}`}><OpsIcon name={deliveryTest.status === 'failure' ? 'alert' : deliveryTest.status === 'success' ? 'check' : 'activity'} size={21} /></span><div><span className="eyebrow">Email diagnostic</span><h2 id="delivery-test-title">{deliveryTest.status === 'running' ? 'Testing delivery…' : deliveryTest.status === 'success' ? 'Delivery test passed' : 'Delivery test needs attention'}</h2></div></div>
+      {deliveryTest.status === 'running' ? <div className="delivery-test-running"><span className="delivery-test-spinner" /><p>Checking SMTP connection and sending one controlled test email.</p></div> : <>
+        <div className="delivery-test-checks">
+          <div className={deliveryTest.checks?.smtpVerified ? 'pass' : 'fail'}><span><OpsIcon name={deliveryTest.checks?.smtpVerified ? 'check' : 'alert'} size={17} /></span><div><strong>SMTP connection</strong><small>{deliveryTest.checks?.smtpVerified ? 'Verified successfully' : 'Could not verify'}</small></div></div>
+          <div className={deliveryTest.checks?.recipientAccepted ? 'pass' : 'fail'}><span><OpsIcon name={deliveryTest.checks?.recipientAccepted ? 'check' : 'alert'} size={17} /></span><div><strong>Recipient acceptance</strong><small>{deliveryTest.checks?.recipientAccepted ? 'Accepted by the mail server' : 'Not accepted by the mail server'}</small></div></div>
+          <div className="manual"><span><OpsIcon name="review" size={17} /></span><div><strong>Inbox arrival</strong><small>Confirm manually in inbox or spam</small></div></div>
+        </div>
+        {deliveryTest.recipient ? <div className="delivery-test-recipient"><span>Test recipient</span><strong>{deliveryTest.recipient}</strong></div> : null}
+        <p className={deliveryTest.status === 'failure' ? 'delivery-test-message error' : 'delivery-test-message'}>{deliveryTest.error || deliveryTest.message || 'Diagnostic completed.'}</p>
+        <div className="ops-confirm-actions"><button type="button" className="secondary" onClick={() => setDeliveryTest(null)}>Close</button><button type="button" disabled={busy} onClick={() => void testDelivery()}><OpsIcon name="refresh" size={16} /> Run again</button></div>
+      </>}
+    </section></div> : null}
     {deleteTarget ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDeleteTarget(null) }}><section className="card ops-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-notice-title"><span className="eyebrow danger">Delete notice</span><h2 id="delete-notice-title">Delete “{deleteTarget.title}”?</h2><p>This removes the notice from every recipient and acknowledgement tracking. This action cannot be undone.</p><div className="ops-confirm-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void deleteNotice(deleteTarget)}>Delete notice</button></div></section></div> : null}
   </main>
 }
