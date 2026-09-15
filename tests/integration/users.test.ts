@@ -368,7 +368,7 @@ describe('communications bootstrap', () => {
     expect(response.status).toBe(200)
     expect(response.body.data).toEqual(expect.objectContaining({
       mine: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
-      all: expect.objectContaining({ items: expect.any(Array), summary: expect.any(Object) }),
+      all: null,
       people: expect.arrayContaining([
         expect.objectContaining({ email: 'employee@ds.ie', role: 'employee' }),
         expect.objectContaining({ email: 'super@ds.ie', role: 'field_supervisor' }),

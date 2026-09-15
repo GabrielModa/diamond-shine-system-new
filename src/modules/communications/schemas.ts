@@ -15,6 +15,10 @@ export const operationalNoticeCreateSchema = z.object({
 export const operationalNoticeQuerySchema = z.object({
   scope: z.enum(['mine', 'all']).default('mine'),
   state: z.enum(['unread', 'unacknowledged', 'all']).default('all'),
+  trackingState: z.enum(['all', 'awaiting', 'complete', 'informational']).default('all'),
+  priority: z.enum(['all', 'low', 'normal', 'high', 'critical']).default('all'),
+  q: z.string().trim().max(200).default(''),
+  page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(300).default(100),
 })
 

@@ -21,7 +21,11 @@ type Notice = {
   createdBy: Person
   recipients: Receipt[]
 }
-type NoticeData = { items: Notice[]; summary: Record<string, number> }
+type NoticeData = {
+  items: Notice[]
+  summary: Record<string, number>
+  pagination?: { page: number; limit: number; total: number; totalPages: number }
+}
 type Template = { id: string; key: string; subject: string; body: string; updatedAt: string }
 type Job = { id: string; kind: string; status: string; attempts: number; maxAttempts: number; lastError?: string | null; createdAt: string }
 type QueueData = { items: Job[]; counts: Record<string, number>; latestFailure?: { kind: string; lastError: string; lastAttemptAt: string | null } | null }
@@ -83,6 +87,11 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [onlySelectedRecipients, setOnlySelectedRecipients] = useState(false)
   const [recipientExpanded, setRecipientExpanded] = useState(false)
   const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'awaiting' | 'critical'>('all')
+  const [trackingQuery, setTrackingQuery] = useState('')
+  const [trackingState, setTrackingState] = useState<'all' | 'awaiting' | 'complete' | 'informational'>('all')
+  const [trackingPriority, setTrackingPriority] = useState<'all' | Notice['priority']>('all')
+  const [trackingPage, setTrackingPage] = useState(1)
+  const [trackingLoading, setTrackingLoading] = useState(false)
   const [deleteTarget, setDeleteTarget] = useState<Notice | null>(null)
   const [draft, setDraft] = useState({ type: 'schedule_change', priority: 'high', title: '', body: '', siteId: '', requiresAcknowledgement: true })
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '', operationalAlerts: '' })
@@ -102,8 +111,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       const bootstrap = await api<CommunicationsBootstrap>('/api/communications/bootstrap')
       setMine(bootstrap.mine)
       if (canManage) {
-        const allData = bootstrap.all ?? { items: [], summary: {} }
-        setAll(allData)
         setPeople(bootstrap.people)
         setSites(bootstrap.sites)
         setSelectedUsers((current) => current.filter((id) => bootstrap.people.some((person) => person.id === id)))
@@ -125,7 +132,40 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
     }
   }, [canConfigure, canManage])
 
+  const loadTracking = useCallback(async () => {
+    if (!canManage) return
+    setTrackingLoading(true)
+    setError('')
+    try {
+      const params = new URLSearchParams({
+        scope: 'all',
+        page: String(trackingPage),
+        limit: '8',
+        trackingState,
+        priority: trackingPriority,
+      })
+      if (trackingQuery.trim()) params.set('q', trackingQuery.trim())
+      const data = await api<NoticeData>(`/api/operational-notices?${params.toString()}`)
+      setAll(data)
+      if (data.pagination && trackingPage > data.pagination.totalPages) setTrackingPage(data.pagination.totalPages)
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not load acknowledgement tracking.')
+    } finally {
+      setTrackingLoading(false)
+    }
+  }, [canManage, trackingPage, trackingPriority, trackingQuery, trackingState])
+
+  async function refreshPage() {
+    await refresh()
+    if (tab === 'tracking' && canManage) await loadTracking()
+  }
+
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (tab !== 'tracking' || !canManage) return
+    const timer = window.setTimeout(() => { void loadTracking() }, trackingQuery.trim() ? 220 : 0)
+    return () => window.clearTimeout(timer)
+  }, [canManage, loadTracking, tab, trackingQuery])
 
   useEffect(() => {
     if (!notice) return
@@ -301,7 +341,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   return <main className="page-shell ops-inbox">
     <section className="inbox-hero">
       <div className="communications-hero-title"><span className="communications-icon-tile"><OpsIcon name="message" size={20} /></span><div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div></div>
-      <button className="secondary communications-refresh" type="button" onClick={() => void refresh()} disabled={busy}><OpsIcon name="refresh" size={16} /> Refresh</button>
+      <button className="secondary communications-refresh" type="button" onClick={() => void refreshPage()} disabled={busy || trackingLoading}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </section>
     {notice ? <div className="transient-notice success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
     {error ? <div className="inline-message error" role="alert">{error}</div> : null}
@@ -369,19 +409,49 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       <button type="button" className={publishBlocker ? 'publish-action' : 'publish-action ready'} onClick={() => void publish()} disabled={busy || Boolean(publishBlocker)}>{publishBlocker ? 'Complete the required fields' : `Publish to ${selectedUsers.length} recipient${selectedUsers.length === 1 ? '' : 's'}`}</button>
     </article></section> : null}
 
-    {tab === 'tracking' && canManage ? <section className="tracking-grid">
-      {all.items.map((item) => {
-        const seen = item.recipients.filter((receipt) => receipt.seenAt).length
-        const ack = item.recipients.filter((receipt) => receipt.acknowledgedAt).length
-        return <article className="card tracking-card" key={item.id}>
-          <div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><time>{when(item.publishedAt)}</time></div>
-          <h2>{item.title}</h2><p>{item.body}</p>
-          <div className="ack-progress"><div style={{ width: `${item.recipients.length ? (ack / item.recipients.length) * 100 : 0}%` }} /></div>
-          <strong>{ack}/{item.recipients.length} acknowledged · {seen}/{item.recipients.length} seen</strong>
-          <details><summary>Recipient status</summary>{item.recipients.map((receipt) => <div className="receipt-row" key={receipt.id}><span>{receipt.user.name ?? receipt.user.email}</span><span>{receipt.acknowledgedAt ? 'Acknowledged' : receipt.seenAt ? 'Seen' : 'Delivered'}</span></div>)}</details>
-        </article>
-      })}
-      {all.items.length === 0 ? <p className="empty-copy">No notices published yet.</p> : null}
+    {tab === 'tracking' && canManage ? <section className="tracking-workspace">
+      <div className="communications-section-heading tracking-heading"><span className="communications-icon-tile violet"><OpsIcon name="review" size={19} /></span><div><span className="eyebrow">Acknowledgement control</span><h2>Track communication at scale</h2><p>Filter the notices that still need action instead of scanning every message ever published.</p></div></div>
+
+      <section className="tracking-overview" aria-label="Acknowledgement summary">
+        <button type="button" className={trackingState === 'all' && trackingPriority === 'all' ? 'active' : ''} onClick={() => { setTrackingState('all'); setTrackingPriority('all'); setTrackingPage(1) }}><OpsIcon name="message" size={18} /><span>Published</span><strong>{all.summary.total ?? 0}</strong><small>All notices</small></button>
+        <button type="button" className={trackingState === 'awaiting' ? 'active attention' : 'attention'} onClick={() => { setTrackingState('awaiting'); setTrackingPriority('all'); setTrackingPage(1) }}><OpsIcon name="clock" size={18} /><span>Awaiting</span><strong>{all.summary.awaiting ?? 0}</strong><small>Need acknowledgement</small></button>
+        <button type="button" className={trackingState === 'complete' ? 'active complete' : 'complete'} onClick={() => { setTrackingState('complete'); setTrackingPriority('all'); setTrackingPage(1) }}><OpsIcon name="check" size={18} /><span>Complete</span><strong>{all.summary.complete ?? 0}</strong><small>Fully acknowledged</small></button>
+        <button type="button" className={trackingPriority === 'critical' ? 'active critical' : 'critical'} onClick={() => { setTrackingState('all'); setTrackingPriority('critical'); setTrackingPage(1) }}><OpsIcon name="alert" size={18} /><span>Critical</span><strong>{all.summary.critical ?? 0}</strong><small>Highest priority</small></button>
+      </section>
+
+      <div className="card tracking-toolbar">
+        <label className="tracking-search"><OpsIcon name="search" size={17} /><span className="sr-only">Search acknowledgement notices</span><input type="search" value={trackingQuery} onChange={(event) => { setTrackingQuery(event.target.value); setTrackingPage(1) }} placeholder="Search title or message…" /></label>
+        <div className="inbox-select-field"><span>Status</span><StandardSelect value={trackingState} onChange={(value) => { setTrackingState(value as typeof trackingState); setTrackingPage(1) }} ariaLabel="Acknowledgement status" options={[
+          { value: 'all', label: 'All statuses' },
+          { value: 'awaiting', label: 'Awaiting acknowledgement' },
+          { value: 'complete', label: 'Fully acknowledged' },
+          { value: 'informational', label: 'No acknowledgement required' },
+        ]} /></div>
+        <div className="inbox-select-field"><span>Priority</span><StandardSelect value={trackingPriority} onChange={(value) => { setTrackingPriority(value as typeof trackingPriority); setTrackingPage(1) }} ariaLabel="Tracking priority" options={[{ value: 'all', label: 'All priorities' }, ...PRIORITIES]} /></div>
+        <div className="tracking-result-count"><strong>{all.pagination?.total ?? 0}</strong><span>matching notice{(all.pagination?.total ?? 0) === 1 ? '' : 's'}</span></div>
+      </div>
+
+      {trackingLoading ? <div className="card tracking-loading"><span className="delivery-test-spinner" /><span>Loading acknowledgement control…</span></div> : <div className="tracking-grid">
+        {all.items.map((item) => {
+          const seen = item.recipients.filter((receipt) => receipt.seenAt).length
+          const ack = item.recipients.filter((receipt) => receipt.acknowledgedAt).length
+          const pending = Math.max(0, item.recipients.length - ack)
+          const complete = item.requiresAcknowledgement && item.recipients.length > 0 && pending === 0
+          return <article className="card tracking-card" key={item.id}>
+            <div className="tracking-card-head"><div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><span>{item.type.replaceAll('_', ' ')}</span></div><time>{when(item.publishedAt)}</time></div>
+            <div className="tracking-card-copy"><h2>{item.title}</h2><p>{item.body}</p>{item.site ? <small><OpsIcon name="field" size={14} /> {item.site.client.displayName} · {item.site.name}</small> : <small><OpsIcon name="message" size={14} /> Organization-wide</small>}</div>
+            <div className="tracking-status-row">
+              <span className={`tracking-status-chip ${!item.requiresAcknowledgement ? 'informational' : complete ? 'complete' : 'awaiting'}`}><OpsIcon name={!item.requiresAcknowledgement ? 'message' : complete ? 'check' : 'clock'} size={14} />{!item.requiresAcknowledgement ? 'No acknowledgement required' : complete ? 'Fully acknowledged' : `${pending} awaiting`}</span>
+              <span>{seen}/{item.recipients.length} seen</span>
+            </div>
+            {item.requiresAcknowledgement ? <><div className="ack-progress" aria-label={`${ack} of ${item.recipients.length} acknowledged`}><div style={{ width: `${item.recipients.length ? (ack / item.recipients.length) * 100 : 0}%` }} /></div><div className="tracking-progress-copy"><strong>{ack}/{item.recipients.length} acknowledged</strong><span>{item.recipients.length ? Math.round((ack / item.recipients.length) * 100) : 0}%</span></div></> : null}
+            <details className="tracking-recipients"><summary><span><OpsIcon name="user" size={15} /> Recipient status</span><b>{item.recipients.length}</b></summary><div className="tracking-receipt-list">{item.recipients.map((receipt) => <div className="receipt-row" key={receipt.id}><span><strong>{receipt.user.name ?? receipt.user.email}</strong><small>{receipt.user.email}</small></span><span className={receipt.acknowledgedAt ? 'acknowledged' : receipt.seenAt ? 'seen' : 'delivered'}>{receipt.acknowledgedAt ? 'Acknowledged' : receipt.seenAt ? 'Seen' : 'Delivered'}</span></div>)}</div></details>
+          </article>
+        })}
+        {!all.items.length ? <div className="card tracking-empty"><OpsIcon name="search" size={22} /><strong>No notices match these filters.</strong><span>Clear or change the filters to broaden acknowledgement tracking.</span></div> : null}
+      </div>}
+
+      {(all.pagination?.totalPages ?? 1) > 1 ? <nav className="tracking-pagination" aria-label="Acknowledgement pages"><span>Showing {((all.pagination?.page ?? 1) - 1) * (all.pagination?.limit ?? 8) + 1}–{Math.min((all.pagination?.page ?? 1) * (all.pagination?.limit ?? 8), all.pagination?.total ?? 0)} of {all.pagination?.total ?? 0}</span><div><button type="button" className="secondary" disabled={trackingLoading || (all.pagination?.page ?? 1) <= 1} onClick={() => setTrackingPage((page) => Math.max(1, page - 1))}>← Previous</button><strong>Page {all.pagination?.page ?? 1} of {all.pagination?.totalPages ?? 1}</strong><button type="button" className="secondary" disabled={trackingLoading || (all.pagination?.page ?? 1) >= (all.pagination?.totalPages ?? 1)} onClick={() => setTrackingPage((page) => Math.min(all.pagination?.totalPages ?? page, page + 1))}>Next →</button></div></nav> : null}
     </section> : null}
 
     {tab === 'delivery' && canConfigure ? <section className="delivery-stack">
