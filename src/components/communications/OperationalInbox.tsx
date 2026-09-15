@@ -71,6 +71,11 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [sites, setSites] = useState<Site[]>([])
   const [selectedUsers, setSelectedUsers] = useState<string[]>([])
   const [recipientQuery, setRecipientQuery] = useState('')
+  const [recipientRole, setRecipientRole] = useState('all')
+  const [onlySelectedRecipients, setOnlySelectedRecipients] = useState(false)
+  const [recipientExpanded, setRecipientExpanded] = useState(false)
+  const [inboxFilter, setInboxFilter] = useState<'all' | 'unread' | 'awaiting' | 'critical'>('all')
+  const [deleteTarget, setDeleteTarget] = useState<Notice | null>(null)
   const [draft, setDraft] = useState({ type: 'schedule_change', priority: 'high', title: '', body: '', siteId: '', requiresAcknowledgement: true })
   const [alerts, setAlerts] = useState({ supplyAlerts: '', feedbackAlerts: '', operationalAlerts: '' })
   const [queue, setQueue] = useState<QueueData>({ items: [], counts: {} })
@@ -124,8 +129,12 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   )
   const recipientPeople = useMemo(() => {
     const needle = recipientQuery.trim().toLowerCase()
-    return people.filter((person) => !needle || `${person.name ?? ''} ${person.email} ${ROLE_LABELS[person.role ?? ''] ?? person.role ?? ''}`.toLowerCase().includes(needle))
-  }, [people, recipientQuery])
+    return people.filter((person) => {
+      if (recipientRole !== 'all' && person.role !== recipientRole) return false
+      if (onlySelectedRecipients && !selectedUsers.includes(person.id)) return false
+      return !needle || `${person.name ?? ''} ${person.email} ${ROLE_LABELS[person.role ?? ''] ?? person.role ?? ''}`.toLowerCase().includes(needle)
+    })
+  }, [onlySelectedRecipients, people, recipientQuery, recipientRole, selectedUsers])
   const recipientGroups = useMemo(() => {
     const roles = [...new Set(people.map((person) => person.role).filter((role): role is string => Boolean(role)))]
     return roles.map((role) => ({
@@ -134,6 +143,21 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       ids: people.filter((person) => person.role === role).map((person) => person.id),
     }))
   }, [people])
+  const filteredInboxItems = useMemo(() => mine.items.filter((item) => {
+    const own = item.recipients[0]
+    if (inboxFilter === 'unread') return !own?.seenAt
+    if (inboxFilter === 'awaiting') return item.requiresAcknowledgement && !own?.acknowledgedAt
+    if (inboxFilter === 'critical') return item.priority === 'critical'
+    return true
+  }), [inboxFilter, mine.items])
+  const visibleRecipientPeople = recipientExpanded ? recipientPeople : recipientPeople.slice(0, 8)
+  const publishBlocker = !draft.title.trim()
+    ? 'Add a title before publishing.'
+    : !draft.body.trim()
+      ? 'Add a message before publishing.'
+      : !selectedUsers.length
+        ? 'Select at least one recipient.'
+        : ''
 
   function toggleRecipientIds(ids: string[]) {
     if (!ids.length) return
@@ -155,6 +179,18 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not update the notice.')
+    } finally { setBusy(false) }
+  }
+
+  async function deleteNotice(item: Notice) {
+    setBusy(true); setError(''); setNotice('')
+    try {
+      await api(`/api/operational-notices/${item.id}`, { method: 'DELETE' })
+      setDeleteTarget(null)
+      setNotice('Notice deleted.')
+      await refresh()
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : 'Could not delete the notice.')
     } finally { setBusy(false) }
   }
 
@@ -242,7 +278,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
     {tab === 'inbox' ? <section className="inbox-layout">
       <div className="inbox-stream">
-        {mine.items.map((item) => {
+        {filteredInboxItems.map((item) => {
           const own = item.recipients[0]
           return <article className={`inbox-message ${item.priority} ${own?.seenAt ? 'seen' : ''}`} key={item.id}>
             <div className="inbox-message-head"><span className={`priority-label ${item.priority}`}>{item.priority}</span><span>{item.type.replaceAll('_', ' ')}</span><time>{when(item.publishedAt)}</time></div>
@@ -256,12 +292,18 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
                 <button type="button" disabled={busy} onClick={() => void receipt(item, 'acknowledged')}>Acknowledge</button>
               </> : null}
               {own?.acknowledgedAt ? <span>✓ Acknowledged {when(own.acknowledgedAt)}</span> : null}
+              {canManage ? <button type="button" className="danger-text-button" disabled={busy} onClick={() => setDeleteTarget(item)}>Delete</button> : null}
             </div>
           </article>
         })}
-        {mine.items.length === 0 ? <div className="card empty-inbox"><strong>You are all caught up.</strong><span>No operational notices have been sent to you.</span></div> : null}
+        {filteredInboxItems.length === 0 ? <div className="card empty-inbox"><strong>{mine.items.length ? 'Nothing in this filter.' : 'You are all caught up.'}</strong><span>{mine.items.length ? 'Choose another Inbox health filter to see more messages.' : 'No operational notices have been sent to you.'}</span></div> : null}
       </div>
-      <aside className="card inbox-summary"><h2>Inbox health</h2><div><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></div><div><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></div><div><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></div></aside>
+      <aside className="card inbox-summary">
+        <div className="inbox-summary-head"><h2>Inbox health</h2>{inboxFilter !== 'all' ? <button type="button" className="text-button" onClick={() => setInboxFilter('all')}>Show all</button> : null}</div>
+        <button type="button" className={inboxFilter === 'unread' ? 'active' : ''} aria-pressed={inboxFilter === 'unread'} onClick={() => setInboxFilter((current) => current === 'unread' ? 'all' : 'unread')}><strong>{mine.summary.unread ?? 0}</strong><span>Unread</span></button>
+        <button type="button" className={inboxFilter === 'awaiting' ? 'active' : ''} aria-pressed={inboxFilter === 'awaiting'} onClick={() => setInboxFilter((current) => current === 'awaiting' ? 'all' : 'awaiting')}><strong>{mine.summary.awaitingAcknowledgement ?? 0}</strong><span>Awaiting acknowledgement</span></button>
+        <button type="button" className={inboxFilter === 'critical' ? 'active' : ''} aria-pressed={inboxFilter === 'critical'} onClick={() => setInboxFilter((current) => current === 'critical' ? 'all' : 'critical')}><strong>{mine.summary.critical ?? 0}</strong><span>Critical</span></button>
+      </aside>
     </section> : null}
 
     {tab === 'broadcast' && canManage ? <section className="broadcast-layout"><article className="card broadcast-form">
@@ -270,26 +312,28 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
         <div className="inbox-select-field"><span>Type</span><StandardSelect value={draft.type} onChange={(value) => setDraft((current) => ({ ...current, type: value }))} ariaLabel="Notice type" options={NOTICE_TYPES} /></div>
         <div className="inbox-select-field"><span>Priority</span><StandardSelect value={draft.priority} onChange={(value) => setDraft((current) => ({ ...current, priority: value }))} ariaLabel="Notice priority" options={PRIORITIES} /></div>
         <div className="inbox-select-field"><span>Site context</span><StandardSelect searchable={sites.length > 8} value={draft.siteId} onChange={(value) => setDraft((current) => ({ ...current, siteId: value }))} ariaLabel="Site context" searchPlaceholder="Search client or site…" options={[{ value: '', label: 'Organization-wide' }, ...sites.map((site) => ({ value: site.id, label: `${site.client.displayName} · ${site.name}` }))]} /></div>
-        <label className="ack-toggle"><input type="checkbox" checked={draft.requiresAcknowledgement} onChange={(event) => setDraft((current) => ({ ...current, requiresAcknowledgement: event.target.checked }))} /> Require acknowledgement</label>
+        <label className={draft.requiresAcknowledgement ? 'ack-toggle ack-toggle-card active' : 'ack-toggle ack-toggle-card'}><input type="checkbox" checked={draft.requiresAcknowledgement} onChange={(event) => setDraft((current) => ({ ...current, requiresAcknowledgement: event.target.checked }))} /><span><strong>{draft.requiresAcknowledgement ? 'Acknowledgement required' : 'Acknowledgement optional'}</strong><small>{draft.requiresAcknowledgement ? 'Recipients must confirm this notice.' : 'Recipients can read it without confirming.'}</small></span></label>
       </div>
       <label><span>Title</span><input value={draft.title} onChange={(event) => setDraft((current) => ({ ...current, title: event.target.value }))} placeholder="Tomorrow's start time changed" /></label>
       <label><span>Message</span><textarea value={draft.body} onChange={(event) => setDraft((current) => ({ ...current, body: event.target.value }))} placeholder="State what changed, what the team must do and who to contact…" /></label>
       <div className="recipient-picker">
-        <div><strong>Recipients</strong><button type="button" className="text-button" onClick={() => {
-          const shown = recipientPeople.map((person) => person.id)
-          const allShown = shown.length > 0 && shown.every((id) => selectedUsers.includes(id))
-          toggleRecipientIds(shown)
-          if (!allShown && !shown.length) return
-        }}>{recipientPeople.length > 0 && recipientPeople.every((person) => selectedUsers.includes(person.id)) ? 'Clear shown' : 'Select shown'}</button></div>
-        <div className="recipient-groups" role="group" aria-label="Select recipients by role">
-          <button type="button" className={people.length > 0 && people.every((person) => selectedUsers.includes(person.id)) ? 'selected' : ''} onClick={() => toggleRecipientIds(people.map((person) => person.id))}>Everyone <b>{people.length}</b></button>
-          {recipientGroups.map((group) => <button type="button" key={group.role} className={group.ids.every((id) => selectedUsers.includes(id)) ? 'selected' : ''} onClick={() => toggleRecipientIds(group.ids)}>{group.label} <b>{group.ids.length}</b></button>)}
+        <div className="recipient-picker-head"><div><strong>Recipients</strong><span>{recipientPeople.length} shown · {selectedUsers.length} selected</span></div><div className="recipient-picker-actions"><button type="button" className="text-button" onClick={() => toggleRecipientIds(recipientPeople.map((person) => person.id))}>{recipientPeople.length > 0 && recipientPeople.every((person) => selectedUsers.includes(person.id)) ? 'Clear shown' : 'Select shown'}</button>{selectedUsers.length ? <button type="button" className="text-button muted" onClick={() => setSelectedUsers([])}>Clear selection</button> : null}</div></div>
+        <div className="recipient-filter-bar">
+          <label className="recipient-search"><span className="sr-only">Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => { setRecipientQuery(event.target.value); setRecipientExpanded(false) }} placeholder="Search name, email or role…" /></label>
+          <button type="button" className={onlySelectedRecipients ? 'recipient-filter-toggle active' : 'recipient-filter-toggle'} aria-pressed={onlySelectedRecipients} onClick={() => { setOnlySelectedRecipients((current) => !current); setRecipientExpanded(false) }}>Selected only <b>{selectedUsers.length}</b></button>
         </div>
-        <label className="recipient-search"><span>Search recipients</span><input type="search" value={recipientQuery} onChange={(event) => setRecipientQuery(event.target.value)} placeholder="Name, email or role…" /></label>
-        <span className="recipient-result-count">{recipientPeople.length} shown · {selectedUsers.length} selected</span>
-        {recipientPeople.map((person) => <label key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => toggleRecipientIds([person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{ROLE_LABELS[person.role ?? ''] ?? person.role?.replaceAll('_', ' ') ?? 'Team member'} · {person.email}</small></span></label>)}
+        <div className="recipient-groups" role="group" aria-label="Filter recipients by role">
+          <button type="button" className={recipientRole === 'all' ? 'selected' : ''} aria-pressed={recipientRole === 'all'} onClick={() => { setRecipientRole('all'); setRecipientExpanded(false) }}>Everyone <b>{people.length}</b></button>
+          {recipientGroups.map((group) => <button type="button" key={group.role} className={recipientRole === group.role ? 'selected' : ''} aria-pressed={recipientRole === group.role} onClick={() => { setRecipientRole(group.role); setRecipientExpanded(false) }}>{group.label} <b>{group.ids.length}</b></button>)}
+        </div>
+        <div className="recipient-list">
+          {visibleRecipientPeople.map((person) => <label className={selectedUsers.includes(person.id) ? 'selected' : ''} key={person.id}><input type="checkbox" checked={selectedUsers.includes(person.id)} onChange={() => toggleRecipientIds([person.id])} /><span><strong>{person.name ?? person.email}</strong><small>{ROLE_LABELS[person.role ?? ''] ?? person.role?.replaceAll('_', ' ') ?? 'Team member'} · {person.email}</small></span></label>)}
+          {recipientPeople.length === 0 ? <div className="recipient-empty">No team members match these filters.</div> : null}
+        </div>
+        {recipientPeople.length > 8 ? <button type="button" className="recipient-expand" onClick={() => setRecipientExpanded((current) => !current)}>{recipientExpanded ? 'Show less' : `Show all ${recipientPeople.length} recipients`}</button> : null}
       </div>
-      <button type="button" onClick={() => void publish()} disabled={busy || !draft.title.trim() || !draft.body.trim() || !selectedUsers.length}>Publish & track acknowledgement</button>
+      <div className={publishBlocker ? "publish-readiness" : "publish-readiness ready"}><span aria-hidden="true">{publishBlocker ? '○' : '✓'}</span><p>{publishBlocker || `Ready to publish to ${selectedUsers.length} team member${selectedUsers.length === 1 ? '' : 's'}.`}</p></div>
+      <button type="button" className={publishBlocker ? 'publish-action' : 'publish-action ready'} onClick={() => void publish()} disabled={busy || Boolean(publishBlocker)}>{publishBlocker ? 'Complete the required fields' : `Publish to ${selectedUsers.length} recipient${selectedUsers.length === 1 ? '' : 's'}`}</button>
     </article></section> : null}
 
     {tab === 'tracking' && canManage ? <section className="tracking-grid">
@@ -331,5 +375,6 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       </article>
       <section><h2>Email templates</h2><div className="communication-grid">{templates.map((template) => <article className="card communication-card" key={template.id}><strong>{template.key.replaceAll('_', ' ')}</strong><label><span>Subject</span><input value={template.subject} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, subject: event.target.value } : item))} /></label><label><span>HTML body</span><textarea value={template.body} onChange={(event) => setTemplates((current) => current.map((item) => item.id === template.id ? { ...item, body: event.target.value } : item))} /></label><button type="button" onClick={() => void saveTemplate(template)}>Save template</button></article>)}</div></section>
     </section> : null}
+    {deleteTarget ? <div className="ops-confirm-backdrop" role="presentation" onMouseDown={(event) => { if (event.currentTarget === event.target) setDeleteTarget(null) }}><section className="card ops-confirm-dialog" role="dialog" aria-modal="true" aria-labelledby="delete-notice-title"><span className="eyebrow danger">Delete notice</span><h2 id="delete-notice-title">Delete “{deleteTarget.title}”?</h2><p>This removes the notice from every recipient and acknowledgement tracking. This action cannot be undone.</p><div className="ops-confirm-actions"><button type="button" className="secondary" disabled={busy} onClick={() => setDeleteTarget(null)}>Cancel</button><button type="button" className="danger-action" disabled={busy} onClick={() => void deleteNotice(deleteTarget)}>Delete notice</button></div></section></div> : null}
   </main>
 }
