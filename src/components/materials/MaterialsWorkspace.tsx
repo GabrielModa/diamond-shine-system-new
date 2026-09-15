@@ -266,22 +266,27 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
     {!busy && tab === 'history' ? <section className="card supply-history-card">
       <div className="section-heading"><div><h2>{personalView || !canManage ? 'My requests' : 'Request history'}</h2><p className="muted">{personalView || !canManage ? 'Track each request by next action instead of scanning a long status timeline.' : 'Search the full lifecycle, or switch to Requested by me without leaving Supplies.'}</p></div><div className="history-result-count"><strong>{historyData.total}</strong><span>matching request{historyData.total === 1 ? '' : 's'}</span></div></div>
-      <div className="supply-history-toolbar"><ListControls
-        query={requestQuery}
-        onQueryChange={setRequestQuery}
-        from={requestFrom}
-        to={requestTo}
-        onFromChange={setRequestFrom}
-        onToChange={setRequestTo}
-        placeholder="Search site, requester or material…"
-        hasActiveFilters={Boolean(requestQuery.trim() || requestFrom || requestTo || historyStatus !== 'all' || historyPriority !== 'all' || (canManage && !personalView && historyScope === 'mine'))}
-        onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo(''); setHistoryStatus('all'); setHistoryPriority('all'); setHistoryScope(personalView || !canManage ? 'mine' : 'all') }}
-        options={[
-          { label: 'Status', value: historyStatus, defaultValue: 'all', choices: [{ value: 'all', label: 'All statuses' }, ...HISTORY_STATUSES.map((status) => ({ value: status, label: status }))], onChange: (value) => setHistoryStatus(value as 'all' | SupplyStatus) },
-          { label: 'Priority', value: historyPriority, defaultValue: 'all', choices: [{ value: 'all', label: 'All priorities' }, { value: 'urgent', label: 'Urgent' }, { value: 'normal', label: 'Normal' }, { value: 'low', label: 'Low' }], onChange: (value) => setHistoryPriority(value as 'all' | SupplyPriority) },
-          ...(canManage && !personalView ? [{ label: 'Ownership', value: historyScope, defaultValue: 'all', choices: [{ value: 'all', label: 'All requests' }, { value: 'mine', label: 'Requested by me' }], onChange: (value: string) => setHistoryScope(value as 'all' | 'mine') }] : []),
-        ]}
-      /></div>
+      <div className="supply-history-toolbar">
+        {canManage && !personalView ? <div className="supply-scope-toggle" role="group" aria-label="Request ownership">
+          <button type="button" className={historyScope === 'all' ? 'active' : ''} aria-pressed={historyScope === 'all'} onClick={() => setHistoryScope('all')}>All requests</button>
+          <button type="button" className={historyScope === 'mine' ? 'active' : ''} aria-pressed={historyScope === 'mine'} onClick={() => setHistoryScope('mine')}>Requested by me</button>
+        </div> : null}
+        <ListControls
+          query={requestQuery}
+          onQueryChange={setRequestQuery}
+          from={requestFrom}
+          to={requestTo}
+          onFromChange={setRequestFrom}
+          onToChange={setRequestTo}
+          placeholder="Search site, requester or material…"
+          hasActiveFilters={Boolean(requestQuery.trim() || requestFrom || requestTo || historyStatus !== 'all' || historyPriority !== 'all')}
+          onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo(''); setHistoryStatus('all'); setHistoryPriority('all') }}
+          options={[
+            { label: 'Status', value: historyStatus, defaultValue: 'all', choices: [{ value: 'all', label: 'All statuses' }, ...HISTORY_STATUSES.map((status) => ({ value: status, label: status }))], onChange: (value) => setHistoryStatus(value as 'all' | SupplyStatus) },
+            { label: 'Priority', value: historyPriority, defaultValue: 'all', choices: [{ value: 'all', label: 'All priorities' }, { value: 'urgent', label: 'Urgent' }, { value: 'normal', label: 'Normal' }, { value: 'low', label: 'Low' }], onChange: (value) => setHistoryPriority(value as 'all' | SupplyPriority) },
+          ]}
+        />
+      </div>
       {historyLoading && !historyData.items.length ? <div className="supply-list-loading" role="status">Loading requests…</div> : <RequestList requests={historyData.items} canManage={canManage && !personalView} onAdvance={moveRequest} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} />}
       <PaginationControls page={historyPage} totalPages={historyData.totalPages} total={historyData.total} limit={historyData.limit || HISTORY_LIMIT} loading={historyLoading} noun="requests" onPageChange={setHistoryPage} />
     </section> : null}
