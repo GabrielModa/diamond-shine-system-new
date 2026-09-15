@@ -103,6 +103,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   const [acknowledgementNotes, setAcknowledgementNotes] = useState<Record<string, string>>({})
   const [busy, setBusy] = useState(false)
   const [notice, setNotice] = useState('')
+  const [noticeTone, setNoticeTone] = useState<'success' | 'info'>('success')
   const [error, setError] = useState('')
 
   const refresh = useCallback(async () => {
@@ -237,7 +238,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function deleteNotice(item: Notice) {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api(`/api/operational-notices/${item.id}`, { method: 'DELETE' })
       setDeleteTarget(null)
@@ -250,7 +251,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
 
   async function publish() {
     if (!draft.title.trim() || !draft.body.trim() || !selectedUsers.length) return
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/operational-notices', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -267,7 +268,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function saveDelivery() {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/settings', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(alerts) })
       setNotice('Delivery recipients saved.')
@@ -277,7 +278,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function testDelivery() {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     setDeliveryTest({ status: 'running' })
     try {
       const response = await fetch('/api/notifications/test', { method: 'POST', credentials: 'include', cache: 'no-store' })
@@ -313,7 +314,13 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       const result = await api<{ processed: number }>('/api/notifications/process', {
         method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ limit: 20 }),
       })
-      setNotice(`${result.processed} delivery job${result.processed === 1 ? '' : 's'} processed.`)
+      if (result.processed === 0) {
+        setNoticeTone('info')
+        setNotice('No delivery jobs were due.')
+      } else {
+        setNoticeTone('success')
+        setNotice(`${result.processed} delivery job${result.processed === 1 ? '' : 's'} processed successfully.`)
+      }
       await refresh()
     } catch (cause) {
       setError(cause instanceof Error ? cause.message : 'Could not process delivery jobs.')
@@ -321,7 +328,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
   }
 
   async function saveTemplate(template: Template) {
-    setBusy(true); setError(''); setNotice('')
+    setBusy(true); setError(''); setNoticeTone('success'); setNotice('')
     try {
       await api('/api/templates', {
         method: 'PUT', headers: { 'Content-Type': 'application/json' },
@@ -346,7 +353,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
       <div className="communications-hero-title"><span className="communications-icon-tile"><OpsIcon name="message" size={20} /></span><div><span className="eyebrow">Operational communication</span><h1>Team inbox</h1><p>Important changes stay connected to the site and produce proof that the right people saw them.</p></div></div>
       <button className="secondary communications-refresh" type="button" onClick={() => void refreshPage()} disabled={busy || trackingLoading}><OpsIcon name="refresh" size={16} /> Refresh</button>
     </section>
-    {notice ? <div className="transient-notice success" role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
+    {notice ? <div className={`transient-notice ${noticeTone}`} role="status"><span>{notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
     {error ? <div className="inline-message error" role="alert">{error}</div> : null}
     <nav className="materials-tabs" aria-label="Inbox views">
       {tabs.map(([key, label]) => <button type="button" key={key} className={tab === key ? 'active' : ''} onClick={() => setTab(key)}><OpsIcon name={tabIcons[key]} size={15} />{label}</button>)}

@@ -2917,3 +2917,5 @@ textarea {
   .recipient-groups button{flex:0 0 auto}
   .delivery-test-meta{grid-template-columns:1fr}
 }
+
+.transient-notice.info{border-color:#cfdbea;color:#355d87;background:#f1f6fc}
