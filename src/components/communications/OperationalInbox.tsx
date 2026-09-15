@@ -520,7 +520,7 @@ export default function OperationalInbox({ canManage, canConfigure }: { canManag
           {deliveryTest.messageId ? <div className="delivery-test-recipient"><span>Message ID</span><strong title={deliveryTest.messageId}>{deliveryTest.messageId}</strong></div> : null}
         </div>
         <p className={deliveryTest.status === 'failure' ? 'delivery-test-message error' : 'delivery-test-message'}>{deliveryTest.error || deliveryTest.message || 'Diagnostic completed.'}</p>
-        {deliveryTest.status === 'success' ? <p className="delivery-test-caveat"><OpsIcon name="info" size={15} /> SMTP acceptance means the sending server accepted the message. It does not prove Gmail placed it in the inbox.</p> : null}
+        {deliveryTest.status === 'success' ? <p className="delivery-test-caveat"><OpsIcon name="review" size={15} /> SMTP acceptance means the sending server accepted the message. It does not prove Gmail placed it in the inbox.</p> : null}
         <div className="ops-confirm-actions"><button type="button" className="secondary" onClick={() => setDeliveryTest(null)}>Close</button><button type="button" disabled={busy} onClick={() => void testDelivery()}><OpsIcon name="refresh" size={16} /> Run again</button></div>
       </>}
     </section></div> : null}
