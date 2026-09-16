@@ -337,108 +337,30 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     void reviewEntry(reviewingEntry, reviewMode === 'reject' ? 'rejected' : 'approved', requestedSeconds, reviewNote)
   }
 
-  const employeeOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const entry of entries) map.set(entry.user.id, entry.user.name || entry.user.email)
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [entries])
-
-  const kindOptions = useMemo(() => [...new Set(entries.map((entry) => entry.kind))].sort(), [entries])
-
-  const clientOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const entry of entries) {
-      if (entry.visit) map.set(entry.visit.site.client.id, entry.visit.site.client.displayName)
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [entries])
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return entries.filter((entry) => {
-      if (employeeFilter !== 'all' && entry.user.id !== employeeFilter) return false
-      if (kindFilter !== 'all' && entry.kind !== kindFilter) return false
-      if (clientFilter !== 'all' && entry.visit?.site.client.id !== clientFilter) return false
-      if (!matchesStatus(entry, statusFilter)) return false
-      if (!needle) return true
-      const searchable = [
-        entry.id,
-        entry.user.name,
-        entry.user.email,
-        entry.kind,
-        entry.visit?.site.name,
-        entry.visit?.site.client.displayName,
-        entry.reviewReason,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return searchable.includes(needle)
-    })
-  }, [clientFilter, employeeFilter, entries, kindFilter, query, statusFilter])
-
-  const metrics = useMemo(() => {
-    const ended = filtered.filter((entry) => Boolean(entry.endedAt))
-    const recordedMs = ended.reduce((sum, entry) => sum + entryDurationMs(entry), 0)
-    const approved = ended.filter((entry) => entry.status === 'approved')
-    const pending = ended.filter((entry) => entry.status === 'completed' || entry.status === 'needs_review')
-    const challenges = filtered.filter(hasOpenChallenge)
-    const reviewRequired = filtered.filter(hasOperationalException)
-    return {
-      recordedMs,
-      approvedMs: approved.reduce((sum, entry) => sum + payableDurationMs(entry), 0),
-      excludedMs: ended.reduce((sum, entry) => sum + excludedDurationMs(entry), 0),
-      pendingMs: pending.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
-      pendingCount: pending.length,
-      blockedCount: filtered.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
-      challengeCount: challenges.length,
-      reviewCount: reviewRequired.length,
-      runningCount: filtered.filter((entry) => entry.status === 'running').length,
-    }
-  }, [filtered])
-
-  const reviewQueueCount = useMemo(
-    () => entries.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
-    [entries],
+  const employeeOptions = useMemo(
+    () => data.facets.employees.map((item) => [item.id, item.name || item.email] as [string, string]),
+    [data.facets.employees],
   )
-
-  const payrollRows = useMemo(() => {
-    const groups = new Map<string, {
-      user: Entry['user']
-      entries: number
-      recordedMs: number
-      approvedMs: number
-      excludedMs: number
-      pendingMs: number
-      challenges: number
-      needsReview: number
-      exceptions: number
-      running: number
-    }>()
-    for (const entry of filtered) {
-      const group = groups.get(entry.user.id) ?? {
-        user: entry.user,
-        entries: 0,
-        recordedMs: 0,
-        approvedMs: 0,
-        excludedMs: 0,
-        pendingMs: 0,
-        challenges: 0,
-        needsReview: 0,
-        exceptions: 0,
-        running: 0,
-      }
-      group.entries += 1
-      const ms = entryDurationMs(entry)
-      if (entry.endedAt) group.recordedMs += ms
-      if (entry.status === 'approved') group.approvedMs += payableDurationMs(entry)
-      group.excludedMs += excludedDurationMs(entry)
-      if (entry.status === 'completed' || entry.status === 'needs_review') group.pendingMs += ms
-      if (hasOpenChallenge(entry)) group.challenges += 1
-      if (entry.status === 'needs_review') group.needsReview += 1
-      if (hasOperationalException(entry)) group.exceptions += 1
-      if (entry.status === 'running') group.running += 1
-      groups.set(entry.user.id, group)
-    }
-    return [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))
-  }, [filtered])
+  const kindOptions = data.facets.kinds
+  const clientOptions = useMemo(
+    () => data.facets.clients.map((item) => [item.id, item.displayName] as [string, string]),
+    [data.facets.clients],
+  )
+  const filtered = data.items
+  const metrics = useMemo(() => ({
+    recordedMs: data.summary.recordedSeconds * 1000,
+    approvedMs: data.summary.approvedSeconds * 1000,
+    excludedMs: data.summary.excludedSeconds * 1000,
+    pendingMs: data.summary.pendingSeconds * 1000,
+    pendingCount: data.summary.pendingCount,
+    blockedCount: data.summary.blockedCount,
+    challengeCount: data.summary.challengeCount,
+    reviewCount: data.summary.reviewCount,
+    runningCount: data.summary.runningCount,
+    endedCount: data.summary.endedCount,
+  }), [data.summary])
+  const reviewQueueCount = data.summary.blockedCount
+  const payrollRows = data.payrollRows
 
   const activeFilterLabels = useMemo(() => {
     const labels: string[] = []
