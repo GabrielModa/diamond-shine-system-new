@@ -574,7 +574,7 @@ describe('field execution', () => {
     const adminIncident = fieldControl.body.data.incidents.find((item: { id: string }) => item.id === incident.body.data.id)
     expect(adminIncident.visit.evidenceAssets).toContainEqual(expect.objectContaining({
       id: incidentPhoto.id,
-      fileName: 'incident-photo.jpg',
+      fileName: incidentPhoto.fileName,
       metadata: expect.objectContaining({ phase: `incident:${incident.body.data.id}` }),
     }))
     const blocked = await request(app).post(`/api/visits/${visit.id}/complete`).set('Cookie', employeeCookie).send({})
