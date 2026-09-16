@@ -1,8 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { z } from 'zod'
-import { requireCapability } from '../../../../../../lib/auth'
-import { logAudit } from '../../../../../../lib/audit'
-import { prisma } from '../../../../../../lib/prisma'
+import { requireCapability } from '../../../../../lib/auth'
+import { logAudit } from '../../../../../lib/audit'
+import { prisma } from '../../../../../lib/prisma'
 
 const bodySchema = z.object({
   decision: z.enum(['cleared', 'blocked']),
