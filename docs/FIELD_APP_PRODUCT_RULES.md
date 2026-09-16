@@ -153,7 +153,9 @@ Keep requesting materials separate from managing stock.
 ### Supervisor / stock manager
 
 - May count site stock.
-- A saved stock count may evaluate reorder thresholds and create replenishment according to the existing materials rules.
+- A saved stock count records observed quantities and updates stock visibility only.
+- Stock counting never creates a supply request automatically.
+- Reorder / low-stock risk is reviewed by Operations in Supplies; procurement remains an intentional manager action.
 
 Use the same catalog and request model as the web app so mobile does not create a parallel supplies workflow.
 
