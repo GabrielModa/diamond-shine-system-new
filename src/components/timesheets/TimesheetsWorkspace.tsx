@@ -6,6 +6,7 @@ import { formatOperationalDateTime } from '../../lib/operational-time'
 import { clientApi } from '../../lib/client-api'
 import OpsIcon from '../ui/OpsIcon'
 import StandardSelect from '../ui/StandardSelect'
+import PaginationControls from '../ui/PaginationControls'
 import './TimesheetsWorkspace.css'
 
 type Entry = {
@@ -31,6 +32,68 @@ type Entry = {
 type StatusFilter = 'all' | 'recorded' | 'needs_review' | 'approved' | 'rejected' | 'running' | 'challenge'
 type ExportScope = 'filtered' | 'period'
 type ExportLayout = 'summary' | 'detailed'
+type PayrollRow = {
+  user: Entry['user']
+  entries: number
+  recordedSeconds: number
+  approvedSeconds: number
+  excludedSeconds: number
+  pendingSeconds: number
+  challenges: number
+  needsReview: number
+  exceptions: number
+  running: number
+}
+type TimesheetPage = {
+  items: Entry[]
+  total: number
+  periodTotal: number
+  page: number
+  limit: number
+  totalPages: number
+  summary: {
+    recordedSeconds: number
+    endedCount: number
+    approvedSeconds: number
+    pendingSeconds: number
+    pendingCount: number
+    challengeCount: number
+    reviewCount: number
+    runningCount: number
+    excludedSeconds: number
+    blockedCount: number
+  }
+  facets: {
+    employees: Entry['user'][]
+    kinds: string[]
+    clients: Array<{ id: string; displayName: string }>
+  }
+  payrollRows: PayrollRow[]
+}
+
+const PAGE_LIMIT = 20
+const EMPTY_PAGE: TimesheetPage = {
+  items: [],
+  total: 0,
+  periodTotal: 0,
+  page: 1,
+  limit: PAGE_LIMIT,
+  totalPages: 1,
+  summary: {
+    recordedSeconds: 0,
+    endedCount: 0,
+    approvedSeconds: 0,
+    pendingSeconds: 0,
+    pendingCount: 0,
+    challengeCount: 0,
+    reviewCount: 0,
+    runningCount: 0,
+    excludedSeconds: 0,
+    blockedCount: 0,
+  },
+  facets: { employees: [], kinds: [], clients: [] },
+  payrollRows: [],
+}
 
 function entryDurationMs(entry: Entry) {
   if (!entry.endedAt) return 0
@@ -74,6 +137,20 @@ function decimalHours(value: number) {
   return (value / 3_600_000).toFixed(2)
 }
 
+function compactDuration(value: number) {
+  const minutes = Math.round(Math.max(0, value) / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `${hours}h ${rest}m` : `${hours}h`
+}
+
+function payrollReviewNote(reason?: string | null) {
+  if (!reason) return ''
+  const parts = reason.split(' | ').filter((part) => part.startsWith('REVIEW: '))
+  return parts.at(-1)?.slice('REVIEW: '.length) ?? ''
+}
+
 function isoDate(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 10)
@@ -113,7 +190,7 @@ function hasLocationReview(entry: Entry) {
 function statusLabel(entry: Entry) {
   if (hasOpenChallenge(entry)) return 'Challenge open'
   if (entry.status === 'needs_review') return 'Needs review'
-  if (entry.status === 'approved') return 'Approved'
+  if (entry.status === 'approved') return payableDurationMs(entry) < entryDurationMs(entry) ? 'Approved · adjusted' : 'Approved'
   if (entry.status === 'rejected') return 'Rejected'
   if (entry.status === 'running') return 'Running'
   if (entry.status === 'completed') return 'Recorded'
@@ -125,18 +202,20 @@ function statusClass(entry: Entry) {
   return entry.status === 'completed' ? 'completed' : entry.status
 }
 
-function matchesStatus(entry: Entry, filter: StatusFilter) {
-  if (filter === 'all') return true
-  if (filter === 'challenge') return hasOpenChallenge(entry)
-  if (filter === 'recorded') return entry.status === 'completed'
-  return entry.status === filter
+function proposedPayableMs(entry: Entry, mode: 'full' | 'adjusted' | 'reject', hours: string, minutes: string) {
+  const recorded = entryDurationMs(entry)
+  if (mode === 'reject') return 0
+  if (mode === 'full') return recorded
+  const requestedMinutes = Math.max(0, Number.parseInt(hours || '0', 10) * 60 + Number.parseInt(minutes || '0', 10))
+  return Math.min(recorded, requestedMinutes * 60_000)
 }
 
 export default function TimesheetsWorkspace({ canManage }: { canManage: boolean }) {
   const searchParams = useSearchParams()
   const focusedEntryId = searchParams.get('entry')
   const now = useMemo(() => new Date(), [])
-  const [entries, setEntries] = useState<Entry[]>([])
+  const [data, setData] = useState<TimesheetPage>(EMPTY_PAGE)
+  const [page, setPage] = useState(1)
   const [tab, setTab] = useState<'review' | 'payroll'>('review')
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
@@ -151,28 +230,42 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   const [exportOpen, setExportOpen] = useState(false)
   const [exportScope, setExportScope] = useState<ExportScope>('filtered')
   const [exportLayout, setExportLayout] = useState<ExportLayout>('summary')
+  const [exporting, setExporting] = useState(false)
   const [reviewingEntry, setReviewingEntry] = useState<Entry | null>(null)
   const [reviewMode, setReviewMode] = useState<'full' | 'adjusted' | 'reject'>('full')
   const [payableHours, setPayableHours] = useState('0')
   const [payableMinutes, setPayableMinutes] = useState('0')
   const [reviewNote, setReviewNote] = useState('')
 
+  const buildParams = useCallback((targetPage = page, includeFilters = true, limit = PAGE_LIMIT) => {
+    const params = new URLSearchParams({ page: String(targetPage), limit: String(limit) })
+    if (from) params.set('from', `${from}T00:00:00.000Z`)
+    if (to) params.set('to', `${to}T23:59:59.999Z`)
+    if (includeFilters) {
+      if (query.trim()) params.set('search', query.trim())
+      if (employeeFilter !== 'all') params.set('userId', employeeFilter)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (kindFilter !== 'all') params.set('kind', kindFilter)
+      if (clientFilter !== 'all') params.set('clientId', clientFilter)
+    }
+    return params
+  }, [clientFilter, employeeFilter, from, kindFilter, page, query, statusFilter, to])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (from) params.set('from', `${from}T00:00:00.000Z`)
-      if (to) params.set('to', `${to}T23:59:59.999Z`)
-      setEntries(await clientApi<Entry[]>(`/api/time-entries?${params}`, undefined, 'Could not load timesheets'))
+      const next = await clientApi<TimesheetPage>(`/api/time-entries/timesheets?${buildParams().toString()}`, undefined, 'Could not load timesheets')
+      setData(next)
+      if (page > next.totalPages) setPage(next.totalPages)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load timesheets.' })
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [buildParams, page])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 120)
+    const timer = window.setTimeout(() => void refresh(), 160)
     return () => window.clearTimeout(timer)
   }, [refresh])
 
@@ -183,13 +276,18 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   }, [notice])
 
   useEffect(() => {
+    setPage(1)
+  }, [clientFilter, employeeFilter, from, kindFilter, query, statusFilter, to])
+
+  useEffect(() => {
     if (!focusedEntryId) return
     setTab('review')
     setEmployeeFilter('all')
     setStatusFilter('all')
     setKindFilter('all')
     setClientFilter('all')
-    setQuery('')
+    setQuery(focusedEntryId)
+    setPage(1)
   }, [focusedEntryId])
 
   const reviewEntry = useCallback(async (entry: Entry, decision: 'approved' | 'rejected', payableSeconds: number, note: string) => {
@@ -223,12 +321,14 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     const recordedMinutes = Math.round(entryDurationMs(entry) / 60_000)
     const currentPayableMinutes = entry.status === 'approved'
       ? Math.round(payableDurationMs(entry) / 60_000)
-      : recordedMinutes
+      : entry.status === 'rejected'
+        ? 0
+        : recordedMinutes
     setReviewingEntry(entry)
-    setReviewMode(currentPayableMinutes === recordedMinutes ? 'full' : 'adjusted')
+    setReviewMode(entry.status === 'rejected' ? 'reject' : currentPayableMinutes === recordedMinutes ? 'full' : 'adjusted')
     setPayableHours(String(Math.floor(currentPayableMinutes / 60)))
     setPayableMinutes(String(currentPayableMinutes % 60))
-    setReviewNote('')
+    setReviewNote(payrollReviewNote(entry.reviewReason))
   }
 
   function submitPayrollReview() {
@@ -243,108 +343,30 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     void reviewEntry(reviewingEntry, reviewMode === 'reject' ? 'rejected' : 'approved', requestedSeconds, reviewNote)
   }
 
-  const employeeOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const entry of entries) map.set(entry.user.id, entry.user.name || entry.user.email)
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [entries])
-
-  const kindOptions = useMemo(() => [...new Set(entries.map((entry) => entry.kind))].sort(), [entries])
-
-  const clientOptions = useMemo(() => {
-    const map = new Map<string, string>()
-    for (const entry of entries) {
-      if (entry.visit) map.set(entry.visit.site.client.id, entry.visit.site.client.displayName)
-    }
-    return [...map.entries()].sort((a, b) => a[1].localeCompare(b[1]))
-  }, [entries])
-
-  const filtered = useMemo(() => {
-    const needle = query.trim().toLowerCase()
-    return entries.filter((entry) => {
-      if (employeeFilter !== 'all' && entry.user.id !== employeeFilter) return false
-      if (kindFilter !== 'all' && entry.kind !== kindFilter) return false
-      if (clientFilter !== 'all' && entry.visit?.site.client.id !== clientFilter) return false
-      if (!matchesStatus(entry, statusFilter)) return false
-      if (!needle) return true
-      const searchable = [
-        entry.id,
-        entry.user.name,
-        entry.user.email,
-        entry.kind,
-        entry.visit?.site.name,
-        entry.visit?.site.client.displayName,
-        entry.reviewReason,
-      ].filter(Boolean).join(' ').toLowerCase()
-      return searchable.includes(needle)
-    })
-  }, [clientFilter, employeeFilter, entries, kindFilter, query, statusFilter])
-
-  const metrics = useMemo(() => {
-    const ended = filtered.filter((entry) => Boolean(entry.endedAt))
-    const recordedMs = ended.reduce((sum, entry) => sum + entryDurationMs(entry), 0)
-    const approved = ended.filter((entry) => entry.status === 'approved')
-    const pending = ended.filter((entry) => entry.status === 'completed' || entry.status === 'needs_review')
-    const challenges = filtered.filter(hasOpenChallenge)
-    const reviewRequired = filtered.filter(hasOperationalException)
-    return {
-      recordedMs,
-      approvedMs: approved.reduce((sum, entry) => sum + payableDurationMs(entry), 0),
-      excludedMs: ended.reduce((sum, entry) => sum + excludedDurationMs(entry), 0),
-      pendingMs: pending.reduce((sum, entry) => sum + entryDurationMs(entry), 0),
-      pendingCount: pending.length,
-      blockedCount: filtered.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
-      challengeCount: challenges.length,
-      reviewCount: reviewRequired.length,
-      runningCount: filtered.filter((entry) => entry.status === 'running').length,
-    }
-  }, [filtered])
-
-  const reviewQueueCount = useMemo(
-    () => entries.filter((entry) => entry.status === 'completed' || hasOperationalException(entry)).length,
-    [entries],
+  const employeeOptions = useMemo(
+    () => data.facets.employees.map((item) => [item.id, item.name || item.email] as [string, string]),
+    [data.facets.employees],
   )
-
-  const payrollRows = useMemo(() => {
-    const groups = new Map<string, {
-      user: Entry['user']
-      entries: number
-      recordedMs: number
-      approvedMs: number
-      excludedMs: number
-      pendingMs: number
-      challenges: number
-      needsReview: number
-      exceptions: number
-      running: number
-    }>()
-    for (const entry of filtered) {
-      const group = groups.get(entry.user.id) ?? {
-        user: entry.user,
-        entries: 0,
-        recordedMs: 0,
-        approvedMs: 0,
-        excludedMs: 0,
-        pendingMs: 0,
-        challenges: 0,
-        needsReview: 0,
-        exceptions: 0,
-        running: 0,
-      }
-      group.entries += 1
-      const ms = entryDurationMs(entry)
-      if (entry.endedAt) group.recordedMs += ms
-      if (entry.status === 'approved') group.approvedMs += payableDurationMs(entry)
-      group.excludedMs += excludedDurationMs(entry)
-      if (entry.status === 'completed' || entry.status === 'needs_review') group.pendingMs += ms
-      if (hasOpenChallenge(entry)) group.challenges += 1
-      if (entry.status === 'needs_review') group.needsReview += 1
-      if (hasOperationalException(entry)) group.exceptions += 1
-      if (entry.status === 'running') group.running += 1
-      groups.set(entry.user.id, group)
-    }
-    return [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))
-  }, [filtered])
+  const kindOptions = data.facets.kinds
+  const clientOptions = useMemo(
+    () => data.facets.clients.map((item) => [item.id, item.displayName] as [string, string]),
+    [data.facets.clients],
+  )
+  const filtered = data.items
+  const metrics = useMemo(() => ({
+    recordedMs: data.summary.recordedSeconds * 1000,
+    approvedMs: data.summary.approvedSeconds * 1000,
+    excludedMs: data.summary.excludedSeconds * 1000,
+    pendingMs: data.summary.pendingSeconds * 1000,
+    pendingCount: data.summary.pendingCount,
+    blockedCount: data.summary.blockedCount,
+    challengeCount: data.summary.challengeCount,
+    reviewCount: data.summary.reviewCount,
+    runningCount: data.summary.runningCount,
+    endedCount: data.summary.endedCount,
+  }), [data.summary])
+  const reviewQueueCount = data.summary.blockedCount
+  const payrollRows = data.payrollRows
 
   const activeFilterLabels = useMemo(() => {
     const labels: string[] = []
@@ -364,100 +386,89 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     setClientFilter('all')
   }
 
-  function exportTimesheets() {
-    const source = exportScope === 'filtered' ? filtered : entries
-    const periodSlug = `${from || 'start'}-to-${to || 'today'}`
-    if (exportLayout === 'detailed') {
-      const rows: unknown[][] = [[
-        'Date', 'Employee', 'Email', 'Work type', 'Client', 'Site', 'Start', 'End', 'Duration hours',
-        'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
-      ]]
-      for (const entry of source) {
-        const maxDistance = entry.locationSummary?.maxDistanceM
-          ?? (entry.locationEvents ?? []).reduce<number | null>((max, event) => {
-            if (event.distanceM == null) return max
-            return max == null ? event.distanceM : Math.max(max, event.distanceM)
-          }, null)
-        rows.push([
-          entry.startedAt.slice(0, 10),
-          entry.user.name || entry.user.email,
-          entry.user.email,
-          entry.kind.replaceAll('_', ' '),
-          entry.visit?.site.client.displayName ?? '',
-          entry.visit?.site.name ?? 'General / non-visit time',
-          entry.startedAt,
-          entry.endedAt ?? '',
-          entry.endedAt ? decimalHours(entryDurationMs(entry)) : '',
-          statusLabel(entry),
-          decimalHours(payableDurationMs(entry)),
-          decimalHours(excludedDurationMs(entry)),
-          hasOpenChallenge(entry) ? 'Yes' : 'No',
-          hasLocationReview(entry) ? 'Review' : (entry.locationSummary?.count ?? entry.locationEvents?.length ?? 0) ? 'OK / watch' : 'No location evidence',
-          maxDistance ?? '',
-        ])
-      }
-      downloadCsv(`diamond-shine-timesheets-${periodSlug}.csv`, rows)
-    } else {
-      const groups = new Map<string, {
-        user: Entry['user']
-        entries: number
-        recordedMs: number
-        approvedMs: number
-        excludedMs: number
-        pendingMs: number
-        challengeCount: number
-        reviewCount: number
-        exceptionCount: number
-        runningCount: number
-      }>()
-      for (const entry of source) {
-        const current = groups.get(entry.user.id) ?? {
-          user: entry.user,
-          entries: 0,
-          recordedMs: 0,
-          approvedMs: 0,
-          excludedMs: 0,
-          pendingMs: 0,
-          challengeCount: 0,
-          reviewCount: 0,
-          exceptionCount: 0,
-          runningCount: 0,
-        }
-        current.entries += 1
-        const ms = entryDurationMs(entry)
-        if (entry.endedAt) current.recordedMs += ms
-        if (entry.status === 'approved') current.approvedMs += payableDurationMs(entry)
-        current.excludedMs += excludedDurationMs(entry)
-        if (entry.status === 'completed' || entry.status === 'needs_review') current.pendingMs += ms
-        if (hasOpenChallenge(entry)) current.challengeCount += 1
-        if (entry.status === 'needs_review') current.reviewCount += 1
-        if (hasOperationalException(entry)) current.exceptionCount += 1
-        if (entry.status === 'running') current.runningCount += 1
-        groups.set(entry.user.id, current)
-      }
-      const rows: unknown[][] = [[
-        'Employee', 'Email', 'Recorded hours', 'Payable hours', 'Excluded hours', 'Pending hours',
-        'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
-      ]]
-      for (const group of [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))) {
-        rows.push([
-          group.user.name || group.user.email,
-          group.user.email,
-          decimalHours(group.recordedMs),
-          decimalHours(group.approvedMs),
-          decimalHours(group.excludedMs),
-          decimalHours(group.pendingMs),
-          group.exceptionCount,
-          group.challengeCount,
-          group.reviewCount,
-          group.runningCount,
-          group.entries,
-        ])
-      }
-      downloadCsv(`diamond-shine-payroll-summary-${periodSlug}.csv`, rows)
+  async function loadExportDataset(includeFilters: boolean) {
+    const first = await clientApi<TimesheetPage>(
+      `/api/time-entries/timesheets?${buildParams(1, includeFilters, 100).toString()}`,
+      undefined,
+      'Could not prepare timesheet export',
+    )
+    const all = [...first.items]
+    for (let exportPage = 2; exportPage <= first.totalPages; exportPage += 1) {
+      const next = await clientApi<TimesheetPage>(
+        `/api/time-entries/timesheets?${buildParams(exportPage, includeFilters, 100).toString()}`,
+        undefined,
+        'Could not prepare timesheet export',
+      )
+      all.push(...next.items)
     }
-    setExportOpen(false)
-    setNotice({ kind: 'success', text: 'Export downloaded. The CSV opens directly in Excel and accounting software.' })
+    return { page: first, entries: all }
+  }
+
+  async function exportTimesheets() {
+    setExporting(true)
+    try {
+      const includeFilters = exportScope === 'filtered'
+      const source = await loadExportDataset(includeFilters)
+      const periodSlug = `${from || 'start'}-to-${to || 'today'}`
+      if (exportLayout === 'detailed') {
+        const rows: unknown[][] = [[
+          'Date', 'Employee', 'Email', 'Work type', 'Client', 'Site', 'Start', 'End', 'Recorded hours',
+          'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
+        ]]
+        for (const entry of source.entries) {
+          const maxDistance = entry.locationSummary?.maxDistanceM
+            ?? (entry.locationEvents ?? []).reduce<number | null>((max, event) => {
+              if (event.distanceM == null) return max
+              return max == null ? event.distanceM : Math.max(max, event.distanceM)
+            }, null)
+          rows.push([
+            entry.startedAt.slice(0, 10),
+            entry.user.name || entry.user.email,
+            entry.user.email,
+            entry.kind.replaceAll('_', ' '),
+            entry.visit?.site.client.displayName ?? '',
+            entry.visit?.site.name ?? 'General / non-visit time',
+            entry.startedAt,
+            entry.endedAt ?? '',
+            entry.endedAt ? decimalHours(entryDurationMs(entry)) : '',
+            statusLabel(entry),
+            decimalHours(payableDurationMs(entry)),
+            decimalHours(excludedDurationMs(entry)),
+            hasOpenChallenge(entry) ? 'Yes' : 'No',
+            hasLocationReview(entry) ? 'Review' : (entry.locationSummary?.count ?? entry.locationEvents?.length ?? 0) ? 'OK / watch' : 'No location evidence',
+            maxDistance ?? '',
+          ])
+        }
+        downloadCsv(`diamond-shine-timesheets-${periodSlug}.csv`, rows)
+      } else {
+        const rows: unknown[][] = [[
+          'Employee', 'Email', 'Recorded hours', 'Payable hours', 'Excluded hours', 'Pending hours',
+          'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
+        ]]
+        for (const row of source.page.payrollRows) {
+          rows.push([
+            row.user.name || row.user.email,
+            row.user.email,
+            decimalHours(row.recordedSeconds * 1000),
+            decimalHours(row.approvedSeconds * 1000),
+            decimalHours(row.excludedSeconds * 1000),
+            decimalHours(row.pendingSeconds * 1000),
+            row.exceptions,
+            row.challenges,
+            row.needsReview,
+            row.running,
+            row.entries,
+          ])
+        }
+        downloadCsv(`diamond-shine-payroll-summary-${periodSlug}.csv`, rows)
+      }
+      setExportOpen(false)
+      setNotice({ kind: 'success', text: 'Export downloaded. The CSV uses the same filters and payroll rules as this view.' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not export timesheets.' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   return <main className="page-shell manager-page timesheets-v2">
@@ -493,7 +504,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     </section>
 
     <section className="ts-metrics" aria-label="Timesheet summary">
-      <article className="ts-metric"><span className="ts-metric-icon"><OpsIcon name="clock" /></span><span>Recorded hours</span><strong>{humanDuration(metrics.recordedMs)}</strong><small>{filtered.filter((entry) => Boolean(entry.endedAt)).length} ended entries</small></article>
+      <article className="ts-metric"><span className="ts-metric-icon"><OpsIcon name="clock" /></span><span>Recorded hours</span><strong>{humanDuration(metrics.recordedMs)}</strong><small>{metrics.endedCount} ended entries</small></article>
       <article className="ts-metric approved"><span className="ts-metric-icon"><OpsIcon name="check" /></span><span>Approved hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Already reviewed</small></article>
       <article className="ts-metric pending"><span className="ts-metric-icon"><OpsIcon name="review" /></span><span>Awaiting approval</span><strong>{humanDuration(metrics.pendingMs)}</strong><small>{metrics.pendingCount} entries</small></article>
       <article className="ts-metric challenge"><span className="ts-metric-icon"><OpsIcon name="alert" /></span><span>Challenges</span><strong>{metrics.challengeCount}</strong><small>{metrics.reviewCount} unique operational exceptions</small></article>
@@ -512,17 +523,17 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     </section>
 
     <div className="ts-filter-summary">
-      <span>Showing {filtered.length} of {entries.length} entries</span>
+      <span>Showing {filtered.length} on this page · {data.total} matching of {data.periodTotal} in period</span>
       {activeFilterLabels.map((label) => <span className="ts-chip" key={label}>{label}</span>)}
     </div>
 
     {tab === 'review' ? <section className="ts-panel">
       <div className="ts-panel-head">
         <div><h2>{canManage ? 'Time review' : 'Recorded time'}</h2><p>{canManage ? 'Clean recorded time can be approved here. GPS, evidence or worker challenges stay connected to Field Control for operational review.' : 'Your work sessions for the selected period.'}</p></div>
-        <span className="ts-panel-meta">{loading ? 'Refreshing…' : `${filtered.length} entries`}</span>
+        <span className="ts-panel-meta">{loading ? 'Refreshing…' : `${data.total} matching entr${data.total === 1 ? 'y' : 'ies'}`}</span>
       </div>
       <div className="ts-table">
-        <div className="ts-head"><span>Employee</span><span>Work</span><span>Type</span><span>Start</span><span>Duration</span><span>Review</span></div>
+        <div className="ts-head"><span>Employee</span><span>Work</span><span>Type</span><span>Start</span><span>Recorded / payroll</span><span>Review</span></div>
         {filtered.map((entry) => {
           const operationalException = hasOperationalException(entry)
           return <div className={`ts-row ${focusedEntryId === entry.id ? 'is-focused' : ''}`} key={entry.id}>
@@ -530,17 +541,24 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
             <span className="ts-work"><strong>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General / non-visit time'}</strong><small>{humanReviewReason(entry.reviewReason) ?? (entry.visit ? 'Visit work' : 'Non-visit work')}</small></span>
             <span className="ts-kind">{entry.kind.replaceAll('_', ' ')}</span>
             <span>{formatOperationalDateTime(entry.startedAt)}</span>
-            <span>{entry.endedAt ? humanDuration(entryDurationMs(entry)) : 'Running'}</span>
+            <span className="ts-duration">{entry.endedAt ? <>
+              <strong>Recorded {compactDuration(entryDurationMs(entry))}</strong>
+              {entry.status === 'approved' ? <small className={payableDurationMs(entry) < entryDurationMs(entry) ? 'adjusted' : ''}>Payable {compactDuration(payableDurationMs(entry))}{payableDurationMs(entry) < entryDurationMs(entry) ? ` · −${compactDuration(excludedDurationMs(entry))} excluded` : ' · no adjustment'}</small>
+                : entry.status === 'rejected' ? <small className="rejected">Payroll 0m · full entry excluded</small>
+                  : <small>{entry.status === 'needs_review' ? 'Blocked by execution review' : 'Not payroll-ready yet'}</small>}
+            </> : <><strong>Running</strong><small>Timer still active</small></>}</span>
             <span className="ts-actions">
               <span className={`ts-status ${statusClass(entry)}`}>{statusLabel(entry)}</span>
               {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}><OpsIcon name="field" size={14} /> Field context</a> : null}
               {canManage && entry.status === 'completed' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="payroll" size={14} /> Review payroll</button> : null}
               {canManage && entry.status === 'approved' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Adjust payroll</button> : null}
+              {canManage && entry.status === 'rejected' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Reconsider payroll</button> : null}
             </span>
           </div>
         })}
         {!loading && !filtered.length ? <div className="ts-empty">No time entries match this period and filter.</div> : null}
       </div>
+      <PaginationControls page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit} loading={loading} noun="entries" onPageChange={setPage} className="compact" />
     </section> : null}
 
     {tab === 'payroll' && canManage ? <section className="ts-payroll-grid">
@@ -552,7 +570,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       </div>
       <div className="ts-payroll-list">
         <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Payable</span><span>Excluded</span><span>Pending</span><span>Exceptions</span><span>Running</span></div>
-        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.excludedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
+        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedSeconds * 1000)}</span><span>{humanDuration(row.approvedSeconds * 1000)}</span><span>{humanDuration(row.excludedSeconds * 1000)}</span><span>{humanDuration(row.pendingSeconds * 1000)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
         {!payrollRows.length ? <div className="ts-empty">No payroll rows match this filter.</div> : null}
       </div>
     </section> : null}
@@ -563,9 +581,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           <div><span className="ts-eyebrow">Payroll decision</span><h2 id="payroll-review-title">{reviewingEntry.user.name || reviewingEntry.user.email}</h2><p>{reviewingEntry.visit ? `${reviewingEntry.visit.site.client.displayName} · ${reviewingEntry.visit.site.name}` : 'General / non-visit time'}</p></div>
           <button type="button" className="ts-close" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)} aria-label="Close payroll review">×</button>
         </header>
+        <div className="ts-review-boundary"><span><OpsIcon name="shield" size={17} /></span><div><strong>Recorded time is evidence. Payable time is the payroll decision.</strong><small>Approving or adjusting payroll never changes the original clock record.</small></div></div>
         <div className="ts-review-facts">
           <article><span>Recorded</span><strong>{humanDuration(entryDurationMs(reviewingEntry))}</strong><small>Original clock record · never overwritten</small></article>
-          <article><span>Current payable</span><strong>{reviewingEntry.status === 'approved' ? humanDuration(payableDurationMs(reviewingEntry)) : 'Not approved'}</strong><small>{reviewingEntry.status === 'approved' ? 'Already payroll-ready' : '0h enters payroll until reviewed'}</small></article>
+          <article><span>Current payable</span><strong>{reviewingEntry.status === 'approved' ? humanDuration(payableDurationMs(reviewingEntry)) : reviewingEntry.status === 'rejected' ? '0h 00m' : 'Not approved'}</strong><small>{reviewingEntry.status === 'approved' ? 'Already payroll-ready' : reviewingEntry.status === 'rejected' ? 'Entire entry currently excluded' : '0h enters payroll until reviewed'}</small></article>
+          <article className={reviewingEntry.status === 'approved' && excludedDurationMs(reviewingEntry) > 0 ? 'adjusted' : reviewingEntry.status === 'rejected' ? 'rejected' : ''}><span>Current difference</span><strong>{reviewingEntry.status === 'approved' ? excludedDurationMs(reviewingEntry) ? `−${compactDuration(excludedDurationMs(reviewingEntry))}` : 'No adjustment' : reviewingEntry.status === 'rejected' ? `−${compactDuration(entryDurationMs(reviewingEntry))}` : 'Pending decision'}</strong><small>{reviewingEntry.status === 'approved' && excludedDurationMs(reviewingEntry) > 0 ? payrollReviewNote(reviewingEntry.reviewReason) || 'Part of the recorded time is excluded.' : reviewingEntry.status === 'rejected' ? payrollReviewNote(reviewingEntry.reviewReason) || 'Full recorded time is excluded.' : 'Recorded time is not payroll-ready yet.'}</small></article>
         </div>
         <div className="ts-review-modes" role="group" aria-label="Payroll decision">
           <button type="button" className={reviewMode === 'full' ? 'selected' : ''} onClick={() => setReviewMode('full')}><OpsIcon name="check" /><strong>Approve full</strong><small>Pay the full recorded duration.</small></button>
@@ -576,8 +596,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         <label className="ts-review-note"><span>{reviewMode === 'full' ? 'Decision note (optional)' : 'Reason (required)'}</span><textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder={reviewMode === 'adjusted' ? 'Explain why part of the recorded time is excluded…' : reviewMode === 'reject' ? 'Explain why this entire entry is excluded from payroll…' : 'Optional payroll note…'} /></label>
         <div className="ts-review-preview">
           <span>Payroll effect</span>
-          <strong>{reviewMode === 'reject' ? '0h payable' : reviewMode === 'full' ? `${humanDuration(entryDurationMs(reviewingEntry))} payable` : `${humanDuration(Math.min(entryDurationMs(reviewingEntry), Math.max(0, (Number.parseInt(payableHours || '0', 10) * 60 + Number.parseInt(payableMinutes || '0', 10)) * 60_000)))} payable`}</strong>
-          <small>Recorded time stays unchanged for audit.</small>
+          <strong>{humanDuration(entryDurationMs(reviewingEntry))} recorded → {humanDuration(proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes))} payable</strong>
+          <small>{proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes) < entryDurationMs(reviewingEntry) ? `${compactDuration(entryDurationMs(reviewingEntry) - proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes))} excluded · recorded time stays unchanged for audit.` : 'No time excluded · recorded time stays unchanged for audit.'}</small>
         </div>
         <footer className="ts-review-actions"><button type="button" className="ts-button-secondary" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)}>Cancel</button><button type="button" className="ts-button" onClick={submitPayrollReview} disabled={Boolean(busyId)}>{busyId ? 'Saving…' : 'Save payroll decision'}</button></footer>
       </section>
@@ -587,10 +607,10 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <section className="ts-export-dialog" role="dialog" aria-modal="true" aria-labelledby="timesheet-export-title">
         <div className="ts-export-head"><div><h2 id="timesheet-export-title">Export timesheets</h2><p>Create an accounting-friendly CSV that opens directly in Excel. No hidden rows or different calculation rules.</p></div><button className="ts-close" onClick={() => setExportOpen(false)} aria-label="Close export">×</button></div>
         <div className="ts-export-options">
-          <div className="ts-option-group"><span>Scope</span><div className="ts-option-row"><button className={`ts-option ${exportScope === 'filtered' ? 'selected' : ''}`} onClick={() => setExportScope('filtered')}><strong>Current filtered view</strong><small>{filtered.length} entries · respects employee, status, work type and client filters.</small></button><button className={`ts-option ${exportScope === 'period' ? 'selected' : ''}`} onClick={() => setExportScope('period')}><strong>Full review period</strong><small>{entries.length} entries · ignores list filters but keeps {from || 'start'} → {to || 'today'}.</small></button></div></div>
+          <div className="ts-option-group"><span>Scope</span><div className="ts-option-row"><button className={`ts-option ${exportScope === 'filtered' ? 'selected' : ''}`} onClick={() => setExportScope('filtered')}><strong>Current filtered view</strong><small>{data.total} entries · respects employee, status, work type and client filters across every page.</small></button><button className={`ts-option ${exportScope === 'period' ? 'selected' : ''}`} onClick={() => setExportScope('period')}><strong>Full review period</strong><small>{data.periodTotal} entries · ignores list filters but keeps {from || 'start'} → {to || 'today'}.</small></button></div></div>
           <div className="ts-option-group"><span>Layout</span><div className="ts-option-row"><button className={`ts-option ${exportLayout === 'summary' ? 'selected' : ''}`} onClick={() => setExportLayout('summary')}><strong>Payroll summary</strong><small>One row per employee with recorded, approved and pending hours.</small></button><button className={`ts-option ${exportLayout === 'detailed' ? 'selected' : ''}`} onClick={() => setExportLayout('detailed')}><strong>Detailed entries</strong><small>One row per time entry with site, duration, status, challenge and GPS signal.</small></button></div></div>
         </div>
-        <div className="ts-export-footer"><small>Format: UTF-8 CSV · compatible with Excel, Numbers and common payroll/accounting tools.</small><div><button className="ts-button-secondary" onClick={() => setExportOpen(false)}>Cancel</button><button className="ts-button" onClick={exportTimesheets}><OpsIcon name="spreadsheet" />Download CSV</button></div></div>
+        <div className="ts-export-footer"><small>Format: UTF-8 CSV · compatible with Excel, Numbers and common payroll/accounting tools.</small><div><button className="ts-button-secondary" onClick={() => setExportOpen(false)}>Cancel</button><button className="ts-button" onClick={() => void exportTimesheets()} disabled={exporting}><OpsIcon name="spreadsheet" />{exporting ? 'Preparing…' : 'Download CSV'}</button></div></div>
       </section>
     </div> : null}
   </main>
