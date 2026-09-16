@@ -1,5 +1,7 @@
 'use client'
 
+import OpsIcon from './OpsIcon'
+
 type Props = {
   page: number
   totalPages: number
@@ -32,9 +34,9 @@ export default function PaginationControls({
   return <nav className={`pagination-bar${className ? ` ${className}` : ''}`} aria-label={`${label} pages`}>
     <span className="pagination-summary">Showing <strong>{start}–{end}</strong> of <strong>{total}</strong> {label}</span>
     {safeTotalPages > 1 ? <div className="pagination-actions">
-      <button type="button" className="btn-secondary" disabled={loading || safePage <= 1} onClick={() => onPageChange(safePage - 1)}>← Previous</button>
-      <strong>Page {safePage} of {safeTotalPages}</strong>
-      <button type="button" className="btn-secondary" disabled={loading || safePage >= safeTotalPages} onClick={() => onPageChange(safePage + 1)}>Next →</button>
+      <button type="button" className="btn-secondary pagination-nav-button" aria-label="Previous page" disabled={loading || safePage <= 1} onClick={() => onPageChange(safePage - 1)}><OpsIcon name="chevronLeft" size={15} /><span>Previous</span></button>
+      <span className="pagination-page-chip" aria-current="page"><strong>{safePage}</strong><span>of {safeTotalPages}</span></span>
+      <button type="button" className="btn-secondary pagination-nav-button" aria-label="Next page" disabled={loading || safePage >= safeTotalPages} onClick={() => onPageChange(safePage + 1)}><span>Next</span><OpsIcon name="chevronRight" size={15} /></button>
     </div> : null}
   </nav>
 }
