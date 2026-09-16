@@ -40,6 +40,7 @@ type PayrollRow = {
   excludedSeconds: number
   pendingSeconds: number
   challenges: number
+  needsReview: number
   exceptions: number
   running: number
 }
