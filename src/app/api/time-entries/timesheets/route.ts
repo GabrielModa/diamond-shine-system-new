@@ -291,6 +291,7 @@ export async function GET(request: NextRequest) {
       excludedSeconds: rejectedRecorded + Math.max(0, approvedRecorded - approvedPayable),
       pendingSeconds: completedRecorded + needsReviewRecorded,
       challenges: challengesByUser.get(userId) ?? 0,
+      needsReview: byStatus.get('needs_review')?._count._all ?? 0,
       exceptions: exceptionsByUser.get(userId) ?? 0,
       running: byStatus.get('running')?._count._all ?? 0,
     }
