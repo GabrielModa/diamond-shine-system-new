@@ -212,6 +212,8 @@ export async function GET(request: NextRequest) {
     }),
   ])
 
+  const periodTotal = await prisma.timeEntry.count({ where: periodWhere })
+
   const itemIds = items.map((entry) => entry.id)
   const [locationStats, locationReviewStats, facetUsers] = await Promise.all([
     itemIds.length ? prisma.locationEvent.groupBy({
@@ -306,6 +308,7 @@ export async function GET(request: NextRequest) {
         locationEvents: [],
       })),
       total,
+      periodTotal,
       page,
       limit,
       totalPages: Math.max(1, Math.ceil(total / limit)),
