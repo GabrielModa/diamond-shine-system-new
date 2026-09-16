@@ -178,7 +178,7 @@ async function seedTemporaryAvailabilityMatrix() {
 async function ensureScenarioSite(siteScenario: (typeof DEMO_SITE_SCENARIOS)[number], index: number) {
   const client = await prisma.client.upsert({
     where: { organizationId_externalId: { organizationId: LEGACY_ORGANIZATION_ID, externalId: siteScenario.externalId } },
-    update: { displayName: siteScenario.client, status: 'active' },
+    update: { displayName: siteScenario.client, legalName: `${siteScenario.client} Demo Ltd`, billingEmail: `facilities@${siteScenario.externalId.replace('scenario-','')}.example`, status: 'active' },
     create: {
       organizationId: LEGACY_ORGANIZATION_ID,
       externalId: siteScenario.externalId,
@@ -189,7 +189,8 @@ async function ensureScenarioSite(siteScenario: (typeof DEMO_SITE_SCENARIOS)[num
   })
 
   let site = await prisma.site.findFirst({
-    where: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: siteScenario.site },
+    where: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id },
+    orderBy: { createdAt: 'asc' },
   })
   const siteData = {
     addressLine1: siteScenario.addressLine1,
@@ -202,7 +203,7 @@ async function ensureScenarioSite(siteScenario: (typeof DEMO_SITE_SCENARIOS)[num
     status: 'active' as const,
   }
   site = site
-    ? await prisma.site.update({ where: { id: site.id }, data: siteData })
+    ? await prisma.site.update({ where: { id: site.id }, data: { name: siteScenario.site, ...siteData } })
     : await prisma.site.create({
         data: {
           organizationId: LEGACY_ORGANIZATION_ID,
