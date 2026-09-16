@@ -29,6 +29,7 @@ test('coverage map opens useful, keeps site filters truthful and excludes inacti
   await expect(upcomingSites).toHaveAttribute('aria-pressed', 'true')
   await expect(needsStaff).toHaveAttribute('aria-pressed', 'false')
   await expect(covered).toHaveAttribute('aria-pressed', 'false')
+  await page.getByRole('button', { name: /All people/ }).click()
   await expect(page.locator('[data-workforce-site-marker]').first()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-workforce-employee-marker]').first()).toBeVisible({ timeout: 15_000 })
   await expect(page.locator('[data-workforce-site-marker][data-coverage-state="no_upcoming"]')).toHaveCount(0)

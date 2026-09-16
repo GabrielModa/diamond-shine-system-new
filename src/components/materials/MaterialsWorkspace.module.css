@@ -507,9 +507,9 @@
   display:grid;
   align-content:start;
   gap:8px;
-  max-height:480px;
+  max-height:540px;
   overflow:auto;
-  padding-right:3px;
+  padding-right:5px;
   scrollbar-gutter:stable;
   overscroll-behavior:contain;
 }
@@ -558,7 +558,7 @@
 .riskLocationCount{color:#66717c;background:#eef1f5}
 .riskChevron{display:grid;place-items:center;color:#747d89;transition:transform .18s ease}
 .riskLocationCard[open] .riskChevron{transform:rotate(90deg)}
-.riskLocationItems{padding:0 12px 4px;border-top:1px solid #edf0f4;background:#fcfcfe}
+.riskLocationItems{max-height:320px;overflow:auto;overscroll-behavior:contain;scrollbar-gutter:stable;padding:0 12px 4px;border-top:1px solid #edf0f4;background:#fcfcfe}
 .riskEmpty{display:grid;place-items:center;gap:5px;min-height:132px;padding:20px;color:var(--surface-muted);text-align:center}
 .riskEmpty strong{color:var(--text);font-size:.76rem}
 .riskEmpty span{font-size:.64rem}
@@ -621,3 +621,8 @@
   .requestPriority{align-self:flex-start}
   .requestMeta{gap:5px 8px}
 }
+
+.riskLocationList::-webkit-scrollbar,.riskLocationItems::-webkit-scrollbar{width:9px}
+.riskLocationList::-webkit-scrollbar-thumb,.riskLocationItems::-webkit-scrollbar-thumb{border:2px solid #fff;border-radius:999px;background:#c9ccd6}
+.riskLocationList::-webkit-scrollbar-track,.riskLocationItems::-webkit-scrollbar-track{background:transparent}
+.riskLocationCard[open] .riskLocationSummary{position:sticky;top:0;z-index:2;background:#fff;box-shadow:0 1px 0 #edf0f4}
