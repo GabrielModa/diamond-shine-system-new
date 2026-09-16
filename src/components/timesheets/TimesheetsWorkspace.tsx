@@ -47,6 +47,7 @@ type PayrollRow = {
 type TimesheetPage = {
   items: Entry[]
   total: number
+  periodTotal: number
   page: number
   limit: number
   totalPages: number
@@ -74,6 +75,7 @@ const PAGE_LIMIT = 20
 const EMPTY_PAGE: TimesheetPage = {
   items: [],
   total: 0,
+  periodTotal: 0,
   page: 1,
   limit: PAGE_LIMIT,
   totalPages: 1,
