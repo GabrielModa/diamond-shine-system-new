@@ -513,6 +513,12 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <article className="ts-metric ready"><span className="ts-metric-icon"><OpsIcon name="payroll" /></span><span>Payroll ready</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Approved payable time only</small></article>
     </section>
 
+    {canManage ? <section className="ts-payroll-rule" aria-label="How payroll readiness works">
+      <span className="ts-payroll-rule-icon"><OpsIcon name="shield" size={18} /></span>
+      <div><strong>Recorded time is not automatically paid.</strong><span>Only <b>Approved payable time</b> enters payroll. Entries awaiting approval, execution review or a worker challenge remain blocked until the right decision is completed.</span></div>
+      <button type="button" onClick={() => setTab('payroll')}>View payroll preview <OpsIcon name="chevronRight" size={14} /></button>
+    </section> : null}
+
     <section className="ts-filterbar" aria-label="Timesheet filters">
       <div className="ts-search"><OpsIcon name="search" size={17} /><input value={query} onChange={(event) => setQuery(event.target.value)} placeholder="Search employee, site or work…" /></div>
       <div className="ts-field"><span>Employee</span><StandardSelect searchable value={employeeFilter} onChange={setEmployeeFilter} ariaLabel="Employee" searchPlaceholder="Search employee…" options={[{ value: 'all', label: 'All employees' }, ...employeeOptions.map(([id, label]) => ({ value: id, label }))]} /></div>
