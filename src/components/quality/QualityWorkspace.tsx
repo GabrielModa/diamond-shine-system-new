@@ -1,7 +1,9 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import StandardSelect from '../ui/StandardSelect'
+import OpsIcon from '../ui/OpsIcon'
+import PaginationControls from '../ui/PaginationControls'
 
 type Site = { id: string; name: string; client: { displayName: string } }
 type Visit = { id: string; scheduledStart: string; status: string; job: { name: string } }
@@ -49,6 +51,8 @@ type Control = {
   sites: Array<Site & { qualityInspections: Array<{ inspectedAt: string; score: number; passed: boolean }> }>
 }
 
+const ASSURANCE_PAGE_SIZE = 6
+
 const CHECK_TEMPLATE: Check[] = [
   { category: 'Service quality', title: 'Floors, edges and corners are visibly clean', weight: 3, critical: false, result: '', finding: '' },
   { category: 'Service quality', title: 'Desks, touchpoints and surfaces are dust-free', weight: 2, critical: false, result: '', finding: '' },
@@ -95,6 +99,9 @@ export default function QualityWorkspace() {
   const [error, setError] = useState('')
   const [clientReport, setClientReport] = useState<{ client: string; site: string; service: string; serviceDate: string; score: number; grade: string; summary?: string | null; completedStandards: Array<{ category: string; title: string }>; followUps: Array<{ title: string; severity: string; status: string; dueAt: string }>; status: string } | null>(null)
   const [actionDecision, setActionDecision] = useState<{ action: Action; status: Action['status']; note: string } | null>(null)
+  const [assuranceQuery, setAssuranceQuery] = useState('')
+  const [assurancePage, setAssurancePage] = useState(1)
+  const assuranceViewportRef = useRef<HTMLDivElement | null>(null)
 
   const refresh = useCallback(async () => {
     setBusy(true)
@@ -113,6 +120,11 @@ export default function QualityWorkspace() {
 
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => {
+    if (!notice) return
+    const timer = window.setTimeout(() => setNotice(''), 3600)
+    return () => window.clearTimeout(timer)
+  }, [notice])
+  useEffect(() => {
     if (!actionDecision) return
     const close = (event: KeyboardEvent) => { if (event.key === 'Escape') setActionDecision(null) }
     window.addEventListener('keydown', close)
@@ -124,6 +136,23 @@ export default function QualityWorkspace() {
       .then((items) => { setVisits(items); setVisitId((current) => items.some((visit) => visit.id === current) ? current : '') })
       .catch(() => { setVisits([]); setVisitId('') })
   }, [siteId])
+
+  const assuranceSites = useMemo(() => {
+    if (!control) return []
+    const needle = assuranceQuery.trim().toLowerCase()
+    return control.sites
+      .filter((site) => !site.qualityInspections[0] || !site.qualityInspections[0].passed)
+      .filter((site) => !needle || `${site.name} ${site.client.displayName}`.toLowerCase().includes(needle))
+  }, [assuranceQuery, control])
+  const assuranceTotalPages = Math.max(1, Math.ceil(assuranceSites.length / ASSURANCE_PAGE_SIZE))
+  const visibleAssuranceSites = assuranceSites.slice((assurancePage - 1) * ASSURANCE_PAGE_SIZE, assurancePage * ASSURANCE_PAGE_SIZE)
+  useEffect(() => {
+    setAssurancePage(1)
+    assuranceViewportRef.current?.scrollTo({ top: 0 })
+  }, [assuranceQuery])
+  useEffect(() => {
+    if (assurancePage > assuranceTotalPages) setAssurancePage(assuranceTotalPages)
+  }, [assurancePage, assuranceTotalPages])
 
   const score = useMemo(() => previewScore(checks), [checks])
   const complete = checks.every((check) => check.result && (check.result !== 'fail' || check.finding.trim()))
@@ -220,7 +249,7 @@ export default function QualityWorkspace() {
         </div>
         <button type="button" className="secondary" onClick={() => void refresh()} disabled={busy}>↻ Refresh</button>
       </section>
-      {notice ? <div className="inline-message success" role="status">{notice}</div> : null}
+      {notice ? <div className="transient-notice success" role="status"><span><OpsIcon name="check" size={16} /> {notice}</span><button type="button" onClick={() => setNotice('')} aria-label="Dismiss message">×</button></div> : null}
       {error ? <div className="inline-message error" role="alert">{error}</div> : null}
       <nav className="materials-tabs" aria-label="Quality views">
         {([['control', 'Control centre'], ['inspect', 'New inspection'], ['actions', 'Corrective actions'], ['history', 'History']] as const).map(([key, label]) => (
@@ -240,10 +269,29 @@ export default function QualityWorkspace() {
               <span className="status-pill">{inspection.grade}</span>
             </div>)}{control.inspections.length === 0 ? <p className="empty-copy">No inspections yet.</p> : null}</div>
           </article>
-          <article className="card"><h2>Sites needing assurance</h2><p className="muted">Never inspected or last result below standard.</p>
-            <div className="quality-list">{control.sites.filter((site) => !site.qualityInspections[0] || !site.qualityInspections[0].passed).map((site) => <button type="button" className="quality-site-row" key={site.id} onClick={() => { setSiteId(site.id); setTab('inspect') }}>
-              <div><strong>{site.name}</strong><small>{site.client.displayName}</small></div><span>{site.qualityInspections[0] ? `${site.qualityInspections[0].score}/100` : 'Inspect now →'}</span>
-            </button>)}{control.sites.length === 0 ? <p className="empty-copy">Create a client site first.</p> : null}</div>
+          <article className="card quality-assurance-card" data-testid="assurance-card">
+            <div className="quality-assurance-head">
+              <div className="quality-assurance-heading"><span className="section-icon violet" aria-hidden="true"><OpsIcon name="shield" size={18} /></span><div><h2>Sites needing assurance</h2><p className="muted">Never inspected or last result below standard.</p></div></div>
+              <span className="quality-assurance-count">{assuranceSites.length}</span>
+            </div>
+            <label className="quality-assurance-search"><OpsIcon name="search" size={15} /><span className="sr-only">Search sites needing assurance</span><input type="search" value={assuranceQuery} onChange={(event) => setAssuranceQuery(event.target.value)} placeholder="Search client or site…" /></label>
+            <div ref={assuranceViewportRef} className="quality-assurance-viewport" data-testid="assurance-viewport">
+              <div className="quality-list">
+                {visibleAssuranceSites.map((site) => {
+                  const latest = site.qualityInspections[0]
+                  return <button type="button" className="quality-site-row quality-site-row-modern" key={site.id} onClick={() => { setSiteId(site.id); setTab('inspect') }}>
+                    <span className="quality-site-icon"><OpsIcon name="pin" size={16} /></span>
+                    <div><strong>{site.name}</strong><small>{site.client.displayName}</small></div>
+                    <div className="quality-site-action">
+                      {latest ? <span className="quality-site-score"><OpsIcon name="alert" size={13} />{latest.score}/100</span> : <span className="quality-site-uninspected"><OpsIcon name="review" size={13} />Not inspected</span>}
+                      <span className="quality-site-cta">Inspect now <OpsIcon name="chevronRight" size={14} /></span>
+                    </div>
+                  </button>
+                })}
+                {!visibleAssuranceSites.length ? <div className="quality-assurance-empty"><OpsIcon name={assuranceQuery ? 'search' : 'check'} size={18} /><strong>{assuranceQuery ? 'No matching sites' : 'No sites need assurance'}</strong><span>{assuranceQuery ? 'Try another client or site name.' : 'All sites have a passing inspection.'}</span></div> : null}
+              </div>
+            </div>
+            <PaginationControls page={assurancePage} totalPages={assuranceTotalPages} total={assuranceSites.length} limit={ASSURANCE_PAGE_SIZE} noun="sites" onPageChange={(page) => { setAssurancePage(page); assuranceViewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} className="quality-assurance-pagination" />
           </article>
         </section>
       </> : null}
