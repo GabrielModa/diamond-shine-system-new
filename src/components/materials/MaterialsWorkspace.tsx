@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
-import { isSupplyOverdue } from '../../lib/business-logic'
 import { clientApi } from '../../lib/client-api'
 import ListControls from '../ui/ListControls'
 import PaginationControls from '../ui/PaginationControls'
@@ -41,6 +40,7 @@ type RepeatDraft = {
 const NEXT_STATUS: Record<string, string | undefined> = { Requested: 'Triaged', Triaged: 'Approved', Approved: 'Ordered', Ordered: 'In transit', 'In transit': 'Delivered' }
 const CLOSED = new Set(['Delivered', 'Rejected', 'Cancelled'])
 const HISTORY_LIMIT = 12
+const QUEUE_LIMIT = 10
 const HISTORY_STATUSES: SupplyStatus[] = ['Requested', 'Triaged', 'Approved', 'Ordered', 'In transit', 'Delivered', 'Rejected', 'Cancelled']
 function displaySupplyStatus(status: string) { return status === 'InTransit' ? 'In transit' : status }
 function statusQueryValue(status: SupplyStatus) { return status === 'In transit' ? 'in-transit' : status.toLowerCase() }
@@ -54,6 +54,10 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [requestQuery, setRequestQuery] = useState(''); const [requestFrom, setRequestFrom] = useState(''); const [requestTo, setRequestTo] = useState('')
   const [supplyFilter, setSupplyFilter] = useState<SupplyFilter>({})
   const [riskLocationQuery, setRiskLocationQuery] = useState('')
+  const [queuePage, setQueuePage] = useState(1)
+  const [queueData, setQueueData] = useState<SupplyPage>({ total: 0, page: 1, limit: QUEUE_LIMIT, totalPages: 1, items: [] })
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queueRevision, setQueueRevision] = useState(0)
   const [historyPage, setHistoryPage] = useState(1)
   const [historyStatus, setHistoryStatus] = useState<'all' | SupplyStatus>('all')
   const [historyPriority, setHistoryPriority] = useState<'all' | SupplyPriority>('all')
@@ -66,6 +70,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [confirmTransition, setConfirmTransition] = useState<{ request: Supply; status: SupplyStatus } | null>(null)
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const repeatDraftChecked = useRef(false)
+  const queueViewportRef = useRef<HTMLDivElement | null>(null)
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setBusy(true)
@@ -128,11 +133,45 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       }
       if (!repeated) setSiteId((current) => current || bootstrap.sites[0]?.id || '')
       setHistoryRevision((value) => value + 1)
+      setQueueRevision((value) => value + 1)
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
     finally { if (!options?.silent) setBusy(false) }
   }, [])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { if (!siteId || tab !== 'count') return; void api<Material[]>(`/api/sites/${siteId}/stock`).then((data) => { setStock(data); setQuantities(Object.fromEntries(data.map((item) => [item.id, String(item.onHand ?? 0)]))) }).catch((error) => setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load site stock.' })) }, [siteId, tab])
+
+  const loadQueue = useCallback(async () => {
+    if (tab !== 'overview' || !canManage) return
+    setQueueLoading(true)
+    try {
+      const params = new URLSearchParams({ page: String(queuePage), limit: String(QUEUE_LIMIT) })
+      if (requestQuery.trim()) params.set('search', requestQuery.trim())
+      if (requestFrom) params.set('from', requestFrom)
+      if (requestTo) params.set('to', requestTo)
+      if (supplyFilter.status) params.set('status', statusQueryValue(supplyFilter.status))
+      if (supplyFilter.priority) params.set('priority', supplyFilter.priority)
+      if (supplyFilter.preset && supplyFilter.preset !== 'all') params.set('preset', supplyFilter.preset)
+      const data = await api<SupplyPage>(`/api/supplies?${params.toString()}`)
+      setQueueData({
+        ...data,
+        items: data.items.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })),
+      })
+      if (queuePage > data.totalPages) setQueuePage(data.totalPages)
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load the request queue.' })
+    } finally {
+      setQueueLoading(false)
+    }
+  }, [canManage, queuePage, requestFrom, requestQuery, requestTo, supplyFilter, tab])
+  useEffect(() => {
+    if (tab !== 'overview' || !canManage) return
+    const timer = window.setTimeout(() => void loadQueue(), 160)
+    return () => window.clearTimeout(timer)
+  }, [loadQueue, queueRevision, tab, canManage])
+  useEffect(() => {
+    setQueuePage(1)
+    queueViewportRef.current?.scrollTo({ top: 0 })
+  }, [requestFrom, requestQuery, requestTo, supplyFilter])
 
   const loadHistory = useCallback(async () => {
     if (tab !== 'history') return
@@ -165,21 +204,6 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
   const groupedStock = useMemo(() => Object.entries(stock.reduce<Record<string, Material[]>>((groups, item) => { (groups[item.category] ??= []).push(item); return groups }, {})), [stock])
   const selectedRequestItems = Object.entries(requestQuantities).filter(([, quantity]) => quantity > 0)
-  const filterRequests = useCallback((items: Supply[]) => { const needle = requestQuery.trim().toLowerCase(); return items.filter((request) => { const date = request.createdAt.slice(0,10); return (!needle || `${request.employeeName} ${request.clientLocation} ${request.status} ${request.priority} ${request.items.map((item) => item.product).join(' ')}`.toLowerCase().includes(needle)) && (!requestFrom || date >= requestFrom) && (!requestTo || date <= requestTo) }) }, [requestFrom, requestQuery, requestTo])
-  const applySupplyFilter = useCallback((items: Supply[]) => items.filter((request) => {
-    if (supplyFilter.status && request.status !== supplyFilter.status) return false
-    if (supplyFilter.priority && request.priority !== supplyFilter.priority) return false
-    if (supplyFilter.preset === 'overdue' && !isSupplyOverdue(request.dueAt, request.status)) return false
-    if (supplyFilter.preset === 'unassigned' && (request.assignedTo || CLOSED.has(request.status))) return false
-    if (supplyFilter.preset === 'month') {
-      const date = new Date(request.createdAt)
-      const now = new Date()
-      if (date.getMonth() !== now.getMonth() || date.getFullYear() !== now.getFullYear()) return false
-    }
-    return true
-  }), [supplyFilter])
-  const visibleRequests = useMemo(() => applySupplyFilter(filterRequests(requests)), [applySupplyFilter, filterRequests, requests])
-  const visibleControlRequests = visibleRequests
   const selectedRequestUnits = selectedRequestItems.reduce((total, [, quantity]) => total + quantity, 0)
   const riskLocations = useMemo(() => {
     if (!control) return []
@@ -233,6 +257,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
         body: JSON.stringify({ assigneeEmail }),
       })
       setRequests((current) => current.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item))
+      setQueueData((current) => ({ ...current, items: current.items.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item) }))
       setHistoryData((current) => ({ ...current, items: current.items.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item) }))
       setSelectedRequest((current) => current?.id === result.id ? { ...current, assignedTo: result.assignedTo ?? undefined } : current)
       setMessage({ kind: 'success', text: result.assignedTo ? 'Responsible person assigned.' : 'Request unassigned.' })
@@ -316,10 +341,13 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 </article><article className={`card ${styles.queueCard}`} data-testid="request-queue-card">
   <div className={`section-heading ${styles.queueHeading}`}>
     <div><h2>Request queue</h2><p className="muted">Triage the matching requests without turning the whole dashboard into one long list.</p></div>
-    <div className={styles.queueHeadingMeta}><span className={styles.queueCount}>{visibleControlRequests.length}</span><span className="section-icon violet" aria-hidden="true"><OpsIcon name="review" size={17} /></span></div>
+    <div className={styles.queueHeadingMeta}><span className={styles.queueCount}>{queueData.total}</span><span className="section-icon violet" aria-hidden="true"><OpsIcon name="review" size={17} /></span></div>
   </div>
   <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} />
-  <div className={styles.queueViewport} aria-label="Supply request queue" data-testid="request-queue-viewport"><RequestList requests={visibleControlRequests} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></div>
+  <div ref={queueViewportRef} className={styles.queueViewport} aria-label="Supply request queue" data-testid="request-queue-viewport">
+    {queueLoading && !queueData.items.length ? <div className={styles.queueLoading} role="status"><OpsIcon name="refresh" size={17} />Loading requests…</div> : <RequestList requests={queueData.items} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} />}
+  </div>
+  <PaginationControls page={queueData.page} totalPages={queueData.totalPages} total={queueData.total} limit={queueData.limit || QUEUE_LIMIT} loading={queueLoading} noun="requests" onPageChange={(page) => { setQueuePage(page); queueViewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} className={styles.queuePagination} />
 </article></section></> : null}
 
     {!busy && tab === 'count' ? <form className={`card materials-form ${styles.formShell}`} onSubmit={submitCount}>
