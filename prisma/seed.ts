@@ -37,10 +37,14 @@ const EMPLOYEES = [
 ] as const
 
 const LOCATIONS = [
-  'TechCorp Office - Dublin 2',
-  'Green Bank - Temple Bar',
-  'Blue Industries - Ballsbridge',
-  'Red Company - Dun Laoghaire',
+  'Aster & Co - Quayside Offices',
+  'Willow Financial - Copper Lane Branch',
+  'Cedarstone Legal - Harbour Suite',
+  'Northlight Media - Studio One',
+  'Everwell Health - Wellness Hub',
+  'Meridian Foods - Central Kitchen',
+  'Bluehaven Insurance - Riverside House',
+  'Oak & Finch Retail - Southside Store',
 ] as const
 
 const PRODUCTS = [
@@ -129,7 +133,7 @@ async function seedSupplies() {
   const lifecycle = ['Requested', 'Triaged', 'Approved', 'Ordered', 'InTransit', 'Delivered'] as const
   const lifecycleNotes = ['Request submitted', 'Request triaged', 'Request approved', 'Order placed', 'Order dispatched', 'Delivery confirmed']
 
-  for (let index = 0; index < 30; index += 1) {
+  for (let index = 0; index < 48; index += 1) {
     const priority = pickWeighted([
       { value: 'urgent' as const, weight: 40 },
       { value: 'normal' as const, weight: 35 },
@@ -214,7 +218,7 @@ async function seedFeedback() {
   })
   const employeeIds = new Map(employeeUsers.map((user) => [user.name, user.id]))
 
-  for (let i = 0; i < 25; i += 1) {
+  for (let i = 0; i < 48; i += 1) {
     const employee = EMPLOYEES[i % EMPLOYEES.length]
     const employeeId = employeeIds.get(employee)
     if (!employeeId) throw new Error(`Missing seeded employee account for ${employee}`)
@@ -278,41 +282,69 @@ async function seedOperations() {
   today.setHours(0, 0, 0, 0)
   const locations = [
     {
-      externalId: 'demo-techcorp', client: 'TechCorp Ireland', site: 'Grand Canal Office', addressLine1: '1 Grand Canal Square', city: 'Dublin', postalCode: 'D02 P820',
+      externalId: 'demo-techcorp', client: 'Aster & Co', site: 'Quayside Offices', addressLine1: '1 Portfolio Quay', city: 'Dublin', postalCode: 'D02 DEMO',
       latitude: 53.3441, longitude: -6.2383, startOffsetDays: 0, startMinutes: 9 * 60, workers: [employeeId, mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
     },
     {
-      externalId: 'demo-greenbank', client: 'Green Bank', site: 'Temple Bar Branch', addressLine1: '12 Essex Street East', city: 'Dublin', postalCode: 'D02 TD34',
+      externalId: 'demo-greenbank', client: 'Willow Financial', site: 'Copper Lane Branch', addressLine1: '12 Demo Lane', city: 'Dublin', postalCode: 'D02 DEMO',
       latitude: 53.3452, longitude: -6.2677, startOffsetDays: 1, startMinutes: 18 * 60, workers: [employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 1,
     },
     {
-      externalId: 'demo-harbourview', client: 'Harbourview Legal', site: 'Docklands Suite', addressLine1: '2 Sir John Rogerson’s Quay', city: 'Dublin', postalCode: 'D02 R296',
+      externalId: 'demo-harbourview', client: 'Cedarstone Legal', site: 'Harbour Suite', addressLine1: '2 Portfolio Quay', city: 'Dublin', postalCode: 'D02 DEMO',
       latitude: 53.3432, longitude: -6.2446, startOffsetDays: 2, startMinutes: 7 * 60 + 30, workers: [mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
     },
     {
-      externalId: 'demo-liffey', client: 'Liffey Media', site: 'Smithfield Studio', addressLine1: '7 Bow Street', city: 'Dublin', postalCode: 'D07 N9Y0',
+      externalId: 'demo-liffey', client: 'Northlight Media', site: 'Studio One', addressLine1: '7 Demo Street', city: 'Dublin', postalCode: 'D07 DEMO',
       latitude: 53.3486, longitude: -6.2789, startOffsetDays: 3, startMinutes: 16 * 60, workers: [], preferredWorkers: [employeeId], requiredWorkers: 1,
     },
     {
-      externalId: 'demo-rathmines', client: 'Rathmines Health', site: 'Wellness Centre', addressLine1: '18 Lower Rathmines Road', city: 'Dublin', postalCode: 'D06 X7W8',
+      externalId: 'demo-rathmines', client: 'Everwell Health', site: 'Wellness Hub', addressLine1: '18 Demo Road', city: 'Dublin', postalCode: 'D06 DEMO',
       latitude: 53.3257, longitude: -6.2657, startOffsetDays: 4, startMinutes: 13 * 60 + 30, workers: [mariaId, employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-meridian', client: 'Meridian Foods', site: 'Central Kitchen', addressLine1: '4 Market Demo Way', city: 'Dublin', postalCode: 'D01 DEMO',
+      latitude: 53.3521, longitude: -6.2591, startOffsetDays: 5, startMinutes: 6 * 60, workers: [employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-bluehaven', client: 'Bluehaven Insurance', site: 'Riverside House', addressLine1: '9 Riverside Demo Walk', city: 'Dublin', postalCode: 'D04 DEMO',
+      latitude: 53.3321, longitude: -6.2308, startOffsetDays: 6, startMinutes: 19 * 60, workers: [mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 1,
+    },
+    {
+      externalId: 'demo-oakfinch', client: 'Oak & Finch Retail', site: 'Southside Store', addressLine1: '22 Portfolio Avenue', city: 'Dublin', postalCode: 'D06 DEMO',
+      latitude: 53.3194, longitude: -6.2652, startOffsetDays: 0, startMinutes: 20 * 60, workers: [employeeId, mariaId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-brightpath', client: 'Brightpath Learning', site: 'City Campus', addressLine1: '31 Learning Demo Street', city: 'Dublin', postalCode: 'D08 DEMO',
+      latitude: 53.3381, longitude: -6.2751, startOffsetDays: 1, startMinutes: 17 * 60, workers: [employeeId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-solstice', client: 'Solstice Hotels', site: 'Harbour Hotel', addressLine1: '6 Harbour Demo Quay', city: 'Dublin', postalCode: 'D01 DEMO',
+      latitude: 53.3491, longitude: -6.2418, startOffsetDays: 2, startMinutes: 11 * 60, workers: [mariaId, employeeId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
+    },
+    {
+      externalId: 'demo-novus', client: 'Novus Labs', site: 'Innovation Hub', addressLine1: '14 Innovation Demo Park', city: 'Dublin', postalCode: 'D18 DEMO',
+      latitude: 53.2779, longitude: -6.2074, startOffsetDays: 3, startMinutes: 7 * 60, workers: [employeeId], preferredWorkers: [employeeId, mariaId], requiredWorkers: 1,
+    },
+    {
+      externalId: 'demo-alderlogistics', client: 'Alder Logistics', site: 'West Distribution Hub', addressLine1: '8 Logistics Demo Estate', city: 'Dublin', postalCode: 'D12 DEMO',
+      latitude: 53.3095, longitude: -6.3479, startOffsetDays: 4, startMinutes: 5 * 60 + 30, workers: [mariaId], preferredWorkers: [mariaId, employeeId], requiredWorkers: 2,
     },
   ]
 
   for (const [siteIndex, location] of locations.entries()) {
     const client = await prisma.client.upsert({
       where: { organizationId_externalId: { organizationId: LEGACY_ORGANIZATION_ID, externalId: location.externalId } },
-      update: { displayName: location.client, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example`, status: 'active' },
-      create: { organizationId: LEGACY_ORGANIZATION_ID, externalId: location.externalId, displayName: location.client, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example` },
+      update: { displayName: location.client, legalName: `${location.client} Demo Ltd`, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example`, status: 'active' },
+      create: { organizationId: LEGACY_ORGANIZATION_ID, externalId: location.externalId, displayName: location.client, legalName: `${location.client} Demo Ltd`, billingEmail: `facilities@${location.externalId.replace('demo-', '')}.example` },
     })
-    let site = await prisma.site.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site } })
+    let site = await prisma.site.findFirst({ where: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id }, orderBy: { createdAt: 'asc' } })
     const siteData = {
       addressLine1: location.addressLine1, city: location.city, postalCode: location.postalCode,
       latitude: location.latitude, longitude: location.longitude, coordinateAccuracyM: 8, coordinateSource: 'gps_verified' as const,
       geofenceVerifiedM: 150, geofenceNearM: 250, geofenceSuspiciousM: 700, status: 'active' as const,
     }
     site = site
-      ? await prisma.site.update({ where: { id: site.id }, data: siteData })
+      ? await prisma.site.update({ where: { id: site.id }, data: { name: location.site, ...siteData } })
       : await prisma.site.create({ data: { organizationId: LEGACY_ORGANIZATION_ID, clientId: client.id, name: location.site, ...siteData } })
 
     await prisma.contact.upsert({
