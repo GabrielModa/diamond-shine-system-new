@@ -62,7 +62,6 @@ export default function StockScreen() {
     () => Object.entries(requestQuantities).filter(([, quantity]) => quantity > 0),
     [requestQuantities],
   );
-  const shortages = useMemo(() => stock.filter((item) => Number(counts[item.id] ?? item.onHand) <= item.reorderPoint).length, [counts, stock]);
   const groupedCatalog = useMemo(() => {
     const groups = new Map<string, CatalogItem[]>();
     for (const item of catalog) groups.set(item.category, [...(groups.get(item.category) ?? []), item]);
@@ -110,14 +109,14 @@ export default function StockScreen() {
       const updated = stock.map((item) => ({ ...item, onHand: Math.max(0, Number(counts[item.id] ?? 0)) }));
       await cacheStock(siteId, updated);
       setStock(updated);
-      setMessage('Count saved offline. Replenishment will be evaluated after sync.');
+      setMessage('Count saved offline. Stock levels will update after sync.');
     };
     try {
       if (!(await NetInfo.fetch()).isConnected) await saveOffline();
       else {
         try {
-          const data = await apiFetch<{ replenishment?: { id: string; priority: string; items: unknown[] } | null }>(session, `/api/sites/${siteId}/stock-counts`, { method: 'POST', body: JSON.stringify(payload) });
-          setMessage(data.replenishment ? `Count saved. A ${data.replenishment.priority} replenishment request was created.` : 'Count saved. No new request was needed.');
+          await apiFetch(session, `/api/sites/${siteId}/stock-counts`, { method: 'POST', body: JSON.stringify(payload) });
+          setMessage('Count saved. Operations can review the updated stock levels.');
           setNote('');
           await load();
         } catch (cause) {
@@ -166,17 +165,15 @@ export default function StockScreen() {
   }
 
   return <Screen>
-    <PageHeader eyebrow="Supervisor materials" title="Count site stock" subtitle="Record what is actually on site. Shortages can create replenishment automatically." />
-    {shortages ? <View style={styles.alert}><Text style={styles.alertTitle}>{shortages} item{shortages === 1 ? '' : 's'} at or below reorder point</Text><Text style={styles.alertBody}>Saving this count evaluates shortages without creating duplicate requests.</Text></View> : null}
+    <PageHeader eyebrow="Supervisor materials" title="Count site stock" subtitle="Record what is physically on site. Saving a count does not create a supply request." />
     {message ? <Text style={styles.success}>{message}</Text> : null}
     {error ? <Text accessibilityRole="alert" style={styles.error}>{error}</Text> : null}
     {loading ? <ActivityIndicator color={colors.primary} size="large" /> : stock.map((item) => {
       const quantity = Number(counts[item.id] ?? item.onHand);
-      const state = quantity <= 0 ? 'Out' : quantity <= item.reorderPoint ? 'Low' : 'Healthy';
-      return <Card key={item.id} style={styles.item}><View style={styles.itemBody}><Text style={styles.category}>{item.category}</Text><Text style={styles.name}>{item.name}</Text><Text style={styles.target}>Target {item.parLevel} {item.unit} · reorder at {item.reorderPoint}</Text></View><View style={styles.count}><TextInput accessibilityLabel={`${item.name} quantity`} keyboardType="number-pad" value={counts[item.id] ?? ''} onChangeText={(value) => setCounts((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '') }))} style={styles.countInput} /><Text style={[styles.state, state === 'Out' && styles.out, state === 'Low' && styles.low]}>{state}</Text></View></Card>;
+      return <Card key={item.id} style={styles.item}><View style={styles.itemBody}><Text style={styles.category}>{item.category}</Text><Text style={styles.name}>{item.name}</Text><Text style={styles.target}>Count the physical quantity on site</Text></View><View style={styles.count}><TextInput accessibilityLabel={`${item.name} quantity`} keyboardType="number-pad" value={counts[item.id] ?? ''} onChangeText={(value) => setCounts((current) => ({ ...current, [item.id]: value.replace(/[^0-9]/g, '') }))} style={styles.countInput} /></View></Card>;
     })}
     <TextInput value={note} onChangeText={setNote} maxLength={1000} multiline style={[styles.textInput, styles.note]} placeholder="Count note (optional)" />
-    <Button title="Save count & evaluate shortages" loading={busy} disabled={loading || !stock.length || !canCount} onPress={() => void submitCount()} />
+    <Button title="Save count" loading={busy} disabled={loading || !stock.length || !canCount} onPress={() => void submitCount()} />
   </Screen>;
 }
 
