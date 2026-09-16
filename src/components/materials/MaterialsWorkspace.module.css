@@ -1,14 +1,3 @@
-.floatingNotice{
-  position:fixed;
-  top:92px;
-  right:24px;
-  z-index:10050;
-  width:min(440px,calc(100vw - 32px));
-  margin:0;
-  box-shadow:0 18px 55px rgba(26,31,52,.22);
-  backdrop-filter:blur(16px);
-}
-
 .formShell{
   display:grid;
   gap:18px;
@@ -373,15 +362,78 @@
   color:#a8751e;
   background:#fff1c9;
 }
-.riskLegend{display:flex;flex-wrap:wrap;gap:6px}
-.riskLegend span{
-  padding:5px 8px;
-  border-radius:999px;
-  background:#f1f3f5;
-  color:#65706c;
-  font-size:.61rem;
-  font-weight:750;
+.riskSearch{
+  display:flex;
+  align-items:center;
+  gap:8px;
+  min-height:42px;
+  padding:0 11px;
+  border:1px solid #e1e5ec;
+  border-radius:11px;
+  color:#6a7481;
+  background:#fff;
 }
+.riskSearch:focus-within{border-color:#8174df;box-shadow:0 0 0 3px rgba(129,116,223,.11)}
+.riskSearch input{width:100%;padding:9px 0;border:0;outline:0;background:transparent;box-shadow:none}
+.riskLocationMeta{display:flex;align-items:baseline;gap:5px;color:var(--surface-muted);font-size:.64rem}
+.riskLocationMeta strong{color:var(--text);font-size:.82rem}
+.riskLocationList{
+  display:grid;
+  gap:8px;
+  max-height:520px;
+  overflow:auto;
+  padding-right:3px;
+  scrollbar-gutter:stable;
+}
+.riskLocationCard{
+  overflow:hidden;
+  border:1px solid #e3e7ee;
+  border-radius:14px;
+  background:#fff;
+}
+.riskLocationCard[open]{border-color:#d4d0ee;box-shadow:0 8px 24px rgba(43,48,74,.05)}
+.riskLocationSummary{
+  display:grid;
+  grid-template-columns:auto minmax(0,1fr) auto auto auto;
+  align-items:center;
+  gap:10px;
+  min-height:62px;
+  padding:10px 12px;
+  cursor:pointer;
+  list-style:none;
+}
+.riskLocationSummary::-webkit-details-marker{display:none}
+.riskLocationSummary:hover{background:#fafaff}
+.riskLocationPin{
+  display:grid;
+  place-items:center;
+  width:36px;
+  height:36px;
+  border-radius:11px;
+  color:#6657d1;
+  background:#f1efff;
+}
+.riskLocationTitle{display:grid;gap:2px;min-width:0}
+.riskLocationTitle strong{overflow:hidden;text-overflow:ellipsis;white-space:nowrap;font-size:.78rem}
+.riskLocationTitle small{overflow:hidden;color:var(--surface-muted);font-size:.62rem;text-overflow:ellipsis;white-space:nowrap}
+.riskSignals{display:flex;align-items:center;gap:5px;flex-wrap:wrap;justify-content:flex-end}
+.riskSignals span,.riskLocationCount{
+  padding:4px 7px;
+  border-radius:999px;
+  font-size:.58rem;
+  font-weight:850;
+  white-space:nowrap;
+}
+.signalOut{color:#a33a31;background:#fdecea}
+.signalReorder{color:#8b641b;background:#fff2d5}
+.signalLow{color:#435f88;background:#edf4ff}
+.riskLocationCount{color:#66717c;background:#eef1f5}
+.riskChevron{display:grid;place-items:center;color:#747d89;transition:transform .18s ease}
+.riskLocationCard[open] .riskChevron{transform:rotate(90deg)}
+.riskLocationItems{padding:0 12px 4px;border-top:1px solid #edf0f4;background:#fcfcfe}
+.riskEmpty{display:grid;place-items:center;gap:5px;min-height:132px;padding:20px;color:var(--surface-muted);text-align:center}
+.riskEmpty strong{color:var(--text);font-size:.76rem}
+.riskEmpty span{font-size:.64rem}
 .riskRow{
   display:grid;
   grid-template-columns:auto minmax(0,1fr) auto;
@@ -416,7 +468,6 @@
 }
 
 @media(max-width:680px){
-  .floatingNotice{top:74px;right:12px;width:calc(100vw - 24px)}
   .formHero{padding:16px 16px 0}
   .formBody{padding:0 16px 16px}
   .siteAndHelp{display:grid;grid-template-columns:1fr}
@@ -427,6 +478,6 @@
   .stickyActions{align-items:stretch;flex-direction:column}
   .actionButtons{display:grid;grid-template-columns:1fr}
   .actionButtons button{width:100%}
-  .riskRow{grid-template-columns:1fr}
+  .riskLocationSummary{grid-template-columns:auto minmax(0,1fr) auto}.riskSignals{grid-column:2/-1;justify-content:flex-start}.riskLocationCount{display:none}.riskChevron{grid-column:3;grid-row:1}.riskRow{grid-template-columns:1fr}.riskLocationList{max-height:460px}
   .riskNumbers{text-align:left}
 }
