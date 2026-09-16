@@ -15,11 +15,15 @@ export async function GET(request: NextRequest, { params }: { params: Promise<{ 
   if (!canExecute && !canReview) return NextResponse.json({ ok: false, error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
+  const visitScope = canReview
+    ? { organizationId: user.organizationId }
+    : { organizationId: user.organizationId, ...assignedVisitFilter(user) }
+
   const evidence = await prisma.evidenceAsset.findFirst({
     where: {
       id,
       organizationId: user.organizationId,
-      visit: { organizationId: user.organizationId, ...assignedVisitFilter(user) },
+      visit: visitScope,
     },
     select: { storageKey: true, fileName: true, mimeType: true, sizeBytes: true },
   })
