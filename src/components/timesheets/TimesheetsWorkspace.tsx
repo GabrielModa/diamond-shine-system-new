@@ -320,12 +320,14 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     const recordedMinutes = Math.round(entryDurationMs(entry) / 60_000)
     const currentPayableMinutes = entry.status === 'approved'
       ? Math.round(payableDurationMs(entry) / 60_000)
-      : recordedMinutes
+      : entry.status === 'rejected'
+        ? 0
+        : recordedMinutes
     setReviewingEntry(entry)
-    setReviewMode(currentPayableMinutes === recordedMinutes ? 'full' : 'adjusted')
+    setReviewMode(entry.status === 'rejected' ? 'reject' : currentPayableMinutes === recordedMinutes ? 'full' : 'adjusted')
     setPayableHours(String(Math.floor(currentPayableMinutes / 60)))
     setPayableMinutes(String(currentPayableMinutes % 60))
-    setReviewNote('')
+    setReviewNote(payrollReviewNote(entry.reviewReason))
   }
 
   function submitPayrollReview() {
@@ -501,7 +503,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     </section>
 
     <section className="ts-metrics" aria-label="Timesheet summary">
-      <article className="ts-metric"><span className="ts-metric-icon"><OpsIcon name="clock" /></span><span>Recorded hours</span><strong>{humanDuration(metrics.recordedMs)}</strong><small>{filtered.filter((entry) => Boolean(entry.endedAt)).length} ended entries</small></article>
+      <article className="ts-metric"><span className="ts-metric-icon"><OpsIcon name="clock" /></span><span>Recorded hours</span><strong>{humanDuration(metrics.recordedMs)}</strong><small>{metrics.endedCount} ended entries</small></article>
       <article className="ts-metric approved"><span className="ts-metric-icon"><OpsIcon name="check" /></span><span>Approved hours</span><strong>{humanDuration(metrics.approvedMs)}</strong><small>Already reviewed</small></article>
       <article className="ts-metric pending"><span className="ts-metric-icon"><OpsIcon name="review" /></span><span>Awaiting approval</span><strong>{humanDuration(metrics.pendingMs)}</strong><small>{metrics.pendingCount} entries</small></article>
       <article className="ts-metric challenge"><span className="ts-metric-icon"><OpsIcon name="alert" /></span><span>Challenges</span><strong>{metrics.challengeCount}</strong><small>{metrics.reviewCount} unique operational exceptions</small></article>
@@ -520,17 +522,17 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     </section>
 
     <div className="ts-filter-summary">
-      <span>Showing {filtered.length} of {entries.length} entries</span>
+      <span>Showing {filtered.length} on this page · {data.total} matching of {data.periodTotal} in period</span>
       {activeFilterLabels.map((label) => <span className="ts-chip" key={label}>{label}</span>)}
     </div>
 
     {tab === 'review' ? <section className="ts-panel">
       <div className="ts-panel-head">
         <div><h2>{canManage ? 'Time review' : 'Recorded time'}</h2><p>{canManage ? 'Clean recorded time can be approved here. GPS, evidence or worker challenges stay connected to Field Control for operational review.' : 'Your work sessions for the selected period.'}</p></div>
-        <span className="ts-panel-meta">{loading ? 'Refreshing…' : `${filtered.length} entries`}</span>
+        <span className="ts-panel-meta">{loading ? 'Refreshing…' : `${data.total} matching entr${data.total === 1 ? 'y' : 'ies'}`}</span>
       </div>
       <div className="ts-table">
-        <div className="ts-head"><span>Employee</span><span>Work</span><span>Type</span><span>Start</span><span>Duration</span><span>Review</span></div>
+        <div className="ts-head"><span>Employee</span><span>Work</span><span>Type</span><span>Start</span><span>Recorded / payroll</span><span>Review</span></div>
         {filtered.map((entry) => {
           const operationalException = hasOperationalException(entry)
           return <div className={`ts-row ${focusedEntryId === entry.id ? 'is-focused' : ''}`} key={entry.id}>
@@ -538,17 +540,24 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
             <span className="ts-work"><strong>{entry.visit ? `${entry.visit.site.client.displayName} · ${entry.visit.site.name}` : 'General / non-visit time'}</strong><small>{humanReviewReason(entry.reviewReason) ?? (entry.visit ? 'Visit work' : 'Non-visit work')}</small></span>
             <span className="ts-kind">{entry.kind.replaceAll('_', ' ')}</span>
             <span>{formatOperationalDateTime(entry.startedAt)}</span>
-            <span>{entry.endedAt ? humanDuration(entryDurationMs(entry)) : 'Running'}</span>
+            <span className="ts-duration">{entry.endedAt ? <>
+              <strong>Recorded {compactDuration(entryDurationMs(entry))}</strong>
+              {entry.status === 'approved' ? <small className={payableDurationMs(entry) < entryDurationMs(entry) ? 'adjusted' : ''}>Payable {compactDuration(payableDurationMs(entry))}{payableDurationMs(entry) < entryDurationMs(entry) ? ` · −${compactDuration(excludedDurationMs(entry))} excluded` : ' · no adjustment'}</small>
+                : entry.status === 'rejected' ? <small className="rejected">Payroll 0m · full entry excluded</small>
+                  : <small>{entry.status === 'needs_review' ? 'Blocked by execution review' : 'Not payroll-ready yet'}</small>}
+            </> : <><strong>Running</strong><small>Timer still active</small></>}</span>
             <span className="ts-actions">
               <span className={`ts-status ${statusClass(entry)}`}>{statusLabel(entry)}</span>
               {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}><OpsIcon name="field" size={14} /> Field context</a> : null}
               {canManage && entry.status === 'completed' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="payroll" size={14} /> Review payroll</button> : null}
               {canManage && entry.status === 'approved' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Adjust payroll</button> : null}
+              {canManage && entry.status === 'rejected' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Reconsider payroll</button> : null}
             </span>
           </div>
         })}
         {!loading && !filtered.length ? <div className="ts-empty">No time entries match this period and filter.</div> : null}
       </div>
+      <PaginationControls page={data.page} totalPages={data.totalPages} total={data.total} limit={data.limit} loading={loading} noun="entries" onPageChange={setPage} className="compact" />
     </section> : null}
 
     {tab === 'payroll' && canManage ? <section className="ts-payroll-grid">
@@ -560,7 +569,7 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       </div>
       <div className="ts-payroll-list">
         <div className="ts-payroll-head"><span>Employee</span><span>Recorded</span><span>Payable</span><span>Excluded</span><span>Pending</span><span>Exceptions</span><span>Running</span></div>
-        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedMs)}</span><span>{humanDuration(row.approvedMs)}</span><span>{humanDuration(row.excludedMs)}</span><span>{humanDuration(row.pendingMs)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
+        {payrollRows.map((row) => <div className="ts-payroll-row" key={row.user.id}><strong>{row.user.name || row.user.email}</strong><span>{humanDuration(row.recordedSeconds * 1000)}</span><span>{humanDuration(row.approvedSeconds * 1000)}</span><span>{humanDuration(row.excludedSeconds * 1000)}</span><span>{humanDuration(row.pendingSeconds * 1000)}</span><span>{row.exceptions}</span><span>{row.running}</span></div>)}
         {!payrollRows.length ? <div className="ts-empty">No payroll rows match this filter.</div> : null}
       </div>
     </section> : null}
@@ -595,10 +604,10 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
       <section className="ts-export-dialog" role="dialog" aria-modal="true" aria-labelledby="timesheet-export-title">
         <div className="ts-export-head"><div><h2 id="timesheet-export-title">Export timesheets</h2><p>Create an accounting-friendly CSV that opens directly in Excel. No hidden rows or different calculation rules.</p></div><button className="ts-close" onClick={() => setExportOpen(false)} aria-label="Close export">×</button></div>
         <div className="ts-export-options">
-          <div className="ts-option-group"><span>Scope</span><div className="ts-option-row"><button className={`ts-option ${exportScope === 'filtered' ? 'selected' : ''}`} onClick={() => setExportScope('filtered')}><strong>Current filtered view</strong><small>{filtered.length} entries · respects employee, status, work type and client filters.</small></button><button className={`ts-option ${exportScope === 'period' ? 'selected' : ''}`} onClick={() => setExportScope('period')}><strong>Full review period</strong><small>{entries.length} entries · ignores list filters but keeps {from || 'start'} → {to || 'today'}.</small></button></div></div>
+          <div className="ts-option-group"><span>Scope</span><div className="ts-option-row"><button className={`ts-option ${exportScope === 'filtered' ? 'selected' : ''}`} onClick={() => setExportScope('filtered')}><strong>Current filtered view</strong><small>{data.total} entries · respects employee, status, work type and client filters across every page.</small></button><button className={`ts-option ${exportScope === 'period' ? 'selected' : ''}`} onClick={() => setExportScope('period')}><strong>Full review period</strong><small>{data.periodTotal} entries · ignores list filters but keeps {from || 'start'} → {to || 'today'}.</small></button></div></div>
           <div className="ts-option-group"><span>Layout</span><div className="ts-option-row"><button className={`ts-option ${exportLayout === 'summary' ? 'selected' : ''}`} onClick={() => setExportLayout('summary')}><strong>Payroll summary</strong><small>One row per employee with recorded, approved and pending hours.</small></button><button className={`ts-option ${exportLayout === 'detailed' ? 'selected' : ''}`} onClick={() => setExportLayout('detailed')}><strong>Detailed entries</strong><small>One row per time entry with site, duration, status, challenge and GPS signal.</small></button></div></div>
         </div>
-        <div className="ts-export-footer"><small>Format: UTF-8 CSV · compatible with Excel, Numbers and common payroll/accounting tools.</small><div><button className="ts-button-secondary" onClick={() => setExportOpen(false)}>Cancel</button><button className="ts-button" onClick={exportTimesheets}><OpsIcon name="spreadsheet" />Download CSV</button></div></div>
+        <div className="ts-export-footer"><small>Format: UTF-8 CSV · compatible with Excel, Numbers and common payroll/accounting tools.</small><div><button className="ts-button-secondary" onClick={() => setExportOpen(false)}>Cancel</button><button className="ts-button" onClick={() => void exportTimesheets()} disabled={exporting}><OpsIcon name="spreadsheet" />{exporting ? 'Preparing…' : 'Download CSV'}</button></div></div>
       </section>
     </div> : null}
   </main>
