@@ -381,100 +381,89 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
     setClientFilter('all')
   }
 
-  function exportTimesheets() {
-    const source = exportScope === 'filtered' ? filtered : entries
-    const periodSlug = `${from || 'start'}-to-${to || 'today'}`
-    if (exportLayout === 'detailed') {
-      const rows: unknown[][] = [[
-        'Date', 'Employee', 'Email', 'Work type', 'Client', 'Site', 'Start', 'End', 'Duration hours',
-        'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
-      ]]
-      for (const entry of source) {
-        const maxDistance = entry.locationSummary?.maxDistanceM
-          ?? (entry.locationEvents ?? []).reduce<number | null>((max, event) => {
-            if (event.distanceM == null) return max
-            return max == null ? event.distanceM : Math.max(max, event.distanceM)
-          }, null)
-        rows.push([
-          entry.startedAt.slice(0, 10),
-          entry.user.name || entry.user.email,
-          entry.user.email,
-          entry.kind.replaceAll('_', ' '),
-          entry.visit?.site.client.displayName ?? '',
-          entry.visit?.site.name ?? 'General / non-visit time',
-          entry.startedAt,
-          entry.endedAt ?? '',
-          entry.endedAt ? decimalHours(entryDurationMs(entry)) : '',
-          statusLabel(entry),
-          decimalHours(payableDurationMs(entry)),
-          decimalHours(excludedDurationMs(entry)),
-          hasOpenChallenge(entry) ? 'Yes' : 'No',
-          hasLocationReview(entry) ? 'Review' : (entry.locationSummary?.count ?? entry.locationEvents?.length ?? 0) ? 'OK / watch' : 'No location evidence',
-          maxDistance ?? '',
-        ])
-      }
-      downloadCsv(`diamond-shine-timesheets-${periodSlug}.csv`, rows)
-    } else {
-      const groups = new Map<string, {
-        user: Entry['user']
-        entries: number
-        recordedMs: number
-        approvedMs: number
-        excludedMs: number
-        pendingMs: number
-        challengeCount: number
-        reviewCount: number
-        exceptionCount: number
-        runningCount: number
-      }>()
-      for (const entry of source) {
-        const current = groups.get(entry.user.id) ?? {
-          user: entry.user,
-          entries: 0,
-          recordedMs: 0,
-          approvedMs: 0,
-          excludedMs: 0,
-          pendingMs: 0,
-          challengeCount: 0,
-          reviewCount: 0,
-          exceptionCount: 0,
-          runningCount: 0,
-        }
-        current.entries += 1
-        const ms = entryDurationMs(entry)
-        if (entry.endedAt) current.recordedMs += ms
-        if (entry.status === 'approved') current.approvedMs += payableDurationMs(entry)
-        current.excludedMs += excludedDurationMs(entry)
-        if (entry.status === 'completed' || entry.status === 'needs_review') current.pendingMs += ms
-        if (hasOpenChallenge(entry)) current.challengeCount += 1
-        if (entry.status === 'needs_review') current.reviewCount += 1
-        if (hasOperationalException(entry)) current.exceptionCount += 1
-        if (entry.status === 'running') current.runningCount += 1
-        groups.set(entry.user.id, current)
-      }
-      const rows: unknown[][] = [[
-        'Employee', 'Email', 'Recorded hours', 'Payable hours', 'Excluded hours', 'Pending hours',
-        'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
-      ]]
-      for (const group of [...groups.values()].sort((a, b) => (a.user.name || a.user.email).localeCompare(b.user.name || b.user.email))) {
-        rows.push([
-          group.user.name || group.user.email,
-          group.user.email,
-          decimalHours(group.recordedMs),
-          decimalHours(group.approvedMs),
-          decimalHours(group.excludedMs),
-          decimalHours(group.pendingMs),
-          group.exceptionCount,
-          group.challengeCount,
-          group.reviewCount,
-          group.runningCount,
-          group.entries,
-        ])
-      }
-      downloadCsv(`diamond-shine-payroll-summary-${periodSlug}.csv`, rows)
+  async function loadExportDataset(includeFilters: boolean) {
+    const first = await clientApi<TimesheetPage>(
+      `/api/time-entries/timesheets?${buildParams(1, includeFilters, 100).toString()}`,
+      undefined,
+      'Could not prepare timesheet export',
+    )
+    const all = [...first.items]
+    for (let exportPage = 2; exportPage <= first.totalPages; exportPage += 1) {
+      const next = await clientApi<TimesheetPage>(
+        `/api/time-entries/timesheets?${buildParams(exportPage, includeFilters, 100).toString()}`,
+        undefined,
+        'Could not prepare timesheet export',
+      )
+      all.push(...next.items)
     }
-    setExportOpen(false)
-    setNotice({ kind: 'success', text: 'Export downloaded. The CSV opens directly in Excel and accounting software.' })
+    return { page: first, entries: all }
+  }
+
+  async function exportTimesheets() {
+    setExporting(true)
+    try {
+      const includeFilters = exportScope === 'filtered'
+      const source = await loadExportDataset(includeFilters)
+      const periodSlug = `${from || 'start'}-to-${to || 'today'}`
+      if (exportLayout === 'detailed') {
+        const rows: unknown[][] = [[
+          'Date', 'Employee', 'Email', 'Work type', 'Client', 'Site', 'Start', 'End', 'Recorded hours',
+          'Review status', 'Payable hours', 'Excluded hours', 'Open challenge', 'Location signal', 'Maximum distance (m)',
+        ]]
+        for (const entry of source.entries) {
+          const maxDistance = entry.locationSummary?.maxDistanceM
+            ?? (entry.locationEvents ?? []).reduce<number | null>((max, event) => {
+              if (event.distanceM == null) return max
+              return max == null ? event.distanceM : Math.max(max, event.distanceM)
+            }, null)
+          rows.push([
+            entry.startedAt.slice(0, 10),
+            entry.user.name || entry.user.email,
+            entry.user.email,
+            entry.kind.replaceAll('_', ' '),
+            entry.visit?.site.client.displayName ?? '',
+            entry.visit?.site.name ?? 'General / non-visit time',
+            entry.startedAt,
+            entry.endedAt ?? '',
+            entry.endedAt ? decimalHours(entryDurationMs(entry)) : '',
+            statusLabel(entry),
+            decimalHours(payableDurationMs(entry)),
+            decimalHours(excludedDurationMs(entry)),
+            hasOpenChallenge(entry) ? 'Yes' : 'No',
+            hasLocationReview(entry) ? 'Review' : (entry.locationSummary?.count ?? entry.locationEvents?.length ?? 0) ? 'OK / watch' : 'No location evidence',
+            maxDistance ?? '',
+          ])
+        }
+        downloadCsv(`diamond-shine-timesheets-${periodSlug}.csv`, rows)
+      } else {
+        const rows: unknown[][] = [[
+          'Employee', 'Email', 'Recorded hours', 'Payable hours', 'Excluded hours', 'Pending hours',
+          'Operational exceptions', 'Challenges', 'Needs review', 'Running timers', 'Entries',
+        ]]
+        for (const row of source.page.payrollRows) {
+          rows.push([
+            row.user.name || row.user.email,
+            row.user.email,
+            decimalHours(row.recordedSeconds * 1000),
+            decimalHours(row.approvedSeconds * 1000),
+            decimalHours(row.excludedSeconds * 1000),
+            decimalHours(row.pendingSeconds * 1000),
+            row.exceptions,
+            row.challenges,
+            row.needsReview,
+            row.running,
+            row.entries,
+          ])
+        }
+        downloadCsv(`diamond-shine-payroll-summary-${periodSlug}.csv`, rows)
+      }
+      setExportOpen(false)
+      setNotice({ kind: 'success', text: 'Export downloaded. The CSV uses the same filters and payroll rules as this view.' })
+    } catch (error) {
+      setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not export timesheets.' })
+    } finally {
+      setExporting(false)
+    }
   }
 
   return <main className="page-shell manager-page timesheets-v2">
