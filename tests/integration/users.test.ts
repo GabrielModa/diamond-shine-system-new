@@ -132,6 +132,13 @@ describe('POST /api/users invite', () => {
     expect(stagedUser.password).toBeTruthy()
     expect(stagedMembership.status).toBe('invited')
 
+    const blockedWithoutProfile = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(blockedWithoutProfile.status).toBe(409)
+    expect(blockedWithoutProfile.body.error).toContain('finish the secure account setup')
+
     const blockedLogin = await request(app)
       .post('/api/auth/login')
       .set('x-forwarded-for', '203.0.113.44')
@@ -175,6 +182,39 @@ describe('POST /api/users invite', () => {
       .set('x-forwarded-for', '203.0.113.44')
       .send({ email: 'onboarding@test.io', password })
     expect(login.status).toBe(200)
+  })
+})
+
+describe('PATCH /api/users/:id/status', () => {
+  it('reactivates previously active staff without treating suspension as first-time onboarding', async () => {
+    const password = await bcrypt.hash('Reactivation123!', 12)
+    const user = await prisma.user.create({
+      data: { email: 'reactivation@test.io', name: 'Reactivation User', role: 'employee', status: 'active', password },
+    })
+    const membership = await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'active',
+      },
+    })
+
+    const deactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'inactive' })
+    expect(deactivated.status).toBe(200)
+
+    const reactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(reactivated.status).toBe(200)
+    expect(reactivated.body.data.status).toBe('active')
+
+    const savedMembership = await prisma.membership.findUniqueOrThrow({ where: { id: membership.id } })
+    expect(savedMembership.status).toBe('active')
   })
 })
 
