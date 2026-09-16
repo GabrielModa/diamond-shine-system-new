@@ -172,7 +172,45 @@ describe('GET /api/feedback', () => {
     expect(employeeRes.body.data.items[0]).toEqual(expect.objectContaining({ id: 'gf1' }))
   })
 
-  it('does not expose manager feedback to employees or anonymous callers', async () => {
+  it('gives employees a private paged view of feedback about their own work only', async () => {
+    const employee = await prisma.user.findUniqueOrThrow({ where: { email: 'employee@ds.ie' } })
+    const supervisor = await prisma.user.findUniqueOrThrow({ where: { email: 'super@ds.ie' } })
+    await prisma.feedbackEntry.create({
+      data: {
+        id: 'gf-other',
+        employeeId: supervisor.id,
+        employeeName: 'Supervisor',
+        clientLocation: 'Other site',
+        cleanliness: 1,
+        punctuality: 1,
+        equipment: 1,
+        clientRelations: 1,
+        overall: 1,
+        category: 'Poor',
+        submittedBy: 'admin@ds.ie',
+      },
+    })
+
+    const first = await request(app).get('/api/feedback/me?page=1&pageSize=1').set('Cookie', employeeCookie)
+    expect(first.status).toBe(200)
+    expect(first.body.data.total).toBe(2)
+    expect(first.body.data.items).toHaveLength(1)
+    expect(first.body.data.pagination).toEqual({ page: 1, pageSize: 1, totalPages: 2, hasMore: true })
+    expect(first.body.data.metrics.overall).toBe(4)
+    expect(first.body.data.items[0]).not.toHaveProperty('submittedBy')
+
+    const second = await request(app).get('/api/feedback/me?page=2&pageSize=1').set('Cookie', employeeCookie)
+    expect(second.status).toBe(200)
+    expect(second.body.data.items).toHaveLength(1)
+    expect(second.body.data.pagination.hasMore).toBe(false)
+
+    const leaked = await prisma.feedbackEntry.findUniqueOrThrow({ where: { id: 'gf-other' } })
+    expect(leaked.employeeId).not.toBe(employee.id)
+    expect([first.body.data.items[0].id, second.body.data.items[0].id]).not.toContain('gf-other')
+    expect((await request(app).get('/api/feedback/me')).status).toBe(401)
+  })
+
+  it('does not expose the manager feedback workspace to employees or anonymous callers', async () => {
     expect((await request(app).get('/api/feedback').set('Cookie', employeeCookie)).status).toBe(403)
     expect((await request(app).get('/api/feedback')).status).toBe(401)
   })
