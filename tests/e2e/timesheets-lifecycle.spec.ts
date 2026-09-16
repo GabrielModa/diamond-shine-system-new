@@ -41,9 +41,9 @@ test('payroll approval and adjustment survive reload without changing recorded t
 
   await page.reload()
   row = await isolateEntry()
-  await expect(row).toContainText('Approved · adjusted')
+  await expect(row).toContainText('Approved')
   await expect(row).toContainText('Recorded 2h 4m')
-  await expect(row).toContainText('Payable 2h · −4m excluded')
+  await expect(row).toContainText('Payable 2h 4m · no adjustment')
   await row.getByRole('button', { name: 'Adjust payroll', exact: true }).click()
   dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('Already payroll-ready')
@@ -64,7 +64,9 @@ test('payroll approval and adjustment survive reload without changing recorded t
 
   await page.reload()
   row = await isolateEntry()
-  await expect(row).toContainText('Approved')
+  await expect(row).toContainText('Approved · adjusted')
+  await expect(row).toContainText('Recorded 2h 4m')
+  await expect(row).toContainText('Payable 2h · −4m excluded')
   await row.getByRole('button', { name: 'Adjust payroll', exact: true }).click()
   dialog = page.getByRole('dialog')
   await expect(dialog).toContainText('−4m')
