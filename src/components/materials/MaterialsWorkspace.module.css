@@ -340,10 +340,64 @@
   box-shadow:0 0 0 2px rgba(108,92,231,.05);
 }
 
+.overviewGrid{
+  align-items:start;
+}
 .riskCard{
   display:grid;
+  grid-auto-rows:max-content;
+  align-content:start;
+  align-self:start;
   gap:12px;
+  min-width:0;
 }
+.queueCard{
+  display:grid;
+  grid-template-rows:auto auto minmax(0,1fr);
+  align-self:start;
+  gap:12px;
+  min-width:0;
+  max-height:760px;
+  overflow:hidden;
+}
+.queueHeading{
+  margin-bottom:0 !important;
+}
+.queueHeadingMeta{
+  display:flex;
+  align-items:center;
+  gap:8px;
+}
+.queueCount{
+  display:inline-flex;
+  align-items:center;
+  justify-content:center;
+  min-width:28px;
+  height:28px;
+  padding:0 8px;
+  border-radius:999px;
+  color:#5548bd;
+  background:#f0edff;
+  font-size:.66rem;
+  font-weight:900;
+}
+.queueViewport{
+  min-height:0;
+  max-height:570px;
+  overflow:auto;
+  padding-right:4px;
+  scrollbar-gutter:stable;
+  overscroll-behavior:contain;
+}
+.queueViewport :global(.materials-list){
+  padding-bottom:2px;
+}
+.queueEmpty{
+  min-height:140px;
+  display:grid;
+  place-items:center;
+}
+
 .riskExplanation{
   display:flex;
   align-items:flex-start;
@@ -379,11 +433,13 @@
 .riskLocationMeta strong{color:var(--text);font-size:.82rem}
 .riskLocationList{
   display:grid;
+  align-content:start;
   gap:8px;
-  max-height:520px;
+  max-height:480px;
   overflow:auto;
   padding-right:3px;
   scrollbar-gutter:stable;
+  overscroll-behavior:contain;
 }
 .riskLocationCard{
   overflow:hidden;
@@ -461,6 +517,9 @@
 .riskNumbers small{display:block;color:var(--surface-muted);font-size:.6rem}
 
 @media(max-width:900px){
+  .overviewGrid{grid-template-columns:1fr}
+  .queueCard{max-height:none}
+  .queueViewport{max-height:560px}
   .formHero,.siteAndHelp{grid-template-columns:1fr}
   .formHero{flex-direction:column}
   .heroHint{max-width:none;width:100%}
@@ -478,6 +537,7 @@
   .stickyActions{align-items:stretch;flex-direction:column}
   .actionButtons{display:grid;grid-template-columns:1fr}
   .actionButtons button{width:100%}
-  .riskLocationSummary{grid-template-columns:auto minmax(0,1fr) auto}.riskSignals{grid-column:2/-1;justify-content:flex-start}.riskLocationCount{display:none}.riskChevron{grid-column:3;grid-row:1}.riskRow{grid-template-columns:1fr}.riskLocationList{max-height:460px}
+  .queueViewport{max-height:520px}
+  .riskLocationSummary{grid-template-columns:auto minmax(0,1fr) auto}.riskSignals{grid-column:2/-1;justify-content:flex-start}.riskLocationCount{display:none}.riskChevron{grid-column:3;grid-row:1}.riskRow{grid-template-columns:1fr}.riskLocationList{max-height:420px}
   .riskNumbers{text-align:left}
 }
