@@ -10,6 +10,7 @@ const querySchema = z.object({
   search: z.string().trim().max(200).optional(),
   targetType: z.string().trim().max(80).optional(),
   actor: z.string().trim().max(200).optional(),
+  action: z.string().trim().max(120).optional(),
   from: z.coerce.date().optional(),
   to: z.coerce.date().optional(),
 })
@@ -26,6 +27,7 @@ export async function GET(request: NextRequest) {
     organizationId: auth.user.organizationId,
     ...(parsed.data.targetType ? { targetType: parsed.data.targetType } : {}),
     ...(parsed.data.actor ? { actorEmail: { contains: parsed.data.actor, mode: 'insensitive' } } : {}),
+    ...(parsed.data.action ? { action: parsed.data.action } : {}),
     ...(parsed.data.from || parsed.data.to ? { createdAt: { gte: parsed.data.from, lte: parsed.data.to } } : {}),
     ...(parsed.data.search ? {
       OR: [
@@ -37,7 +39,7 @@ export async function GET(request: NextRequest) {
     } : {}),
   }
   const skip = (parsed.data.page - 1) * parsed.data.limit
-  const [total, items, targetRows] = await Promise.all([
+  const [total, items, targetRows, actorRows, actionRows] = await Promise.all([
     prisma.auditLog.count({ where }),
     prisma.auditLog.findMany({ where, orderBy: { createdAt: 'desc' }, skip, take: parsed.data.limit }),
     prisma.auditLog.findMany({
@@ -47,6 +49,20 @@ export async function GET(request: NextRequest) {
       orderBy: { targetType: 'asc' },
       take: 100,
     }),
+    prisma.auditLog.findMany({
+      where: { organizationId: auth.user.organizationId },
+      select: { actorEmail: true },
+      distinct: ['actorEmail'],
+      orderBy: { actorEmail: 'asc' },
+      take: 200,
+    }),
+    prisma.auditLog.findMany({
+      where: { organizationId: auth.user.organizationId },
+      select: { action: true },
+      distinct: ['action'],
+      orderBy: { action: 'asc' },
+      take: 200,
+    }),
   ])
   return NextResponse.json({ ok: true, data: {
     items,
@@ -55,5 +71,7 @@ export async function GET(request: NextRequest) {
     limit: parsed.data.limit,
     totalPages: Math.max(1, Math.ceil(total / parsed.data.limit)),
     targetTypes: targetRows.map((row) => row.targetType),
+    actors: actorRows.map((row) => row.actorEmail),
+    actions: actionRows.map((row) => row.action),
   } })
 }

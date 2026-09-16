@@ -12,6 +12,7 @@ import { SupplyDetailSheet } from '../dashboard/SupplyDetailSheet'
 import { EmailModal } from '../dashboard/EmailModal'
 import { ConfirmModal } from '../dashboard/ConfirmModal'
 import OpsIcon from '../ui/OpsIcon'
+import styles from './MaterialsWorkspace.module.css'
 
 type Tab = 'overview' | 'count' | 'request' | 'history'
 type Site = { id: string; name: string; client: { displayName: string } }
@@ -24,6 +25,8 @@ type Supply = SupplyRequest & {
 type Assignee = { email: string; name: string | null; role: string; status: string }
 type SupplyFilter = { status?: SupplyStatus; priority?: SupplyPriority; preset?: 'all' | 'overdue' | 'unassigned' | 'month' }
 type Control = { summary: { tracked: number; outOfStock: number; needsReorder: number; openRequests: number; overdueRequests: number; sitesWithoutCount: number }; levels: Array<Material & { site: Site; daysRemaining: number | null }>; requests: Supply[] }
+type StockRiskLevel = Control['levels'][number]
+type RiskLocation = { site: Site; levels: StockRiskLevel[]; out: number; reorder: number; low: number }
 type SuppliesBootstrap = { sites: Site[]; catalog: Material[]; requests: Supply[]; control: Control | null; assignees: Assignee[] }
 type SupplyPage = { total: number; page: number; limit: number; totalPages: number; items: Supply[] }
 type RepeatDraft = {
@@ -50,6 +53,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [busy, setBusy] = useState(true); const [saving, setSaving] = useState(false); const [busyRequest, setBusyRequest] = useState<string | null>(null); const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [requestQuery, setRequestQuery] = useState(''); const [requestFrom, setRequestFrom] = useState(''); const [requestTo, setRequestTo] = useState('')
   const [supplyFilter, setSupplyFilter] = useState<SupplyFilter>({})
+  const [riskLocationQuery, setRiskLocationQuery] = useState('')
   const [historyPage, setHistoryPage] = useState(1)
   const [historyStatus, setHistoryStatus] = useState<'all' | SupplyStatus>('all')
   const [historyPriority, setHistoryPriority] = useState<'all' | SupplyPriority>('all')
@@ -63,8 +67,8 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const repeatDraftChecked = useRef(false)
 
-  const refresh = useCallback(async () => {
-    setBusy(true)
+  const refresh = useCallback(async (options?: { silent?: boolean }) => {
+    if (!options?.silent) setBusy(true)
     try {
       const bootstrap = await api<SuppliesBootstrap>('/api/supplies/bootstrap')
       setSites(bootstrap.sites)
@@ -125,7 +129,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       if (!repeated) setSiteId((current) => current || bootstrap.sites[0]?.id || '')
       setHistoryRevision((value) => value + 1)
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
-    finally { setBusy(false) }
+    finally { if (!options?.silent) setBusy(false) }
   }, [])
   useEffect(() => { void refresh() }, [refresh])
   useEffect(() => { if (!siteId || tab !== 'count') return; void api<Material[]>(`/api/sites/${siteId}/stock`).then((data) => { setStock(data); setQuantities(Object.fromEntries(data.map((item) => [item.id, String(item.onHand ?? 0)]))) }).catch((error) => setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load site stock.' })) }, [siteId, tab])
@@ -176,6 +180,34 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   }), [supplyFilter])
   const visibleRequests = useMemo(() => applySupplyFilter(filterRequests(requests)), [applySupplyFilter, filterRequests, requests])
   const visibleControlRequests = visibleRequests
+  const selectedRequestUnits = selectedRequestItems.reduce((total, [, quantity]) => total + quantity, 0)
+  const liveShortageCount = useMemo(() => stock.filter((item) => {
+    const onHand = Math.max(0, Number(quantities[item.id]) || 0)
+    const par = item.parLevel ?? item.defaultParLevel
+    return onHand < par
+  }).length, [quantities, stock])
+  const riskLocations = useMemo(() => {
+    if (!control) return []
+    const severity = { out: 0, reorder: 1, low: 2, healthy: 3 } as const
+    const groups = new Map<string, RiskLocation>()
+    for (const level of control.levels) {
+      if (level.state === 'healthy') continue
+      const group = groups.get(level.site.id) ?? { site: level.site, levels: [], out: 0, reorder: 0, low: 0 }
+      group.levels.push(level)
+      if (level.state === 'out') group.out += 1
+      else if (level.state === 'reorder') group.reorder += 1
+      else group.low += 1
+      groups.set(level.site.id, group)
+    }
+    const needle = riskLocationQuery.trim().toLowerCase()
+    return Array.from(groups.values())
+      .filter((group) => !needle || `${group.site.client.displayName} ${group.site.name}`.toLowerCase().includes(needle))
+      .map((group) => ({
+        ...group,
+        levels: group.levels.sort((a, b) => severity[a.state ?? 'healthy'] - severity[b.state ?? 'healthy'] || (a.onHand ?? 0) - (b.onHand ?? 0)),
+      }))
+      .sort((a, b) => b.out - a.out || b.reorder - a.reorder || b.low - a.low || a.site.name.localeCompare(b.site.name))
+  }, [control, riskLocationQuery])
 
   async function submitCount(event: FormEvent) {
     event.preventDefault(); if (!siteId || !stock.length) return; setSaving(true)
@@ -193,7 +225,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   }
   async function moveRequest(request: Supply, status: string) {
     setBusyRequest(request.id)
-    try { await api(`/api/supplies/${request.id}/status`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status, note: status === 'Cancelled' ? 'Cancelled from materials control.' : `Moved to ${status} from materials control.` }) }); setMessage({ kind: 'success', text: `${request.clientLocation}: ${status}.` }); await refresh() }
+    try { await api(`/api/supplies/${request.id}/status`, { method: 'PATCH', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ status, note: status === 'Cancelled' ? 'Cancelled from materials control.' : `Moved to ${status} from materials control.` }) }); setMessage({ kind: 'success', text: `${request.clientLocation}: ${status}.` }); await refresh({ silent: true }) }
     catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not update request.' }) }
     finally { setBusyRequest(null) }
   }
@@ -227,7 +259,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       })
       setMessage({ kind: 'success', text: 'Client email queued for delivery.' })
       setEmailRequest(null)
-      await refresh()
+      await refresh({ silent: true })
     } catch (error) {
       setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not queue client email.' })
     } finally {
@@ -243,7 +275,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
   return <main className="page-shell materials-shell">
     <header className="page-header materials-header"><div><span className="eyebrow">{personalView ? 'Personal supply workspace' : 'Requests, procurement & stock'}</span><h1>{personalView ? 'My requests' : 'Supplies'}</h1><p className="muted">{personalView ? 'Create a request, follow its next step and reuse previous orders without switching modules.' : 'Process requests from the field, keep stock reality current and see shortages before they disrupt service.'}</p></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={busy}><OpsIcon name="refresh" size={16} /> Refresh</button></header>
-    {message ? <div className={`inline-message ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}<button type="button" className="notice-close" onClick={() => setMessage(null)} aria-label="Dismiss message">×</button></div> : null}
+    {message ? <div className={`transient-notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}><span>{message.text}</span><button type="button" onClick={() => setMessage(null)} aria-label="Dismiss message">×</button></div> : null}
     <nav className="materials-tabs" aria-label={personalView ? 'My supply request views' : 'Supplies views'}>
       {personalView ? <>
         <button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>My requests</button>
@@ -258,11 +290,77 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     </nav>
     {busy ? <section className="card empty-state">Loading material intelligence…</section> : null}
 
-    {!busy && tab === 'overview' && control ? <><SupplyOperationsOverview requests={requests} filter={supplyFilter} onFilter={(filter) => { setSupplyFilter(filter); setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><section className="materials-summary" aria-label="Stock health summary">{[['Out of stock', control.summary.outOfStock, 'Action now'], ['Reorder', control.summary.needsReorder, 'At or below threshold'], ['Open requests', control.summary.openRequests, `${control.summary.overdueRequests} overdue`], ['Uncounted sites', control.summary.sitesWithoutCount, 'No baseline yet']].map(([label, value, detail]) => <article className="metric-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}</section><section className="materials-grid"><article className="card"><div className="section-heading"><div><h2>Risk by location</h2><p className="muted">Only items needing attention.</p></div><span className="section-icon" aria-hidden="true">⚠</span></div><div className="materials-list scroll-list">{control.levels.filter((level) => level.state !== 'healthy').map((level) => <div className="material-row" key={level.id}><span className={`material-state ${level.state}`}>{level.state}</span><div><strong>{level.catalogItem?.name ?? level.name}</strong><small>{level.site.name} · {level.site.client.displayName}</small></div><div className="material-quantity"><strong>{level.onHand}</strong><small>par {level.parLevel}</small></div></div>)}{!control.levels.some((level) => level.state !== 'healthy') ? <p className="muted empty-copy">No tracked shortages.</p> : null}</div></article><article className="card"><div className="section-heading"><div><h2>Request queue</h2><p className="muted">Open a request to assign ownership, notify the client or move it through procurement.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div><ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><RequestList requests={visibleControlRequests} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></article></section></> : null}
+    {!busy && tab === 'overview' && control ? <><SupplyOperationsOverview requests={requests} filter={supplyFilter} onFilter={(filter) => { setSupplyFilter(filter); setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><section className="materials-summary" aria-label="Stock health summary">{[['Out of stock', control.summary.outOfStock, 'Action now'], ['Reorder', control.summary.needsReorder, 'At or below threshold'], ['Open requests', control.summary.openRequests, `${control.summary.overdueRequests} overdue`], ['Uncounted sites', control.summary.sitesWithoutCount, 'No baseline yet']].map(([label, value, detail]) => <article className="metric-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}</section><section className="materials-grid"><article className={`card ${styles.riskCard}`}>
+  <div className="section-heading"><div><h2>Stock risk by location</h2><p className="muted">Start with the site that needs attention, then expand only the materials you need to review.</p></div><span className="section-icon" aria-hidden="true"><OpsIcon name="alert" size={18} /></span></div>
+  <div className={styles.riskExplanation}><span className={styles.riskIcon}><OpsIcon name="activity" size={16} /></span><span><strong>Risk levels</strong><br />Out = no stock. Reorder = at or below reorder point. Low = below par.</span></div>
+  <label className={styles.riskSearch}><OpsIcon name="search" size={16} /><span className="sr-only">Search risk locations</span><input type="search" value={riskLocationQuery} onChange={(event) => setRiskLocationQuery(event.target.value)} placeholder="Search client or site…" /></label>
+  <div className={styles.riskLocationMeta}><strong>{riskLocations.length}</strong><span>location{riskLocations.length === 1 ? '' : 's'} needing attention</span></div>
+  <div className={styles.riskLocationList}>
+    {riskLocations.map((group) => <details className={styles.riskLocationCard} key={group.site.id}>
+      <summary className={styles.riskLocationSummary}>
+        <span className={styles.riskLocationPin}><OpsIcon name="pin" size={17} /></span>
+        <span className={styles.riskLocationTitle}><strong>{group.site.name}</strong><small>{group.site.client.displayName}</small></span>
+        <span className={styles.riskSignals}>
+          {group.out ? <span className={styles.signalOut}>{group.out} out</span> : null}
+          {group.reorder ? <span className={styles.signalReorder}>{group.reorder} reorder</span> : null}
+          {group.low ? <span className={styles.signalLow}>{group.low} low</span> : null}
+        </span>
+        <span className={styles.riskLocationCount}>{group.levels.length} item{group.levels.length === 1 ? '' : 's'}</span>
+        <span className={styles.riskChevron}><OpsIcon name="chevronRight" size={16} /></span>
+      </summary>
+      <div className={styles.riskLocationItems}>
+        {group.levels.map((level) => <div className={styles.riskRow} key={level.id}>
+          <span className={`${styles.riskState} ${styles[level.state ?? 'low']}`}>{riskStateLabel(level.state)}</span>
+          <div className={styles.riskMain}><strong>{level.catalogItem?.name ?? level.name}</strong><small>{level.daysRemaining != null ? `~${level.daysRemaining} days remaining · ` : ''}reorder {level.reorderPoint ?? level.defaultReorderPoint} · par {level.parLevel ?? level.defaultParLevel}</small></div>
+          <div className={styles.riskNumbers}><strong>{level.onHand ?? 0}</strong><small>on hand</small></div>
+        </div>)}
+      </div>
+    </details>)}
+    {!riskLocations.length ? <div className={styles.riskEmpty}><OpsIcon name={riskLocationQuery ? 'search' : 'check'} size={18} /><strong>{riskLocationQuery ? 'No matching locations' : 'No stock risk detected'}</strong><span>{riskLocationQuery ? 'Try a different client or site name.' : 'All counted items are at or above par.'}</span></div> : null}
+  </div>
+</article><article className="card"><div className="section-heading"><div><h2>Request queue</h2><p className="muted">Open a request to assign ownership, notify the client or move it through procurement.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div><ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><RequestList requests={visibleControlRequests} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></article></section></> : null}
 
-    {!busy && tab === 'count' ? <form className="card materials-form" onSubmit={submitCount}><div className="section-heading"><div><h2>Fast site count</h2><p className="muted">Enter reality once. Shortages create one request automatically.</p></div></div><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} />{groupedStock.map(([category, items]) => <fieldset className="stock-category" key={category}><legend>{category}</legend>{items.map((item) => <label className="stock-count-row" key={item.id}><span><strong>{item.name}</strong><small>{item.sku} · par {item.parLevel}</small></span><input type="number" min="0" inputMode="numeric" value={quantities[item.id] ?? '0'} onChange={(event) => setQuantities((current) => ({ ...current, [item.id]: event.target.value }))} aria-label={`${item.name} on hand`} /></label>)}</fieldset>)}{!sites.length ? <p className="muted">Create a client site before counting stock.</p> : null}<label>Count note<textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="Delivery received, damaged stock, locked cupboard…" /></label><button type="submit" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count & evaluate replenishment'}</button></form> : null}
+    {!busy && tab === 'count' ? <form className={`card materials-form ${styles.formShell}`} onSubmit={submitCount}>
+      <div className={styles.formHero}>
+        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="layers" size={23} /></span><div><h2>Fast site count</h2><p>Enter current stock once. Anything below par is evaluated for replenishment automatically.</p></div></div>
+        <div className={styles.heroHint}><OpsIcon name="bolt" size={17} /><div><strong>Auto-create request on shortages</strong><span>Review the count before saving. Existing open shortages stay deduplicated.</span></div></div>
+      </div>
+      <div className={styles.formBody}>
+        <div className={styles.siteAndHelp}>
+          <div className={styles.sitePanel}><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /></div>
+          <div className={styles.helpPanel}><OpsIcon name="review" size={18} /><div><strong>How it works</strong><span>Enter what is physically on site. Below reorder = action now; below par = low stock. Saving evaluates one replenishment request.</span></div></div>
+        </div>
+        <div className={styles.categoryStack}>{groupedStock.map(([category, items]) => {
+          const meta = categoryMeta(category)
+          return <section className={styles.categoryCard} key={category}>
+            <header className={styles.categoryHeader}><div className={styles.categoryTitle}><span className={`${styles.categoryIcon} ${meta.className ? styles[meta.className] : ''}`}><OpsIcon name={meta.icon} size={19} /></span><div><strong>{category}</strong><small>{meta.description}</small></div></div><span className={styles.itemCount}>{items.length} item{items.length === 1 ? '' : 's'}</span></header>
+            <div className={styles.materialRows}>{items.map((item) => <div className={styles.materialRow} key={item.id}><MaterialIcon item={item} /><div className={styles.materialCopy}><strong>{item.name}</strong><small>{item.sku} · par {item.parLevel ?? item.defaultParLevel} · reorder {item.reorderPoint ?? item.defaultReorderPoint}</small></div><QuantityStepper value={quantities[item.id] ?? '0'} onChange={(value) => setQuantities((current) => ({ ...current, [item.id]: value }))} ariaLabel={`${item.name} on hand`} /></div>)}</div>
+          </section>
+        })}</div>
+        {!sites.length ? <p className="muted">Create a client site before counting stock.</p> : null}
+        <div className={styles.helperStrip}><OpsIcon name="activity" size={16} />{liveShortageCount ? `${liveShortageCount} item${liveShortageCount === 1 ? '' : 's'} currently below par. Saving will evaluate replenishment automatically.` : 'No shortages detected from the values currently entered.'}</div>
+        <label className={styles.noteField}><span className={styles.noteLabel}><span className={styles.noteIcon}><OpsIcon name="note" size={16} /></span><span><strong>Count note</strong><small>Optional context for deliveries, damage or inaccessible stock.</small></span></span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="Delivery received, damaged stock, locked cupboard…" /></label>
+        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="activity" size={17} /></span><div><strong>{liveShortageCount} shortage{liveShortageCount === 1 ? '' : 's'} detected</strong><small>{stock.length} tracked item{stock.length === 1 ? '' : 's'} at this site</small></div></div><div className={styles.actionButtons}><button type="submit" className="btn-primary" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count & evaluate'}</button></div></div>
+      </div>
+    </form> : null}
 
-    {!busy && tab === 'request' ? <form className="card materials-form" onSubmit={submitRequest}><div className="section-heading"><div><h2>Manual material request</h2><p className="muted">For unexpected needs outside the regular stock count.</p></div></div><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /><div className="priority-segment" role="group" aria-label="Request priority">{(['urgent','normal','low'] as const).map((item) => <button type="button" key={item} className={`priority-choice ${item} ${priority === item ? 'active' : ''}`} aria-pressed={priority === item} onClick={() => setPriority(item)}><span aria-hidden="true">{item === 'urgent' ? '!' : item === 'normal' ? '•' : '↓'}</span>{item === 'urgent' ? 'Urgent' : item === 'normal' ? 'Normal' : 'Low'}</button>)}</div><div className="request-material-grid">{catalog.map((item) => <label className={requestQuantities[item.id] ? 'selected' : ''} key={item.id}><span><strong>{item.name}</strong><small>{item.category}</small></span><input type="number" min="0" max="999" data-catalog-id={item.id} value={requestQuantities[item.id] ?? 0} onChange={(event) => setRequestQuantities((current) => ({ ...current, [item.id]: Math.max(0, Number(event.target.value) || 0) }))} aria-label={`${item.name} requested quantity`} /></label>)}</div><label>Reason / delivery note<textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} /></label><button type="submit" disabled={saving || !selectedRequestItems.length}>{saving ? 'Creating request…' : `Request ${selectedRequestItems.length || ''} material${selectedRequestItems.length === 1 ? '' : 's'}`}</button></form> : null}
+    {!busy && tab === 'request' ? <form className={`card materials-form ${styles.formShell}`} onSubmit={submitRequest}>
+      <div className={styles.formHero}>
+        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="box" size={23} /></span><div><h2>Manual material request</h2><p>For unexpected needs outside the regular stock count.</p></div></div>
+        <div className={styles.heroHint}><OpsIcon name="incident" size={17} /><div><strong>Need supplies urgently?</strong><span>Choose Urgent only when waiting could disrupt service. Operations will see the priority immediately.</span></div></div>
+      </div>
+      <div className={styles.formBody}>
+        <div className={styles.sitePanel}><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /></div>
+        <div><div className="section-heading"><div><h3>Request priority</h3><p className="muted">Set how quickly this request needs attention.</p></div></div><div className={styles.priorityGrid} role="group" aria-label="Request priority">{(['urgent','normal','low'] as const).map((item) => {
+          const copy = item === 'urgent' ? 'Immediate need' : item === 'normal' ? 'Standard request' : 'Can wait'
+          const icon = item === 'urgent' ? 'incident' : item === 'normal' ? 'clock' : 'trend'
+          return <button type="button" key={item} className={`${styles.priorityCard} ${styles[item]} ${priority === item ? styles.active : ''}`} aria-label={item[0].toUpperCase() + item.slice(1)} aria-pressed={priority === item} onClick={() => setPriority(item)}><span><OpsIcon name={icon} size={16} /></span><span><strong>{item[0].toUpperCase() + item.slice(1)}</strong><small>{copy}</small></span></button>
+        })}</div></div>
+        <div><div className="section-heading"><div><h3>Items requested</h3><p className="muted">Adjust quantities for only the materials you need.</p></div></div><div className={styles.requestGrid}>{catalog.map((item) => <div className={`${styles.requestMaterial} ${requestQuantities[item.id] ? styles.selected : ''}`} key={item.id}><MaterialIcon item={item} /><div className={styles.materialCopy}><strong>{item.name}</strong><small>{item.category}</small></div><QuantityStepper value={String(requestQuantities[item.id] ?? 0)} onChange={(value) => setRequestQuantities((current) => ({ ...current, [item.id]: Math.max(0, Number(value) || 0) }))} ariaLabel={`${item.name} requested quantity`} dataCatalogId={item.id} /></div>)}</div></div>
+        <label className={styles.noteField}><span className={styles.noteLabel}><span className={styles.noteIcon}><OpsIcon name="note" size={16} /></span><span><strong>Reason / delivery note</strong><small>Tell operations why you need these items and add any delivery notes (optional).</small></span></span><textarea value={note} maxLength={500} onChange={(event) => setNote(event.target.value)} placeholder="Add a note…" /></label>
+        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="box" size={17} /></span><div><strong>{selectedRequestItems.length} item{selectedRequestItems.length === 1 ? '' : 's'} selected</strong><small>{selectedRequestUnits} total unit{selectedRequestUnits === 1 ? '' : 's'}</small></div></div><div className={styles.actionButtons}><button type="button" className="btn-secondary" onClick={() => { setRequestQuantities({}); setNote('') }} disabled={saving}>Clear</button><button type="submit" className="btn-primary" disabled={saving || !selectedRequestItems.length}>{saving ? 'Creating request…' : 'Submit request'}</button></div></div>
+      </div>
+    </form> : null}
 
     {!busy && tab === 'history' ? <section className="card supply-history-card">
       <div className="section-heading"><div><h2>{personalView || !canManage ? 'My requests' : 'Request history'}</h2><p className="muted">{personalView || !canManage ? 'Track each request by next action instead of scanning a long status timeline.' : 'Search the full lifecycle, or switch to Requested by me without leaving Supplies.'}</p></div><div className="history-result-count"><strong>{historyData.total}</strong><span>matching request{historyData.total === 1 ? '' : 's'}</span></div></div>
@@ -315,6 +413,37 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       }}
     />
   </main>
+}
+
+
+function categoryMeta(category: string): { icon: 'flask' | 'layers' | 'shield'; description: string; className?: 'consumables' | 'ppe' } {
+  const normalized = category.toLowerCase()
+  if (normalized.includes('consum')) return { icon: 'layers', description: 'Everyday consumable items', className: 'consumables' }
+  if (normalized.includes('ppe') || normalized.includes('tool')) return { icon: 'shield', description: 'Personal protection and cleaning tools', className: 'ppe' }
+  return { icon: 'flask', description: 'Cleaning and disinfecting products' }
+}
+
+function materialIconName(category: string): 'flask' | 'layers' | 'shield' {
+  return categoryMeta(category).icon
+}
+
+function MaterialIcon({ item }: { item: Pick<Material, 'category'> }) {
+  return <span className={styles.materialIcon}><OpsIcon name={materialIconName(item.category)} size={17} /></span>
+}
+
+function QuantityStepper({ value, onChange, ariaLabel, dataCatalogId }: { value: string; onChange: (value: string) => void; ariaLabel: string; dataCatalogId?: string }) {
+  const number = Math.max(0, Number(value) || 0)
+  return <div className={styles.stepper}>
+    <button type="button" aria-label={`Decrease ${ariaLabel.replace(/ requested quantity| on hand/g, '')}`} onClick={() => onChange(String(Math.max(0, number - 1)))}><OpsIcon name="minus" size={15} /></button>
+    <input type="number" min="0" max="999" inputMode="numeric" data-catalog-id={dataCatalogId} value={value} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} />
+    <button type="button" aria-label={`Increase ${ariaLabel.replace(/ requested quantity| on hand/g, '')}`} onClick={() => onChange(String(Math.min(999, number + 1)))}><OpsIcon name="plus" size={15} /></button>
+  </div>
+}
+
+function riskStateLabel(state?: Material['state']) {
+  if (state === 'out') return 'Out of stock'
+  if (state === 'reorder') return 'Reorder now'
+  return 'Below par'
 }
 
 function SiteSelect({ sites, siteId, setSiteId }: { sites: Site[]; siteId: string; setSiteId: (value: string) => void }) {

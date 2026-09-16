@@ -132,6 +132,13 @@ describe('POST /api/users invite', () => {
     expect(stagedUser.password).toBeTruthy()
     expect(stagedMembership.status).toBe('invited')
 
+    const blockedWithoutProfile = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(blockedWithoutProfile.status).toBe(409)
+    expect(blockedWithoutProfile.body.error).toContain('finish the secure account setup')
+
     const blockedLogin = await request(app)
       .post('/api/auth/login')
       .set('x-forwarded-for', '203.0.113.44')
@@ -175,6 +182,39 @@ describe('POST /api/users invite', () => {
       .set('x-forwarded-for', '203.0.113.44')
       .send({ email: 'onboarding@test.io', password })
     expect(login.status).toBe(200)
+  })
+})
+
+describe('PATCH /api/users/:id/status', () => {
+  it('reactivates previously active staff without treating suspension as first-time onboarding', async () => {
+    const password = await bcrypt.hash('Reactivation123!', 12)
+    const user = await prisma.user.create({
+      data: { email: 'reactivation@test.io', name: 'Reactivation User', role: 'employee', status: 'active', password },
+    })
+    const membership = await prisma.membership.create({
+      data: {
+        organizationId: LEGACY_ORGANIZATION_ID,
+        userId: user.id,
+        role: 'employee',
+        status: 'active',
+      },
+    })
+
+    const deactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'inactive' })
+    expect(deactivated.status).toBe(200)
+
+    const reactivated = await request(app)
+      .patch(`/api/users/${user.id}/status`)
+      .set('Cookie', adminCookie)
+      .send({ status: 'active' })
+    expect(reactivated.status).toBe(200)
+    expect(reactivated.body.data.status).toBe('active')
+
+    const savedMembership = await prisma.membership.findUniqueOrThrow({ where: { id: membership.id } })
+    expect(savedMembership.status).toBe('active')
   })
 })
 
@@ -587,19 +627,25 @@ describe('organization context', () => {
 })
 
 describe('GET /api/audit', () => {
-  it('returns audit entries', async () => {
+  it('returns paged audit entries and exposes person/action/entity facets', async () => {
     await prisma.auditLog.create({
       data: {
         actorEmail: 'admin@ds.ie',
-        action: 'test',
+        action: 'audit_filter_test',
         targetType: 'user',
       },
     })
-    const res = await request(app).get('/api/audit').set('Cookie', adminCookie)
+    const res = await request(app)
+      .get('/api/audit?actor=admin%40ds.ie&action=audit_filter_test&targetType=user')
+      .set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.items.length).toBeGreaterThan(0)
+    expect(res.body.data.items.every((item: { actorEmail: string; action: string; targetType: string }) => item.actorEmail === 'admin@ds.ie' && item.action === 'audit_filter_test' && item.targetType === 'user')).toBe(true)
     expect(res.body.data.total).toBeGreaterThan(0)
     expect(res.body.data.page).toBe(1)
+    expect(res.body.data.actors).toContain('admin@ds.ie')
+    expect(res.body.data.actions).toContain('audit_filter_test')
+    expect(res.body.data.targetTypes).toContain('user')
   })
 })

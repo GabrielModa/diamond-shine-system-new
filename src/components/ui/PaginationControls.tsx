@@ -1,5 +1,8 @@
 'use client'
 
+import OpsIcon from './OpsIcon'
+import styles from './PaginationControls.module.css'
+
 type Props = {
   page: number
   totalPages: number
@@ -29,12 +32,12 @@ export default function PaginationControls({
   const end = Math.min(safePage * limit, total)
   const label = total === 1 && noun.endsWith('s') ? noun.slice(0, -1) : noun
 
-  return <nav className={`pagination-bar${className ? ` ${className}` : ''}`} aria-label={`${label} pages`}>
-    <span className="pagination-summary">Showing <strong>{start}–{end}</strong> of <strong>{total}</strong> {label}</span>
-    {safeTotalPages > 1 ? <div className="pagination-actions">
-      <button type="button" className="btn-secondary" disabled={loading || safePage <= 1} onClick={() => onPageChange(safePage - 1)}>← Previous</button>
-      <strong>Page {safePage} of {safeTotalPages}</strong>
-      <button type="button" className="btn-secondary" disabled={loading || safePage >= safeTotalPages} onClick={() => onPageChange(safePage + 1)}>Next →</button>
+  return <nav className={`pagination-bar ${styles.bar}${className ? ` ${className}` : ''}`} aria-label={`${label} pages`}>
+    <span className={`pagination-summary ${styles.summary}`}>Showing <strong>{start}–{end}</strong> of <strong>{total}</strong> {label}</span>
+    {safeTotalPages > 1 ? <div className={`pagination-actions ${styles.actions}`}>
+      <button type="button" className={`btn-secondary ${styles.navButton}`} aria-label="Previous page" disabled={loading || safePage <= 1} onClick={() => onPageChange(safePage - 1)}><OpsIcon name="chevronLeft" size={15} /><span>Previous</span></button>
+      <span className={styles.pageChip} aria-current="page"><strong>{safePage}</strong><span>of {safeTotalPages}</span></span>
+      <button type="button" className={`btn-secondary ${styles.navButton}`} aria-label="Next page" disabled={loading || safePage >= safeTotalPages} onClick={() => onPageChange(safePage + 1)}><span>Next</span><OpsIcon name="chevronRight" size={15} /></button>
     </div> : null}
   </nav>
 }

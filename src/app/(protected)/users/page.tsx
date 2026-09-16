@@ -78,7 +78,7 @@ export default function UsersPage() {
     setBusyId(id)
     try {
       await fetchJson(`/api/users/${id}/status`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ status: value }) })
-      setToast({ type: 'success', message: 'Access status updated.' }); await refresh()
+      setToast({ type: 'success', message: value === 'active' ? 'Access reactivated.' : value === 'inactive' ? 'Access deactivated.' : 'Access status updated.' }); await refresh()
     } catch (error) { setToast({ type: 'error', message: error instanceof Error ? error.message : 'Failed to update access.' }) }
     finally { setBusyId(null) }
   }
@@ -184,7 +184,7 @@ export default function UsersPage() {
             {user.status === 'pending' ? <button className="btn-secondary" type="button" disabled={busyId === user.id} onClick={() => void resendInvite(user)}>{user.setupStage === 'profile_setup' ? 'Resend setup link' : 'Resend invite'}</button> : null}
             {user.status === 'inactive' ? <button className="btn-success" type="button" disabled={busyId === user.id} onClick={() => void patchStatus(user.id, 'active')}>Reactivate</button> : null}
             <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { setDeleteTarget(user); setDeleteConfirm('') }}>{user.status === 'pending' ? 'Delete invitation…' : 'Remove…'}</button>
-            {user.status === 'active' ? <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { if (window.confirm(`Deactivate ${user.name ?? user.email}? They will lose organization access immediately.`)) void patchStatus(user.id, 'inactive') }}>Deactivate</button> : null}
+            {user.status === 'active' ? <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { if (window.confirm(`Deactivate ${user.name ?? user.email}? They will lose organization access immediately. You can reactivate the same account later without repeating setup.`)) void patchStatus(user.id, 'inactive') }}>Deactivate</button> : null}
           </div>
         </article>)}
       </div>
@@ -209,6 +209,6 @@ export default function UsersPage() {
         </div>
       </div> : null}
     </DetailDialog>
-    {toast ? <div className={`toast toast-strong ${toast.type}`} role={toast.type === 'error' ? 'alert' : 'status'}>{toast.message}<button className="notice-close" onClick={() => setToast(null)} aria-label="Dismiss message">×</button></div> : null}
+    {toast ? <div className={`transient-notice ${toast.type}`} role={toast.type === 'error' ? 'alert' : 'status'}><span>{toast.message}</span><button type="button" onClick={() => setToast(null)} aria-label="Dismiss message">×</button></div> : null}
   </main>
 }
