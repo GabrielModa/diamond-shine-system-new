@@ -434,9 +434,9 @@ function MaterialIcon({ item }: { item: Pick<Material, 'category'> }) {
 function QuantityStepper({ value, onChange, ariaLabel, dataCatalogId }: { value: string; onChange: (value: string) => void; ariaLabel: string; dataCatalogId?: string }) {
   const number = Math.max(0, Number(value) || 0)
   return <div className={styles.stepper}>
-    <button type="button" aria-label={`Decrease ${ariaLabel}`} onClick={() => onChange(String(Math.max(0, number - 1)))}><OpsIcon name="minus" size={15} /></button>
+    <button type="button" aria-label={`Decrease ${ariaLabel.replace(/ requested quantity| on hand/g, '')}`} onClick={() => onChange(String(Math.max(0, number - 1)))}><OpsIcon name="minus" size={15} /></button>
     <input type="number" min="0" max="999" inputMode="numeric" data-catalog-id={dataCatalogId} value={value} onChange={(event) => onChange(event.target.value)} aria-label={ariaLabel} />
-    <button type="button" aria-label={`Increase ${ariaLabel}`} onClick={() => onChange(String(Math.min(999, number + 1)))}><OpsIcon name="plus" size={15} /></button>
+    <button type="button" aria-label={`Increase ${ariaLabel.replace(/ requested quantity| on hand/g, '')}`} onClick={() => onChange(String(Math.min(999, number + 1)))}><OpsIcon name="plus" size={15} /></button>
   </div>
 }
 
