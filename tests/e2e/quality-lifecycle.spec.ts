@@ -1,6 +1,25 @@
 import { expect, test } from '@playwright/test'
 import { createClientWithPublishedService, loginAsAdmin, uniqueLabel } from './helpers/operational-scenario'
 
+test('quality assurance list is bounded, searchable and paginated', async ({ page }) => {
+  await loginAsAdmin(page)
+  await page.goto('/quality')
+
+  const card = page.getByTestId('assurance-card')
+  const viewport = page.getByTestId('assurance-viewport')
+  await expect(card).toBeVisible()
+  await expect(viewport).toBeVisible()
+  await expect(card.getByRole('searchbox', { name: 'Search sites needing assurance' })).toBeVisible()
+
+  const layout = await viewport.evaluate((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+    height: element.getBoundingClientRect().height,
+  }))
+  expect(layout.overflowY).toBe('auto')
+  expect(layout.height).toBeLessThanOrEqual(445)
+  await expect(card.locator('.pagination-bar')).toBeVisible()
+})
+
 test('failed inspection becomes a resolved and verified corrective action', async ({ page }) => {
   await loginAsAdmin(page)
   const scenario = await createClientWithPublishedService(page)
@@ -15,6 +34,7 @@ test('failed inspection becomes a resolved and verified corrective action', asyn
   await checks.first().getByRole('button', { name: 'Issue', exact: true }).click()
   await checks.first().getByRole('textbox').fill(finding)
   await page.getByRole('button', { name: 'Submit inspection & open actions', exact: true }).click()
+  await expect(page.getByRole('status')).toContainText(/Inspection .* saved/)
   const action = page.locator('.quality-action-card').filter({ hasText: finding })
   await action.getByRole('button', { name: 'Accept', exact: true }).click()
   await expect(action).toContainText('accepted')
