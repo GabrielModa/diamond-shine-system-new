@@ -181,11 +181,6 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const visibleRequests = useMemo(() => applySupplyFilter(filterRequests(requests)), [applySupplyFilter, filterRequests, requests])
   const visibleControlRequests = visibleRequests
   const selectedRequestUnits = selectedRequestItems.reduce((total, [, quantity]) => total + quantity, 0)
-  const liveShortageCount = useMemo(() => stock.filter((item) => {
-    const onHand = Math.max(0, Number(quantities[item.id]) || 0)
-    const par = item.parLevel ?? item.defaultParLevel
-    return onHand < par
-  }).length, [quantities, stock])
   const riskLocations = useMemo(() => {
     if (!control) return []
     const severity = { out: 0, reorder: 1, low: 2, healthy: 3 } as const
@@ -212,8 +207,8 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   async function submitCount(event: FormEvent) {
     event.preventDefault(); if (!siteId || !stock.length) return; setSaving(true)
     try {
-      const result = await api<{ replenishment: Supply | null }>(`/api/sites/${siteId}/stock-counts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: 'cycle_count', note: note || undefined, lines: stock.map((item) => ({ catalogItemId: item.id, quantity: Math.max(0, Number(quantities[item.id]) || 0) })) }) })
-      setMessage({ kind: 'success', text: result.replenishment ? `Count saved. Replenishment ${result.replenishment.id.slice(-6)} created automatically.` : 'Count saved. No duplicate or unnecessary request was created.' }); setNote(''); await refresh(); setTab(canManage ? 'overview' : 'history')
+      await api(`/api/sites/${siteId}/stock-counts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: 'cycle_count', note: note || undefined, lines: stock.map((item) => ({ catalogItemId: item.id, quantity: Math.max(0, Number(quantities[item.id]) || 0) })) }) })
+      setMessage({ kind: 'success', text: 'Count saved. Stock levels were updated for Operations review.' }); setNote(''); await refresh(); setTab(canManage ? 'overview' : 'history')
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not save the count.' }) }
     finally { setSaving(false) }
   }
@@ -329,13 +324,13 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
     {!busy && tab === 'count' ? <form className={`card materials-form ${styles.formShell}`} onSubmit={submitCount}>
       <div className={styles.formHero}>
-        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="layers" size={23} /></span><div><h2>Fast site count</h2><p>Enter current stock once. Anything below par is evaluated for replenishment automatically.</p></div></div>
-        <div className={styles.heroHint}><OpsIcon name="bolt" size={17} /><div><strong>Auto-create request on shortages</strong><span>Review the count before saving. Existing open shortages stay deduplicated.</span></div></div>
+        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="layers" size={23} /></span><div><h2>Fast site count</h2><p>Record what is physically on site. This updates stock visibility for Operations.</p></div></div>
+        <div className={styles.heroHint}><OpsIcon name="check" size={17} /><div><strong>Count only</strong><span>Saving a count does not create a supply request. Operations can review stock risk separately.</span></div></div>
       </div>
       <div className={styles.formBody}>
         <div className={styles.siteAndHelp}>
           <div className={styles.sitePanel}><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /></div>
-          <div className={styles.helpPanel}><OpsIcon name="review" size={18} /><div><strong>How it works</strong><span>Enter what is physically on site. Below reorder = action now; below par = low stock. Saving evaluates one replenishment request.</span></div></div>
+          <div className={styles.helpPanel}><OpsIcon name="review" size={18} /><div><strong>Keep it simple</strong><span>Enter the physical quantity you can see. You do not need to decide whether anything should be ordered.</span></div></div>
         </div>
         <div className={styles.categoryStack}>{groupedStock.map(([category, items]) => {
           const meta = categoryMeta(category)
@@ -345,9 +340,9 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
           </section>
         })}</div>
         {!sites.length ? <p className="muted">Create a client site before counting stock.</p> : null}
-        <div className={styles.helperStrip}><OpsIcon name="activity" size={16} />{liveShortageCount ? `${liveShortageCount} item${liveShortageCount === 1 ? '' : 's'} currently below par. Saving will evaluate replenishment automatically.` : 'No shortages detected from the values currently entered.'}</div>
+        <div className={styles.helperStrip}><OpsIcon name="check" size={16} />Count what is present now. Stock risk and ordering decisions stay with Operations.</div>
         <label className={styles.noteField}><span className={styles.noteLabel}><span className={styles.noteIcon}><OpsIcon name="note" size={16} /></span><span><strong>Count note</strong><small>Optional context for deliveries, damage or inaccessible stock.</small></span></span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="Delivery received, damaged stock, locked cupboard…" /></label>
-        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="activity" size={17} /></span><div><strong>{liveShortageCount} shortage{liveShortageCount === 1 ? '' : 's'} detected</strong><small>{stock.length} tracked item{stock.length === 1 ? '' : 's'} at this site</small></div></div><div className={styles.actionButtons}><button type="submit" className="btn-primary" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count & evaluate'}</button></div></div>
+        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="layers" size={17} /></span><div><strong>{stock.length} tracked item{stock.length === 1 ? '' : 's'}</strong><small>Count only · no supply request will be created</small></div></div><div className={styles.actionButtons}><button type="submit" className="btn-primary" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count'}</button></div></div>
       </div>
     </form> : null}
 
