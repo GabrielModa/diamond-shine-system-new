@@ -1,8 +1,9 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import type { FeedbackCategory } from '../../types'
 import OpsIcon from '../ui/OpsIcon'
+import PaginationControls from '../ui/PaginationControls'
 import styles from './ServiceFeedbackWorkspace.module.css'
 
 export type EmployeeFeedbackSummary = {
@@ -27,6 +28,7 @@ export type FeedbackTrend = {
 }
 
 const CATEGORIES: Array<'all' | FeedbackCategory> = ['all', 'Excellent', 'Very Good', 'Good', 'Fair', 'Poor']
+const EMPLOYEE_PAGE_SIZE = 8
 
 export default function EmployeeFeedbackOverview({
   employees,
@@ -47,6 +49,8 @@ export default function EmployeeFeedbackOverview({
 }) {
   const [category, setCategory] = useState<'all' | FeedbackCategory>('all')
   const [attentionOnly, setAttentionOnly] = useState(false)
+  const [page, setPage] = useState(1)
+  const listRef = useRef<HTMLDivElement | null>(null)
   const filtered = useMemo(
     () => employees.filter((employee) =>
       (category === 'all' || employee.category === category)
@@ -54,6 +58,15 @@ export default function EmployeeFeedbackOverview({
     ),
     [attentionOnly, category, employees],
   )
+  const totalPages = Math.max(1, Math.ceil(filtered.length / EMPLOYEE_PAGE_SIZE))
+  const visibleEmployees = filtered.slice((page - 1) * EMPLOYEE_PAGE_SIZE, page * EMPLOYEE_PAGE_SIZE)
+  useEffect(() => {
+    setPage(1)
+    listRef.current?.scrollTo({ top: 0 })
+  }, [attentionOnly, category])
+  useEffect(() => {
+    if (page > totalPages) setPage(totalPages)
+  }, [page, totalPages])
 
   return <section className={styles.performancePanel} aria-labelledby="employee-feedback-title">
     <div className={styles.performanceHead}>
@@ -78,23 +91,26 @@ export default function EmployeeFeedbackOverview({
       </button>)}
     </div>
 
-    <div className={styles.employeeList}>
-      {filtered.slice(0, 12).map((employee) => <button type="button" key={employee.name} className={styles.employeeRow} onClick={() => onEmployee(employee.name)}>
-        <div className={styles.employeeIdentity}>
-          <strong>{employee.name}</strong>
-          <span>{employee.latestLocation ?? 'No recent location'}{employee.latestAt ? ' · ' + new Date(employee.latestAt).toLocaleDateString('en-IE') : ''}</span>
-        </div>
-        <span className={`${styles.categoryChip} ${employee.overall < 4 ? styles.categoryAttention : ''}`}>{employee.category}</span>
-        <div className={styles.dimensionGrid} aria-label={employee.name + ' rating dimensions'}>
-          <span>Clean <b>{employee.cleanliness.toFixed(1)}</b></span>
-          <span>Time <b>{employee.punctuality.toFixed(1)}</b></span>
-          <span>Equip <b>{employee.equipment.toFixed(1)}</b></span>
-          <span>Client <b>{employee.clientRelations.toFixed(1)}</b></span>
-        </div>
-        <div className={styles.employeeScore}><strong>{employee.overall.toFixed(1)}</strong><small>{employee.evaluations} eval.</small></div>
-        <span className={styles.rowArrow} aria-hidden="true">→</span>
-      </button>)}
-      {!filtered.length ? <div className="empty-state compact">No employees match this performance filter.</div> : null}
+    <div ref={listRef} className={styles.employeeViewport} data-testid="feedback-employee-viewport">
+      <div className={styles.employeeList}>
+        {visibleEmployees.map((employee) => <button type="button" key={employee.name} className={styles.employeeRow} onClick={() => onEmployee(employee.name)}>
+          <div className={styles.employeeIdentity}>
+            <strong>{employee.name}</strong>
+            <span>{employee.latestLocation ?? 'No recent location'}{employee.latestAt ? ' · ' + new Date(employee.latestAt).toLocaleDateString('en-IE') : ''}</span>
+          </div>
+          <span className={`${styles.categoryChip} ${employee.overall < 4 ? styles.categoryAttention : ''}`}>{employee.category}</span>
+          <div className={styles.dimensionGrid} aria-label={employee.name + ' rating dimensions'}>
+            <span>Clean <b>{employee.cleanliness.toFixed(1)}</b></span>
+            <span>Time <b>{employee.punctuality.toFixed(1)}</b></span>
+            <span>Equip <b>{employee.equipment.toFixed(1)}</b></span>
+            <span>Client <b>{employee.clientRelations.toFixed(1)}</b></span>
+          </div>
+          <div className={styles.employeeScore}><strong>{employee.overall.toFixed(1)}</strong><small>{employee.evaluations} eval.</small></div>
+          <span className={styles.rowArrow} aria-hidden="true">→</span>
+        </button>)}
+        {!filtered.length ? <div className="empty-state compact">No employees match this performance filter.</div> : null}
+      </div>
     </div>
+    <PaginationControls page={page} totalPages={totalPages} total={filtered.length} limit={EMPLOYEE_PAGE_SIZE} noun="employees" onPageChange={(next) => { setPage(next); listRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} className={styles.employeePagination} />
   </section>
 }
