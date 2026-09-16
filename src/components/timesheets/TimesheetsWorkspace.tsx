@@ -551,8 +551,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
               <span className={`ts-status ${statusClass(entry)}`}>{statusLabel(entry)}</span>
               {canManage && operationalException ? <a className="ts-text-action" href={`/field-control?entry=${encodeURIComponent(entry.id)}`}><OpsIcon name="field" size={14} /> Field context</a> : null}
               {canManage && entry.status === 'completed' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="payroll" size={14} /> Review payroll</button> : null}
-              {canManage && entry.status === 'approved' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Adjust payroll</button> : null}
-              {canManage && entry.status === 'rejected' ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Reconsider payroll</button> : null}
+              {canManage && entry.status === 'approved' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Adjust payroll</button> : null}
+              {canManage && entry.status === 'rejected' && !operationalException ? <button disabled={busyId === entry.id} className="ts-text-action" onClick={() => openPayrollReview(entry)}><OpsIcon name="review" size={14} /> Reconsider payroll</button> : null}
             </span>
           </div>
         })}
