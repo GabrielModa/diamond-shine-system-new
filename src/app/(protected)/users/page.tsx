@@ -184,7 +184,7 @@ export default function UsersPage() {
             {user.status === 'pending' ? <button className="btn-secondary" type="button" disabled={busyId === user.id} onClick={() => void resendInvite(user)}>{user.setupStage === 'profile_setup' ? 'Resend setup link' : 'Resend invite'}</button> : null}
             {user.status === 'inactive' ? <button className="btn-success" type="button" disabled={busyId === user.id} onClick={() => void patchStatus(user.id, 'active')}>Reactivate</button> : null}
             <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { setDeleteTarget(user); setDeleteConfirm('') }}>{user.status === 'pending' ? 'Delete invitation…' : 'Remove…'}</button>
-            {user.status === 'active' ? <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { if (window.confirm(`Deactivate ${user.name ?? user.email}? They will lose organization access immediately.`)) void patchStatus(user.id, 'inactive') }}>Deactivate</button> : null}
+            {user.status === 'active' ? <button className="btn-ghost danger" type="button" disabled={busyId === user.id} onClick={() => { if (window.confirm(`Deactivate ${user.name ?? user.email}? They will lose organization access immediately. You can reactivate the same account later without repeating setup.`)) void patchStatus(user.id, 'inactive') }}>Deactivate</button> : null}
           </div>
         </article>)}
       </div>
