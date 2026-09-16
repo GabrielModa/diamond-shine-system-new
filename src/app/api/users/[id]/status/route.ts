@@ -23,7 +23,7 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
       error: 'This person must create a password from the invitation before activation.',
     }, { status: 409 })
   }
-  if (parsed.data.status === 'active' && ['employee', 'field_supervisor'].includes(membership.role) && !membership.user.workforceProfile) {
+  if (parsed.data.status === 'active' && membership.status === 'invited' && ['employee', 'field_supervisor'].includes(membership.role) && !membership.user.workforceProfile) {
     return NextResponse.json({
       ok: false,
       error: 'This person must finish the secure account setup before activation.',
