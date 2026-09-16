@@ -103,4 +103,9 @@ test('supplies overview keeps risk and request queue as bounded dashboard panels
   expect(queueHeight).toBeLessThanOrEqual(770)
   expect(viewportLayout.clientHeight).toBeLessThanOrEqual(575)
   expect(viewportLayout.overflowY).toBe('auto')
+
+  const pagination = queue.locator('.pagination-bar')
+  await expect(pagination).toBeVisible()
+  await expect(pagination).toContainText(/Showing \d+–\d+ of \d+ requests/)
+  await expect(pagination.getByRole('button', { name: 'Next page' })).toBeVisible()
 })
