@@ -49,6 +49,25 @@ test('service feedback is a dedicated client-experience workspace', async ({ pag
   await expect(page.getByRole('button', { name: 'New inspection' })).toHaveCount(0)
 })
 
+test('employee performance list stays bounded and paginated', async ({ page }) => {
+  await login(page, 'super@ds.ie')
+  await page.goto('/feedback', { waitUntil: 'domcontentloaded' })
+
+  const viewport = page.getByTestId('feedback-employee-viewport')
+  await expect(viewport).toBeVisible()
+  const layout = await viewport.evaluate((element) => ({
+    overflowY: getComputedStyle(element).overflowY,
+    height: element.getBoundingClientRect().height,
+  }))
+  expect(layout.overflowY).toBe('auto')
+  expect(layout.height).toBeLessThanOrEqual(525)
+
+  const panel = page.getByRole('region', { name: 'Service performance by employee' })
+  const pagination = panel.locator('.pagination-bar')
+  await expect(pagination).toBeVisible()
+  await expect(pagination).toContainText(/Showing \d+–\d+ of \d+ employees/)
+})
+
 test('feedback filters recalculate the summary and preserve the exact evaluation detail', async ({ page }) => {
   await login(page, 'super@ds.ie')
   const marker = `feedback-e2e-${Date.now()}`

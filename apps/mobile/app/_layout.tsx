@@ -58,6 +58,7 @@ export default function RootLayout() {
         <Stack.Screen name="forgot-password" options={{ title: 'Reset password' }} />
         <Stack.Screen name="(tabs)" options={{ headerShown: false }} />
         <Stack.Screen name="profile" options={{ title: 'My profile' }} />
+        <Stack.Screen name="feedback" options={{ title: 'My feedback' }} />
         <Stack.Screen name="time-records" options={{ title: 'Location & time' }} />
         <Stack.Screen name="visit/[id]" options={{ title: 'Visit' }} />
         <Stack.Screen name="stock/[siteId]" options={{ title: 'Site materials' }} />

@@ -643,7 +643,7 @@ describe('field execution', () => {
     expect(await prisma.incident.count({ where: { visitId: visit.id, title: 'Recovered offline incident' } })).toBe(1)
   })
 
-  it('keeps site stock counts supervisor-only and turns a valid count into one replenishment request', async () => {
+  it('keeps site stock counts supervisor-only and records stock without creating supply requests', async () => {
     const { visit, site } = await executionVisit()
     const catalog = await request(app).get('/api/materials/catalog').set('Cookie', employeeCookie)
     expect(catalog.status).toBe(200)
@@ -668,13 +668,8 @@ describe('field execution', () => {
         ],
       })
     expect(counted.status).toBe(201)
-    expect(counted.body.data.replenishment.priority).toBe('urgent')
-    expect(counted.body.data.replenishment.items[0]).toEqual(expect.objectContaining({
-      catalogItemId: emptyItem.id,
-      currentQuantity: 0,
-      targetQuantity: 10,
-      quantity: 10,
-    }))
+    expect(counted.body.data.replenishment).toBeNull()
+    expect(await prisma.supplyRequest.count({ where: { siteId: site.id } })).toBe(0)
 
     const repeated = await request(app)
       .post(`/api/sites/${site.id}/stock-counts`)
@@ -682,11 +677,12 @@ describe('field execution', () => {
       .send({ visitId: visit.id, lines: [{ catalogItemId: emptyItem.id, quantity: 0 }] })
     expect(repeated.status).toBe(201)
     expect(repeated.body.data.replenishment).toBeNull()
-    expect(await prisma.supplyRequest.count({ where: { siteId: site.id } })).toBe(1)
+    expect(await prisma.supplyRequest.count({ where: { siteId: site.id } })).toBe(0)
 
     const stock = await request(app).get(`/api/sites/${site.id}/stock`).set('Cookie', employeeCookie)
     expect(stock.status).toBe(200)
     expect(stock.body.data.find((item: { id: string }) => item.id === emptyItem.id).state).toBe('out')
+
     const offlineCount = await request(app).post('/api/sync').set('Cookie', supervisorCookie).send({
       deviceId: 'offline-stock-device',
       operations: [{
@@ -700,9 +696,11 @@ describe('field execution', () => {
     expect(offlineCount.status).toBe(200)
     expect(offlineCount.body.results[0].status).toBe('processed')
     expect((await prisma.siteStockLevel.findUniqueOrThrow({ where: { siteId_catalogItemId: { siteId: site.id, catalogItemId: healthyItem.id } } })).onHand).toBe(8)
+    expect(await prisma.supplyRequest.count({ where: { siteId: site.id } })).toBe(0)
+
     const control = await request(app).get('/api/materials/control').set('Cookie', adminCookie)
     expect(control.status).toBe(200)
-    expect(control.body.data.summary).toEqual(expect.objectContaining({ outOfStock: 1, openRequests: 1 }))
+    expect(control.body.data.summary).toEqual(expect.objectContaining({ outOfStock: 1, openRequests: 0 }))
   })
 
   it('turns a failed quality inspection into owned corrective work and verified closure', async () => {

@@ -124,6 +124,28 @@ describe('GET /api/supplies', () => {
     expect(second.body.data.items).toHaveLength(1)
   })
 
+  it('supports server-side dashboard queue presets with paged results', async () => {
+    await prisma.supplyRequest.update({
+      where: { id: 'gs1' },
+      data: { dueAt: new Date(Date.now() - 86_400_000), assignedTo: null },
+    })
+    await prisma.supplyRequest.update({
+      where: { id: 'gs2' },
+      data: { assignedTo: 'super@ds.ie' },
+    })
+
+    const overdue = await request(app).get('/api/supplies?preset=overdue&page=1&limit=10').set('Cookie', adminCookie)
+    expect(overdue.status).toBe(200)
+    expect(overdue.body.data.total).toBe(1)
+    expect(overdue.body.data.items[0].id).toBe('gs1')
+
+    const unassigned = await request(app).get('/api/supplies?preset=unassigned&page=1&limit=10').set('Cookie', adminCookie)
+    expect(unassigned.status).toBe(200)
+    expect(unassigned.body.data.items.map((item: { id: string }) => item.id)).toContain('gs1')
+    expect(unassigned.body.data.items.map((item: { id: string }) => item.id)).not.toContain('gs2')
+    expect(unassigned.body.data.items.map((item: { id: string }) => item.id)).not.toContain('gs3')
+  })
+
   it('filters paged supply history by submitted date range', async () => {
     await prisma.supplyRequest.update({ where: { id: 'gs1' }, data: { createdAt: new Date('2026-09-10T10:00:00.000Z') } })
     await prisma.supplyRequest.update({ where: { id: 'gs2' }, data: { createdAt: new Date('2026-09-12T10:00:00.000Z') } })

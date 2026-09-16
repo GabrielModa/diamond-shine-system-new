@@ -33,6 +33,7 @@ const querySchema = z.object({
   priority: z.enum(['urgent', 'normal', 'low']).optional(),
   search: z.string().optional(),
   mine: z.enum(['true', 'false']).optional(),
+  preset: z.enum(['overdue', 'unassigned', 'month']).optional(),
   from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   page: z.coerce.number().int().min(1).default(1),
@@ -152,6 +153,18 @@ export async function GET(request: NextRequest) {
       : parsed.data.status.charAt(0).toUpperCase() + parsed.data.status.slice(1)
   }
   if (parsed.data.priority) where.priority = parsed.data.priority
+  if (parsed.data.preset === 'overdue') {
+    where.dueAt = { lt: new Date() }
+    where.status = { notIn: ['Delivered', 'Rejected', 'Cancelled'] }
+  } else if (parsed.data.preset === 'unassigned') {
+    where.assignedTo = null
+    where.status = { notIn: ['Delivered', 'Rejected', 'Cancelled'] }
+  } else if (parsed.data.preset === 'month') {
+    const now = new Date()
+    const start = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1))
+    const end = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth() + 1, 1))
+    where.createdAt = { gte: start, lt: end }
+  }
   if (parsed.data.from || parsed.data.to) {
     where.createdAt = {
       ...(parsed.data.from ? { gte: new Date(`${parsed.data.from}T00:00:00.000Z`) } : {}),

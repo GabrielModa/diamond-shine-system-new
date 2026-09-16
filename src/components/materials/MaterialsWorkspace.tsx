@@ -2,7 +2,6 @@
 
 import { FormEvent, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import type { SupplyPriority, SupplyRequest, SupplyStatus } from '../../types'
-import { isSupplyOverdue } from '../../lib/business-logic'
 import { clientApi } from '../../lib/client-api'
 import ListControls from '../ui/ListControls'
 import PaginationControls from '../ui/PaginationControls'
@@ -41,6 +40,7 @@ type RepeatDraft = {
 const NEXT_STATUS: Record<string, string | undefined> = { Requested: 'Triaged', Triaged: 'Approved', Approved: 'Ordered', Ordered: 'In transit', 'In transit': 'Delivered' }
 const CLOSED = new Set(['Delivered', 'Rejected', 'Cancelled'])
 const HISTORY_LIMIT = 12
+const QUEUE_LIMIT = 10
 const HISTORY_STATUSES: SupplyStatus[] = ['Requested', 'Triaged', 'Approved', 'Ordered', 'In transit', 'Delivered', 'Rejected', 'Cancelled']
 function displaySupplyStatus(status: string) { return status === 'InTransit' ? 'In transit' : status }
 function statusQueryValue(status: SupplyStatus) { return status === 'In transit' ? 'in-transit' : status.toLowerCase() }
@@ -54,6 +54,10 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [requestQuery, setRequestQuery] = useState(''); const [requestFrom, setRequestFrom] = useState(''); const [requestTo, setRequestTo] = useState('')
   const [supplyFilter, setSupplyFilter] = useState<SupplyFilter>({})
   const [riskLocationQuery, setRiskLocationQuery] = useState('')
+  const [queuePage, setQueuePage] = useState(1)
+  const [queueData, setQueueData] = useState<SupplyPage>({ total: 0, page: 1, limit: QUEUE_LIMIT, totalPages: 1, items: [] })
+  const [queueLoading, setQueueLoading] = useState(false)
+  const [queueRevision, setQueueRevision] = useState(0)
   const [historyPage, setHistoryPage] = useState(1)
   const [historyStatus, setHistoryStatus] = useState<'all' | SupplyStatus>('all')
   const [historyPriority, setHistoryPriority] = useState<'all' | SupplyPriority>('all')
@@ -66,6 +70,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [confirmTransition, setConfirmTransition] = useState<{ request: Supply; status: SupplyStatus } | null>(null)
   const [assignees, setAssignees] = useState<Assignee[]>([])
   const repeatDraftChecked = useRef(false)
+  const queueViewportRef = useRef<HTMLDivElement | null>(null)
 
   const refresh = useCallback(async (options?: { silent?: boolean }) => {
     if (!options?.silent) setBusy(true)
@@ -128,11 +133,50 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
       }
       if (!repeated) setSiteId((current) => current || bootstrap.sites[0]?.id || '')
       setHistoryRevision((value) => value + 1)
+      setQueueRevision((value) => value + 1)
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load materials.' }) }
     finally { if (!options?.silent) setBusy(false) }
   }, [])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!message || message.kind === 'error') return
+    const timer = window.setTimeout(() => setMessage(null), 3600)
+    return () => window.clearTimeout(timer)
+  }, [message])
   useEffect(() => { if (!siteId || tab !== 'count') return; void api<Material[]>(`/api/sites/${siteId}/stock`).then((data) => { setStock(data); setQuantities(Object.fromEntries(data.map((item) => [item.id, String(item.onHand ?? 0)]))) }).catch((error) => setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load site stock.' })) }, [siteId, tab])
+
+  const loadQueue = useCallback(async () => {
+    if (tab !== 'overview' || !canManage) return
+    setQueueLoading(true)
+    try {
+      const params = new URLSearchParams({ page: String(queuePage), limit: String(QUEUE_LIMIT) })
+      if (requestQuery.trim()) params.set('search', requestQuery.trim())
+      if (requestFrom) params.set('from', requestFrom)
+      if (requestTo) params.set('to', requestTo)
+      if (supplyFilter.status) params.set('status', statusQueryValue(supplyFilter.status))
+      if (supplyFilter.priority) params.set('priority', supplyFilter.priority)
+      if (supplyFilter.preset && supplyFilter.preset !== 'all') params.set('preset', supplyFilter.preset)
+      const data = await api<SupplyPage>(`/api/supplies?${params.toString()}`)
+      setQueueData({
+        ...data,
+        items: data.items.map((item) => ({ ...item, status: displaySupplyStatus(item.status) as SupplyStatus })),
+      })
+      if (queuePage > data.totalPages) setQueuePage(data.totalPages)
+    } catch (error) {
+      setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load the request queue.' })
+    } finally {
+      setQueueLoading(false)
+    }
+  }, [canManage, queuePage, requestFrom, requestQuery, requestTo, supplyFilter, tab])
+  useEffect(() => {
+    if (tab !== 'overview' || !canManage) return
+    const timer = window.setTimeout(() => void loadQueue(), 160)
+    return () => window.clearTimeout(timer)
+  }, [loadQueue, queueRevision, tab, canManage])
+  useEffect(() => {
+    setQueuePage(1)
+    queueViewportRef.current?.scrollTo({ top: 0 })
+  }, [requestFrom, requestQuery, requestTo, supplyFilter])
 
   const loadHistory = useCallback(async () => {
     if (tab !== 'history') return
@@ -165,27 +209,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
   const groupedStock = useMemo(() => Object.entries(stock.reduce<Record<string, Material[]>>((groups, item) => { (groups[item.category] ??= []).push(item); return groups }, {})), [stock])
   const selectedRequestItems = Object.entries(requestQuantities).filter(([, quantity]) => quantity > 0)
-  const filterRequests = useCallback((items: Supply[]) => { const needle = requestQuery.trim().toLowerCase(); return items.filter((request) => { const date = request.createdAt.slice(0,10); return (!needle || `${request.employeeName} ${request.clientLocation} ${request.status} ${request.priority} ${request.items.map((item) => item.product).join(' ')}`.toLowerCase().includes(needle)) && (!requestFrom || date >= requestFrom) && (!requestTo || date <= requestTo) }) }, [requestFrom, requestQuery, requestTo])
-  const applySupplyFilter = useCallback((items: Supply[]) => items.filter((request) => {
-    if (supplyFilter.status && request.status !== supplyFilter.status) return false
-    if (supplyFilter.priority && request.priority !== supplyFilter.priority) return false
-    if (supplyFilter.preset === 'overdue' && !isSupplyOverdue(request.dueAt, request.status)) return false
-    if (supplyFilter.preset === 'unassigned' && (request.assignedTo || CLOSED.has(request.status))) return false
-    if (supplyFilter.preset === 'month') {
-      const date = new Date(request.createdAt)
-      const now = new Date()
-      if (date.getMonth() !== now.getMonth() || date.getFullYear() !== now.getFullYear()) return false
-    }
-    return true
-  }), [supplyFilter])
-  const visibleRequests = useMemo(() => applySupplyFilter(filterRequests(requests)), [applySupplyFilter, filterRequests, requests])
-  const visibleControlRequests = visibleRequests
   const selectedRequestUnits = selectedRequestItems.reduce((total, [, quantity]) => total + quantity, 0)
-  const liveShortageCount = useMemo(() => stock.filter((item) => {
-    const onHand = Math.max(0, Number(quantities[item.id]) || 0)
-    const par = item.parLevel ?? item.defaultParLevel
-    return onHand < par
-  }).length, [quantities, stock])
   const riskLocations = useMemo(() => {
     if (!control) return []
     const severity = { out: 0, reorder: 1, low: 2, healthy: 3 } as const
@@ -212,8 +236,8 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   async function submitCount(event: FormEvent) {
     event.preventDefault(); if (!siteId || !stock.length) return; setSaving(true)
     try {
-      const result = await api<{ replenishment: Supply | null }>(`/api/sites/${siteId}/stock-counts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: 'cycle_count', note: note || undefined, lines: stock.map((item) => ({ catalogItemId: item.id, quantity: Math.max(0, Number(quantities[item.id]) || 0) })) }) })
-      setMessage({ kind: 'success', text: result.replenishment ? `Count saved. Replenishment ${result.replenishment.id.slice(-6)} created automatically.` : 'Count saved. No duplicate or unnecessary request was created.' }); setNote(''); await refresh(); setTab(canManage ? 'overview' : 'history')
+      await api(`/api/sites/${siteId}/stock-counts`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ source: 'cycle_count', note: note || undefined, lines: stock.map((item) => ({ catalogItemId: item.id, quantity: Math.max(0, Number(quantities[item.id]) || 0) })) }) })
+      setMessage({ kind: 'success', text: 'Count saved. Stock levels were updated for Operations review.' }); setNote(''); await refresh(); setTab(canManage ? 'overview' : 'history')
     } catch (error) { setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not save the count.' }) }
     finally { setSaving(false) }
   }
@@ -238,6 +262,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
         body: JSON.stringify({ assigneeEmail }),
       })
       setRequests((current) => current.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item))
+      setQueueData((current) => ({ ...current, items: current.items.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item) }))
       setHistoryData((current) => ({ ...current, items: current.items.map((item) => item.id === result.id ? { ...item, assignedTo: result.assignedTo ?? undefined } : item) }))
       setSelectedRequest((current) => current?.id === result.id ? { ...current, assignedTo: result.assignedTo ?? undefined } : current)
       setMessage({ kind: 'success', text: result.assignedTo ? 'Responsible person assigned.' : 'Request unassigned.' })
@@ -290,7 +315,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     </nav>
     {busy ? <section className="card empty-state">Loading material intelligence…</section> : null}
 
-    {!busy && tab === 'overview' && control ? <><SupplyOperationsOverview requests={requests} filter={supplyFilter} onFilter={(filter) => { setSupplyFilter(filter); setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><section className="materials-summary" aria-label="Stock health summary">{[['Out of stock', control.summary.outOfStock, 'Action now'], ['Reorder', control.summary.needsReorder, 'At or below threshold'], ['Open requests', control.summary.openRequests, `${control.summary.overdueRequests} overdue`], ['Uncounted sites', control.summary.sitesWithoutCount, 'No baseline yet']].map(([label, value, detail]) => <article className="metric-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}</section><section className="materials-grid"><article className={`card ${styles.riskCard}`}>
+    {!busy && tab === 'overview' && control ? <><SupplyOperationsOverview requests={requests} filter={supplyFilter} onFilter={(filter) => { setSupplyFilter(filter); setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><section className="materials-summary" aria-label="Stock health summary">{[['Out of stock', control.summary.outOfStock, 'Action now'], ['Reorder', control.summary.needsReorder, 'At or below threshold'], ['Open requests', control.summary.openRequests, `${control.summary.overdueRequests} overdue`], ['Uncounted sites', control.summary.sitesWithoutCount, 'No baseline yet']].map(([label, value, detail]) => <article className="metric-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}</section><section className={`materials-grid ${styles.overviewGrid}`}><article className={`card ${styles.riskCard}`} data-testid="stock-risk-card">
   <div className="section-heading"><div><h2>Stock risk by location</h2><p className="muted">Start with the site that needs attention, then expand only the materials you need to review.</p></div><span className="section-icon" aria-hidden="true"><OpsIcon name="alert" size={18} /></span></div>
   <div className={styles.riskExplanation}><span className={styles.riskIcon}><OpsIcon name="activity" size={16} /></span><span><strong>Risk levels</strong><br />Out = no stock. Reorder = at or below reorder point. Low = below par.</span></div>
   <label className={styles.riskSearch}><OpsIcon name="search" size={16} /><span className="sr-only">Search risk locations</span><input type="search" value={riskLocationQuery} onChange={(event) => setRiskLocationQuery(event.target.value)} placeholder="Search client or site…" /></label>
@@ -318,17 +343,27 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     </details>)}
     {!riskLocations.length ? <div className={styles.riskEmpty}><OpsIcon name={riskLocationQuery ? 'search' : 'check'} size={18} /><strong>{riskLocationQuery ? 'No matching locations' : 'No stock risk detected'}</strong><span>{riskLocationQuery ? 'Try a different client or site name.' : 'All counted items are at or above par.'}</span></div> : null}
   </div>
-</article><article className="card"><div className="section-heading"><div><h2>Request queue</h2><p className="muted">Open a request to assign ownership, notify the client or move it through procurement.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div><ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><RequestList requests={visibleControlRequests} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></article></section></> : null}
+</article><article className={`card ${styles.queueCard}`} data-testid="request-queue-card">
+  <div className={`section-heading ${styles.queueHeading}`}>
+    <div><h2>Request queue</h2><p className="muted">Triage the matching requests without turning the whole dashboard into one long list.</p></div>
+    <div className={styles.queueHeadingMeta}><span className={styles.queueCount}>{queueData.total}</span><span className="section-icon violet" aria-hidden="true"><OpsIcon name="review" size={17} /></span></div>
+  </div>
+  <ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} />
+  <div ref={queueViewportRef} className={styles.queueViewport} aria-label="Supply request queue" data-testid="request-queue-viewport">
+    {queueLoading && !queueData.items.length ? <div className={styles.queueLoading} role="status"><OpsIcon name="refresh" size={17} />Loading requests…</div> : <RequestList requests={queueData.items} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} />}
+  </div>
+  <PaginationControls page={queueData.page} totalPages={queueData.totalPages} total={queueData.total} limit={queueData.limit || QUEUE_LIMIT} loading={queueLoading} noun="requests" onPageChange={(page) => { setQueuePage(page); queueViewportRef.current?.scrollTo({ top: 0, behavior: 'smooth' }) }} className={styles.queuePagination} />
+</article></section></> : null}
 
     {!busy && tab === 'count' ? <form className={`card materials-form ${styles.formShell}`} onSubmit={submitCount}>
       <div className={styles.formHero}>
-        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="layers" size={23} /></span><div><h2>Fast site count</h2><p>Enter current stock once. Anything below par is evaluated for replenishment automatically.</p></div></div>
-        <div className={styles.heroHint}><OpsIcon name="bolt" size={17} /><div><strong>Auto-create request on shortages</strong><span>Review the count before saving. Existing open shortages stay deduplicated.</span></div></div>
+        <div className={styles.heroTitle}><span className={styles.heroIcon}><OpsIcon name="layers" size={23} /></span><div><h2>Fast site count</h2><p>Record what is physically on site. This updates stock visibility for Operations.</p></div></div>
+        <div className={styles.heroHint}><OpsIcon name="check" size={17} /><div><strong>Count only</strong><span>Saving a count does not create a supply request. Operations can review stock risk separately.</span></div></div>
       </div>
       <div className={styles.formBody}>
         <div className={styles.siteAndHelp}>
           <div className={styles.sitePanel}><SiteSelect sites={sites} siteId={siteId} setSiteId={setSiteId} /></div>
-          <div className={styles.helpPanel}><OpsIcon name="review" size={18} /><div><strong>How it works</strong><span>Enter what is physically on site. Below reorder = action now; below par = low stock. Saving evaluates one replenishment request.</span></div></div>
+          <div className={styles.helpPanel}><OpsIcon name="review" size={18} /><div><strong>Keep it simple</strong><span>Enter the physical quantity you can see. You do not need to decide whether anything should be ordered.</span></div></div>
         </div>
         <div className={styles.categoryStack}>{groupedStock.map(([category, items]) => {
           const meta = categoryMeta(category)
@@ -338,9 +373,9 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
           </section>
         })}</div>
         {!sites.length ? <p className="muted">Create a client site before counting stock.</p> : null}
-        <div className={styles.helperStrip}><OpsIcon name="activity" size={16} />{liveShortageCount ? `${liveShortageCount} item${liveShortageCount === 1 ? '' : 's'} currently below par. Saving will evaluate replenishment automatically.` : 'No shortages detected from the values currently entered.'}</div>
+        <div className={styles.helperStrip}><OpsIcon name="check" size={16} />Count what is present now. Stock risk and ordering decisions stay with Operations.</div>
         <label className={styles.noteField}><span className={styles.noteLabel}><span className={styles.noteIcon}><OpsIcon name="note" size={16} /></span><span><strong>Count note</strong><small>Optional context for deliveries, damage or inaccessible stock.</small></span></span><textarea value={note} maxLength={1000} onChange={(event) => setNote(event.target.value)} placeholder="Delivery received, damaged stock, locked cupboard…" /></label>
-        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="activity" size={17} /></span><div><strong>{liveShortageCount} shortage{liveShortageCount === 1 ? '' : 's'} detected</strong><small>{stock.length} tracked item{stock.length === 1 ? '' : 's'} at this site</small></div></div><div className={styles.actionButtons}><button type="submit" className="btn-primary" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count & evaluate'}</button></div></div>
+        <div className={styles.stickyActions}><div className={styles.actionSummary}><span><OpsIcon name="layers" size={17} /></span><div><strong>{stock.length} tracked item{stock.length === 1 ? '' : 's'}</strong><small>Count only · no supply request will be created</small></div></div><div className={styles.actionButtons}><button type="submit" className="btn-primary" disabled={saving || !stock.length}>{saving ? 'Saving count…' : 'Save count'}</button></div></div>
       </div>
     </form> : null}
 
@@ -470,11 +505,27 @@ function RequestList({ requests, canManage, onAdvance, onCancel, onRepeat, onOpe
     const next = NEXT_STATUS[request.status]
     const visibleItems = request.items.slice(0, 3)
     const hiddenItemCount = Math.max(0, request.items.length - visibleItems.length)
+    const nextIcon: 'truck' | 'box' | 'check' = next === 'In transit' ? 'truck' : next === 'Ordered' ? 'box' : 'check'
     return <article className={`request-row request-row-compact${overdue ? ' request-overdue' : ''}`} key={request.id}>
-      <div className="request-row-top"><span className={`priority-dot ${request.priority}`} /><strong>{request.clientLocation}</strong><span className={`status-chip supply-${request.status.toLowerCase().replaceAll(' ','-')}`}>{request.status}</span></div>
+      <div className={styles.requestCardHead}>
+        <span className={styles.requestLocationIcon}><OpsIcon name="pin" size={15} /></span>
+        <div className={styles.requestCardTitle}><div className="request-row-top"><span className={`priority-dot ${request.priority}`} /><strong>{request.clientLocation}</strong></div><span className={styles.requestPriority}>{request.priority}</span></div>
+        <span className={`status-chip supply-${request.status.toLowerCase().replaceAll(' ','-')}`}>{request.status}</span>
+      </div>
       <p className="request-row-items">{visibleItems.map((item) => `${item.product} × ${item.quantity}`).join(' · ')}{hiddenItemCount ? ` · +${hiddenItemCount} more` : ''}</p>
-      <div className="request-row-context"><small>{canManage ? `Requested by ${request.employeeName} · ` : ''}{request.source === 'stock_count' ? 'From stock count' : 'Manual request'} · {new Date(request.createdAt).toLocaleString('en-IE')}{request.assignedTo ? ` · owner ${request.assignedTo}` : ''}</small><span className={`request-next-action${overdue ? ' overdue' : ''}`}>{overdue ? 'Overdue · ' : ''}{requestNextAction(request, canManage)}</span></div>
-      <div className="request-actions request-actions-compact"><button type="button" className="btn-secondary compact" onClick={() => onOpen(request)}>Open</button>{canManage && next ? <button type="button" className="btn-primary compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, next)}>{busyId === request.id ? 'Updating…' : `Mark ${next}`}</button> : null}{request.status === 'Requested' ? <button type="button" className="btn-ghost danger compact" disabled={busyId === request.id} onClick={() => onCancel(request)}>Cancel</button> : null}<button type="button" className="btn-secondary compact" onClick={() => onRepeat(request)}>Repeat</button></div>
+      <div className={styles.requestMeta}>
+        {canManage ? <span><OpsIcon name="user" size={13} />{request.employeeName}</span> : null}
+        <span><OpsIcon name={request.source === 'stock_count' ? 'layers' : 'note'} size={13} />{request.source === 'stock_count' ? 'Legacy stock request' : 'Manual request'}</span>
+        <span><OpsIcon name="clock" size={13} />{new Date(request.createdAt).toLocaleDateString('en-IE', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+        {request.assignedTo ? <span><OpsIcon name="check" size={13} />{request.assignedTo}</span> : null}
+      </div>
+      <div className="request-row-context"><span className={`request-next-action${overdue ? ' overdue' : ''}`}>{overdue ? 'Overdue · ' : ''}{requestNextAction(request, canManage)}</span></div>
+      <div className="request-actions request-actions-compact">
+        <button type="button" className="btn-secondary compact" onClick={() => onOpen(request)}><OpsIcon name="review" size={14} />Open</button>
+        {canManage && next ? <button type="button" className="btn-primary compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, next)}><OpsIcon name={nextIcon} size={14} />{busyId === request.id ? 'Updating…' : `Mark ${next}`}</button> : null}
+        {request.status === 'Requested' ? <button type="button" className="btn-ghost danger compact" disabled={busyId === request.id} onClick={() => onCancel(request)}><OpsIcon name="alert" size={14} />Cancel</button> : null}
+        <button type="button" className="btn-secondary compact" onClick={() => onRepeat(request)}><OpsIcon name="refresh" size={14} />Repeat</button>
+      </div>
     </article>
   })}</div>
 }
