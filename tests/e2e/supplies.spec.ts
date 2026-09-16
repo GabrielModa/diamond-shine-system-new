@@ -65,6 +65,19 @@ test('manager processes a field request from the consolidated Supplies control',
 })
 
 
+test('stock count stays count-only and does not present auto-request language', async ({ page }) => {
+  await login(page, 'admin@ds.ie')
+  await page.goto('/supplies')
+  await page.getByRole('button', { name: 'Count stock', exact: true }).click()
+
+  await expect(page.getByRole('heading', { name: 'Fast site count', exact: true })).toBeVisible()
+  await expect(page.getByText('Count only', { exact: true })).toBeVisible()
+  await expect(page.getByText('Count only · no supply request will be created', { exact: true })).toBeVisible()
+  await expect(page.getByRole('button', { name: 'Save count', exact: true })).toBeVisible()
+  await expect(page.getByText(/shortages detected/i)).toHaveCount(0)
+  await expect(page.getByText(/auto-create request/i)).toHaveCount(0)
+})
+
 test('supplies overview keeps risk and request queue as bounded dashboard panels', async ({ page }) => {
   await login(page, 'admin@ds.ie')
   await page.goto('/supplies')
