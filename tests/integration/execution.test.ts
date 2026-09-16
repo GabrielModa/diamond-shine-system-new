@@ -125,6 +125,47 @@ describe('field execution', () => {
     expect(mine.body.data.every((entry: { status: string }) => entry.status === 'completed')).toBe(true)
   })
 
+  it('pages timesheet review on the server while keeping filtered totals across every page', async () => {
+    const supervisor = await prisma.user.findUniqueOrThrow({ where: { email: 'super@ds.ie' } })
+    const membership = await prisma.membership.findFirstOrThrow({ where: { userId: supervisor.id, status: 'active' } })
+    await prisma.timeEntry.createMany({
+      data: Array.from({ length: 6 }, (_, index) => ({
+        organizationId: membership.organizationId,
+        userId: supervisor.id,
+        kind: 'office' as const,
+        status: 'completed' as const,
+        startedAt: new Date(`2026-08-2${index + 1}T08:00:00.000Z`),
+        endedAt: new Date(`2026-08-2${index + 1}T09:00:00.000Z`),
+        durationSeconds: 3600,
+        source: 'timesheet-pagination-test',
+      })),
+    })
+
+    const first = await request(app)
+      .get(`/api/time-entries/timesheets?from=2026-08-20&to=2026-08-28&userId=${supervisor.id}&page=1&limit=5`)
+      .set('Cookie', adminCookie)
+    expect(first.status).toBe(200)
+    expect(first.body.data).toEqual(expect.objectContaining({
+      total: 6,
+      page: 1,
+      limit: 5,
+      totalPages: 2,
+    }))
+    expect(first.body.data.items).toHaveLength(5)
+    expect(first.body.data.summary).toEqual(expect.objectContaining({
+      recordedSeconds: 21600,
+      pendingSeconds: 21600,
+      pendingCount: 6,
+    }))
+
+    const second = await request(app)
+      .get(`/api/time-entries/timesheets?from=2026-08-20&to=2026-08-28&userId=${supervisor.id}&page=2&limit=5`)
+      .set('Cookie', adminCookie)
+    expect(second.status).toBe(200)
+    expect(second.body.data.items).toHaveLength(1)
+    expect(second.body.data.summary.recordedSeconds).toBe(first.body.data.summary.recordedSeconds)
+  })
+
   it('serializes concurrent timer starts for the same supervisor', async () => {
     const responses = await Promise.all([
       request(app).post('/api/time-entries').set('Cookie', supervisorCookie).send({ kind: 'office' }),
@@ -326,7 +367,31 @@ describe('field execution', () => {
     expect(locationReview.body.data.locationEventsTruncated).toBe(true)
     expect(locationReview.body.data.locationEventCount).toBe(1053)
 
-    const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed with site supervisor' })
+    const payrollBlocked = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved' })
+    expect(payrollBlocked.status).toBe(409)
+    expect(payrollBlocked.body.error).toContain('Field Control')
+
+    const blockWithoutNote = await request(app).patch(`/api/time-entries/${started.body.data.id}/execution-review`).set('Cookie', adminCookie).send({ decision: 'blocked' })
+    expect(blockWithoutNote.status).toBe(400)
+
+    const stillBlocked = await request(app).patch(`/api/time-entries/${started.body.data.id}/execution-review`).set('Cookie', adminCookie).send({
+      decision: 'blocked',
+      note: 'Clock-out location needs manager confirmation.',
+    })
+    expect(stillBlocked.status).toBe(200)
+    expect(stillBlocked.body.data).toEqual(expect.objectContaining({ status: 'needs_review', payrollReady: false }))
+
+    const cleared = await request(app).patch(`/api/time-entries/${started.body.data.id}/execution-review`).set('Cookie', adminCookie).send({
+      decision: 'cleared',
+      note: 'Confirmed with site supervisor.',
+    })
+    expect(cleared.status).toBe(200)
+    expect(cleared.body.data).toEqual(expect.objectContaining({ status: 'completed', payrollReady: false }))
+    const afterExecutionReview = await prisma.timeEntry.findUniqueOrThrow({ where: { id: started.body.data.id } })
+    expect(afterExecutionReview.payableSeconds).toBeNull()
+    expect(afterExecutionReview.approvedAt).toBeNull()
+
+    const approved = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({ decision: 'approved', note: 'Confirmed for payroll' })
     expect(approved.status).toBe(200)
     expect(approved.body.data.status).toBe('approved')
     expect(approved.body.data.payableSeconds).toBe(3600)
@@ -339,6 +404,23 @@ describe('field execution', () => {
     expect(adjusted.status).toBe(200)
     expect(adjusted.body.data.durationSeconds).toBe(3600)
     expect(adjusted.body.data.payableSeconds).toBe(1800)
+
+    const timesheetView = await request(app)
+      .get(`/api/time-entries/timesheets?from=2026-08-23&to=2026-08-25&search=${started.body.data.id}&page=1&limit=20`)
+      .set('Cookie', adminCookie)
+    expect(timesheetView.status).toBe(200)
+    expect(timesheetView.body.data.total).toBe(1)
+    expect(timesheetView.body.data.summary).toEqual(expect.objectContaining({
+      recordedSeconds: 3600,
+      approvedSeconds: 1800,
+      excludedSeconds: 1800,
+    }))
+    expect(timesheetView.body.data.items[0]).toEqual(expect.objectContaining({
+      id: started.body.data.id,
+      status: 'approved',
+      durationSeconds: 3600,
+      payableSeconds: 1800,
+    }))
 
     const invalidIncrease = await request(app).patch(`/api/time-entries/${started.body.data.id}/review`).set('Cookie', adminCookie).send({
       decision: 'approved',
