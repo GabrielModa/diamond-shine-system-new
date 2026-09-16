@@ -587,19 +587,25 @@ describe('organization context', () => {
 })
 
 describe('GET /api/audit', () => {
-  it('returns audit entries', async () => {
+  it('returns paged audit entries and exposes person/action/entity facets', async () => {
     await prisma.auditLog.create({
       data: {
         actorEmail: 'admin@ds.ie',
-        action: 'test',
+        action: 'audit_filter_test',
         targetType: 'user',
       },
     })
-    const res = await request(app).get('/api/audit').set('Cookie', adminCookie)
+    const res = await request(app)
+      .get('/api/audit?actor=admin%40ds.ie&action=audit_filter_test&targetType=user')
+      .set('Cookie', adminCookie)
     expect(res.status).toBe(200)
     expect(res.body.ok).toBe(true)
     expect(res.body.data.items.length).toBeGreaterThan(0)
+    expect(res.body.data.items.every((item: { actorEmail: string; action: string; targetType: string }) => item.actorEmail === 'admin@ds.ie' && item.action === 'audit_filter_test' && item.targetType === 'user')).toBe(true)
     expect(res.body.data.total).toBeGreaterThan(0)
     expect(res.body.data.page).toBe(1)
+    expect(res.body.data.actors).toContain('admin@ds.ie')
+    expect(res.body.data.actions).toContain('audit_filter_test')
+    expect(res.body.data.targetTypes).toContain('user')
   })
 })
