@@ -27,7 +27,7 @@ test('full happy path: employee submits a supply request', async ({ page }) => {
   await page.getByRole('button', { name: 'Normal', exact: true }).click()
   await page.getByLabel('All-purpose cleaner requested quantity').first().fill('3')
   await page.getByLabel('Reason / delivery note').fill(note)
-  await page.getByRole('button', { name: 'Request 1 material', exact: true }).click()
+  await page.getByRole('button', { name: 'Submit request', exact: true }).click()
   await expect(page.getByRole('status')).toContainText('Material request created and routed to operations.')
   await expect(page.getByText(note)).toHaveCount(0)
 })
