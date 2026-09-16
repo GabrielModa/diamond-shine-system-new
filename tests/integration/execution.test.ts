@@ -527,7 +527,7 @@ describe('field execution', () => {
     const forbidden = await request(app).post(`/api/visits/${unassigned.visit.id}/start`).set('Cookie', employeeCookie).send({})
     expect(forbidden.status).toBe(404)
 
-    const { visit, employee } = await executionVisit()
+    const { visit } = await executionVisit()
     const started = await request(app).post(`/api/visits/${visit.id}/start`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })
     expect(started.status).toBe(201)
     expect((await request(app).post(`/api/time-entries/${started.body.data.id}/stop`).set('Cookie', employeeCookie).send({ latitude: 53.3498, longitude: -6.2603 })).status).toBe(200)
@@ -540,20 +540,35 @@ describe('field execution', () => {
       description: 'The alarm panel reports a persistent fault.',
     })
     expect(incident.status).toBe(201)
-    const incidentPhoto = await prisma.evidenceAsset.create({
-      data: {
-        organizationId: visit.organizationId,
-        visitId: visit.id,
-        uploadedBy: employee.id,
-        kind: 'photo',
-        storageKey: `evidence/${visit.organizationId}/${visit.id}/incident-photo.jpg`,
-        fileName: 'incident-photo.jpg',
-        mimeType: 'image/jpeg',
-        sizeBytes: 2048,
-        visibility: 'client_safe',
-        metadata: { phase: `incident:${incident.body.data.id}`, source: 'field_mobile' },
-      },
-    })
+    const jpegBytes = Buffer.from([0xff, 0xd8, 0xff, 0xe0, 0x00, 0x10, 0x4a, 0x46, 0x49, 0x46, 0xff, 0xd9])
+    const incidentUpload = await request(app)
+      .post(`/api/visits/${visit.id}/evidence-upload`)
+      .set('Cookie', employeeCookie)
+      .field('phase', `incident:${incident.body.data.id}`)
+      .field('visibility', 'client_safe')
+      .attach('file', jpegBytes, { filename: 'incident-photo.jpg', contentType: 'image/jpeg' })
+    expect(incidentUpload.status).toBe(201)
+    const incidentPhoto = incidentUpload.body.data
+
+    const employeeDownload = await request(app)
+      .get(`/api/evidence/${incidentPhoto.id}`)
+      .set('Cookie', employeeCookie)
+      .buffer(true)
+    expect(employeeDownload.status).toBe(200)
+
+    const supervisorDownload = await request(app)
+      .get(`/api/evidence/${incidentPhoto.id}`)
+      .set('Cookie', supervisorCookie)
+      .buffer(true)
+    expect(supervisorDownload.status).toBe(200)
+    expect(supervisorDownload.headers['content-type']).toContain('image/jpeg')
+
+    const adminDownload = await request(app)
+      .get(`/api/evidence/${incidentPhoto.id}`)
+      .set('Cookie', adminCookie)
+      .buffer(true)
+    expect(adminDownload.status).toBe(200)
+
     const fieldControl = await request(app).get('/api/field-control?from=2026-08-23&to=2026-08-25').set('Cookie', adminCookie)
     expect(fieldControl.status).toBe(200)
     const adminIncident = fieldControl.body.data.incidents.find((item: { id: string }) => item.id === incident.body.data.id)
