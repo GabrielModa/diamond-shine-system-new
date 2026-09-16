@@ -202,11 +202,12 @@ function statusClass(entry: Entry) {
   return entry.status === 'completed' ? 'completed' : entry.status
 }
 
-function matchesStatus(entry: Entry, filter: StatusFilter) {
-  if (filter === 'all') return true
-  if (filter === 'challenge') return hasOpenChallenge(entry)
-  if (filter === 'recorded') return entry.status === 'completed'
-  return entry.status === filter
+function proposedPayableMs(entry: Entry, mode: 'full' | 'adjusted' | 'reject', hours: string, minutes: string) {
+  const recorded = entryDurationMs(entry)
+  if (mode === 'reject') return 0
+  if (mode === 'full') return recorded
+  const requestedMinutes = Math.max(0, Number.parseInt(hours || '0', 10) * 60 + Number.parseInt(minutes || '0', 10))
+  return Math.min(recorded, requestedMinutes * 60_000)
 }
 
 export default function TimesheetsWorkspace({ canManage }: { canManage: boolean }) {
@@ -580,9 +581,11 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
           <div><span className="ts-eyebrow">Payroll decision</span><h2 id="payroll-review-title">{reviewingEntry.user.name || reviewingEntry.user.email}</h2><p>{reviewingEntry.visit ? `${reviewingEntry.visit.site.client.displayName} · ${reviewingEntry.visit.site.name}` : 'General / non-visit time'}</p></div>
           <button type="button" className="ts-close" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)} aria-label="Close payroll review">×</button>
         </header>
+        <div className="ts-review-boundary"><span><OpsIcon name="shield" size={17} /></span><div><strong>Recorded time is evidence. Payable time is the payroll decision.</strong><small>Approving or adjusting payroll never changes the original clock record.</small></div></div>
         <div className="ts-review-facts">
           <article><span>Recorded</span><strong>{humanDuration(entryDurationMs(reviewingEntry))}</strong><small>Original clock record · never overwritten</small></article>
-          <article><span>Current payable</span><strong>{reviewingEntry.status === 'approved' ? humanDuration(payableDurationMs(reviewingEntry)) : 'Not approved'}</strong><small>{reviewingEntry.status === 'approved' ? 'Already payroll-ready' : '0h enters payroll until reviewed'}</small></article>
+          <article><span>Current payable</span><strong>{reviewingEntry.status === 'approved' ? humanDuration(payableDurationMs(reviewingEntry)) : reviewingEntry.status === 'rejected' ? '0h 00m' : 'Not approved'}</strong><small>{reviewingEntry.status === 'approved' ? 'Already payroll-ready' : reviewingEntry.status === 'rejected' ? 'Entire entry currently excluded' : '0h enters payroll until reviewed'}</small></article>
+          <article className={reviewingEntry.status === 'approved' && excludedDurationMs(reviewingEntry) > 0 ? 'adjusted' : reviewingEntry.status === 'rejected' ? 'rejected' : ''}><span>Current difference</span><strong>{reviewingEntry.status === 'approved' ? excludedDurationMs(reviewingEntry) ? `−${compactDuration(excludedDurationMs(reviewingEntry))}` : 'No adjustment' : reviewingEntry.status === 'rejected' ? `−${compactDuration(entryDurationMs(reviewingEntry))}` : 'Pending decision'}</strong><small>{reviewingEntry.status === 'approved' && excludedDurationMs(reviewingEntry) > 0 ? payrollReviewNote(reviewingEntry.reviewReason) || 'Part of the recorded time is excluded.' : reviewingEntry.status === 'rejected' ? payrollReviewNote(reviewingEntry.reviewReason) || 'Full recorded time is excluded.' : 'Recorded time is not payroll-ready yet.'}</small></article>
         </div>
         <div className="ts-review-modes" role="group" aria-label="Payroll decision">
           <button type="button" className={reviewMode === 'full' ? 'selected' : ''} onClick={() => setReviewMode('full')}><OpsIcon name="check" /><strong>Approve full</strong><small>Pay the full recorded duration.</small></button>
@@ -593,8 +596,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
         <label className="ts-review-note"><span>{reviewMode === 'full' ? 'Decision note (optional)' : 'Reason (required)'}</span><textarea value={reviewNote} onChange={(event) => setReviewNote(event.target.value)} placeholder={reviewMode === 'adjusted' ? 'Explain why part of the recorded time is excluded…' : reviewMode === 'reject' ? 'Explain why this entire entry is excluded from payroll…' : 'Optional payroll note…'} /></label>
         <div className="ts-review-preview">
           <span>Payroll effect</span>
-          <strong>{reviewMode === 'reject' ? '0h payable' : reviewMode === 'full' ? `${humanDuration(entryDurationMs(reviewingEntry))} payable` : `${humanDuration(Math.min(entryDurationMs(reviewingEntry), Math.max(0, (Number.parseInt(payableHours || '0', 10) * 60 + Number.parseInt(payableMinutes || '0', 10)) * 60_000)))} payable`}</strong>
-          <small>Recorded time stays unchanged for audit.</small>
+          <strong>{humanDuration(entryDurationMs(reviewingEntry))} recorded → {humanDuration(proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes))} payable</strong>
+          <small>{proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes) < entryDurationMs(reviewingEntry) ? `${compactDuration(entryDurationMs(reviewingEntry) - proposedPayableMs(reviewingEntry, reviewMode, payableHours, payableMinutes))} excluded · recorded time stays unchanged for audit.` : 'No time excluded · recorded time stays unchanged for audit.'}</small>
         </div>
         <footer className="ts-review-actions"><button type="button" className="ts-button-secondary" onClick={() => setReviewingEntry(null)} disabled={Boolean(busyId)}>Cancel</button><button type="button" className="ts-button" onClick={submitPayrollReview} disabled={Boolean(busyId)}>{busyId ? 'Saving…' : 'Save payroll decision'}</button></footer>
       </section>
