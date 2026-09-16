@@ -210,7 +210,8 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   const searchParams = useSearchParams()
   const focusedEntryId = searchParams.get('entry')
   const now = useMemo(() => new Date(), [])
-  const [entries, setEntries] = useState<Entry[]>([])
+  const [data, setData] = useState<TimesheetPage>(EMPTY_PAGE)
+  const [page, setPage] = useState(1)
   const [tab, setTab] = useState<'review' | 'payroll'>('review')
   const [loading, setLoading] = useState(true)
   const [notice, setNotice] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
@@ -225,28 +226,42 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   const [exportOpen, setExportOpen] = useState(false)
   const [exportScope, setExportScope] = useState<ExportScope>('filtered')
   const [exportLayout, setExportLayout] = useState<ExportLayout>('summary')
+  const [exporting, setExporting] = useState(false)
   const [reviewingEntry, setReviewingEntry] = useState<Entry | null>(null)
   const [reviewMode, setReviewMode] = useState<'full' | 'adjusted' | 'reject'>('full')
   const [payableHours, setPayableHours] = useState('0')
   const [payableMinutes, setPayableMinutes] = useState('0')
   const [reviewNote, setReviewNote] = useState('')
 
+  const buildParams = useCallback((targetPage = page, includeFilters = true, limit = PAGE_LIMIT) => {
+    const params = new URLSearchParams({ page: String(targetPage), limit: String(limit) })
+    if (from) params.set('from', `${from}T00:00:00.000Z`)
+    if (to) params.set('to', `${to}T23:59:59.999Z`)
+    if (includeFilters) {
+      if (query.trim()) params.set('search', query.trim())
+      if (employeeFilter !== 'all') params.set('userId', employeeFilter)
+      if (statusFilter !== 'all') params.set('status', statusFilter)
+      if (kindFilter !== 'all') params.set('kind', kindFilter)
+      if (clientFilter !== 'all') params.set('clientId', clientFilter)
+    }
+    return params
+  }, [clientFilter, employeeFilter, from, kindFilter, page, query, statusFilter, to])
+
   const refresh = useCallback(async () => {
     setLoading(true)
     try {
-      const params = new URLSearchParams()
-      if (from) params.set('from', `${from}T00:00:00.000Z`)
-      if (to) params.set('to', `${to}T23:59:59.999Z`)
-      setEntries(await clientApi<Entry[]>(`/api/time-entries?${params}`, undefined, 'Could not load timesheets'))
+      const next = await clientApi<TimesheetPage>(`/api/time-entries/timesheets?${buildParams().toString()}`, undefined, 'Could not load timesheets')
+      setData(next)
+      if (page > next.totalPages) setPage(next.totalPages)
     } catch (error) {
       setNotice({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load timesheets.' })
     } finally {
       setLoading(false)
     }
-  }, [from, to])
+  }, [buildParams, page])
 
   useEffect(() => {
-    const timer = window.setTimeout(() => void refresh(), 120)
+    const timer = window.setTimeout(() => void refresh(), 160)
     return () => window.clearTimeout(timer)
   }, [refresh])
 
@@ -257,13 +272,18 @@ export default function TimesheetsWorkspace({ canManage }: { canManage: boolean 
   }, [notice])
 
   useEffect(() => {
+    setPage(1)
+  }, [clientFilter, employeeFilter, from, kindFilter, query, statusFilter, to])
+
+  useEffect(() => {
     if (!focusedEntryId) return
     setTab('review')
     setEmployeeFilter('all')
     setStatusFilter('all')
     setKindFilter('all')
     setClientFilter('all')
-    setQuery('')
+    setQuery(focusedEntryId)
+    setPage(1)
   }, [focusedEntryId])
 
   const reviewEntry = useCallback(async (entry: Entry, decision: 'approved' | 'rejected', payableSeconds: number, note: string) => {
