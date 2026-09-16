@@ -500,11 +500,27 @@ function RequestList({ requests, canManage, onAdvance, onCancel, onRepeat, onOpe
     const next = NEXT_STATUS[request.status]
     const visibleItems = request.items.slice(0, 3)
     const hiddenItemCount = Math.max(0, request.items.length - visibleItems.length)
+    const nextIcon = next === 'In transit' ? 'truck' : next === 'Ordered' ? 'box' : 'check'
     return <article className={`request-row request-row-compact${overdue ? ' request-overdue' : ''}`} key={request.id}>
-      <div className="request-row-top"><span className={`priority-dot ${request.priority}`} /><strong>{request.clientLocation}</strong><span className={`status-chip supply-${request.status.toLowerCase().replaceAll(' ','-')}`}>{request.status}</span></div>
+      <div className={styles.requestCardHead}>
+        <span className={styles.requestLocationIcon}><OpsIcon name="pin" size={15} /></span>
+        <div className={styles.requestCardTitle}><div className="request-row-top"><span className={`priority-dot ${request.priority}`} /><strong>{request.clientLocation}</strong></div><span className={styles.requestPriority}>{request.priority}</span></div>
+        <span className={`status-chip supply-${request.status.toLowerCase().replaceAll(' ','-')}`}>{request.status}</span>
+      </div>
       <p className="request-row-items">{visibleItems.map((item) => `${item.product} × ${item.quantity}`).join(' · ')}{hiddenItemCount ? ` · +${hiddenItemCount} more` : ''}</p>
-      <div className="request-row-context"><small>{canManage ? `Requested by ${request.employeeName} · ` : ''}{request.source === 'stock_count' ? 'From stock count' : 'Manual request'} · {new Date(request.createdAt).toLocaleString('en-IE')}{request.assignedTo ? ` · owner ${request.assignedTo}` : ''}</small><span className={`request-next-action${overdue ? ' overdue' : ''}`}>{overdue ? 'Overdue · ' : ''}{requestNextAction(request, canManage)}</span></div>
-      <div className="request-actions request-actions-compact"><button type="button" className="btn-secondary compact" onClick={() => onOpen(request)}>Open</button>{canManage && next ? <button type="button" className="btn-primary compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, next)}>{busyId === request.id ? 'Updating…' : `Mark ${next}`}</button> : null}{request.status === 'Requested' ? <button type="button" className="btn-ghost danger compact" disabled={busyId === request.id} onClick={() => onCancel(request)}>Cancel</button> : null}<button type="button" className="btn-secondary compact" onClick={() => onRepeat(request)}>Repeat</button></div>
+      <div className={styles.requestMeta}>
+        {canManage ? <span><OpsIcon name="user" size={13} />{request.employeeName}</span> : null}
+        <span><OpsIcon name={request.source === 'stock_count' ? 'layers' : 'note'} size={13} />{request.source === 'stock_count' ? 'Legacy stock request' : 'Manual request'}</span>
+        <span><OpsIcon name="clock" size={13} />{new Date(request.createdAt).toLocaleDateString('en-IE', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+        {request.assignedTo ? <span><OpsIcon name="check" size={13} />{request.assignedTo}</span> : null}
+      </div>
+      <div className="request-row-context"><span className={`request-next-action${overdue ? ' overdue' : ''}`}>{overdue ? 'Overdue · ' : ''}{requestNextAction(request, canManage)}</span></div>
+      <div className="request-actions request-actions-compact">
+        <button type="button" className="btn-secondary compact" onClick={() => onOpen(request)}><OpsIcon name="review" size={14} />Open</button>
+        {canManage && next ? <button type="button" className="btn-primary compact" disabled={busyId === request.id} onClick={() => void onAdvance(request, next)}><OpsIcon name={nextIcon} size={14} />{busyId === request.id ? 'Updating…' : `Mark ${next}`}</button> : null}
+        {request.status === 'Requested' ? <button type="button" className="btn-ghost danger compact" disabled={busyId === request.id} onClick={() => onCancel(request)}><OpsIcon name="alert" size={14} />Cancel</button> : null}
+        <button type="button" className="btn-secondary compact" onClick={() => onRepeat(request)}><OpsIcon name="refresh" size={14} />Repeat</button>
+      </div>
     </article>
   })}</div>
 }
