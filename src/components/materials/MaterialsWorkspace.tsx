@@ -25,6 +25,8 @@ type Supply = SupplyRequest & {
 type Assignee = { email: string; name: string | null; role: string; status: string }
 type SupplyFilter = { status?: SupplyStatus; priority?: SupplyPriority; preset?: 'all' | 'overdue' | 'unassigned' | 'month' }
 type Control = { summary: { tracked: number; outOfStock: number; needsReorder: number; openRequests: number; overdueRequests: number; sitesWithoutCount: number }; levels: Array<Material & { site: Site; daysRemaining: number | null }>; requests: Supply[] }
+type StockRiskLevel = Control['levels'][number]
+type RiskLocation = { site: Site; levels: StockRiskLevel[]; out: number; reorder: number; low: number }
 type SuppliesBootstrap = { sites: Site[]; catalog: Material[]; requests: Supply[]; control: Control | null; assignees: Assignee[] }
 type SupplyPage = { total: number; page: number; limit: number; totalPages: number; items: Supply[] }
 type RepeatDraft = {
@@ -51,6 +53,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
   const [busy, setBusy] = useState(true); const [saving, setSaving] = useState(false); const [busyRequest, setBusyRequest] = useState<string | null>(null); const [message, setMessage] = useState<{ kind: 'success' | 'error'; text: string } | null>(null)
   const [requestQuery, setRequestQuery] = useState(''); const [requestFrom, setRequestFrom] = useState(''); const [requestTo, setRequestTo] = useState('')
   const [supplyFilter, setSupplyFilter] = useState<SupplyFilter>({})
+  const [riskLocationQuery, setRiskLocationQuery] = useState('')
   const [historyPage, setHistoryPage] = useState(1)
   const [historyStatus, setHistoryStatus] = useState<'all' | SupplyStatus>('all')
   const [historyPriority, setHistoryPriority] = useState<'all' | SupplyPriority>('all')
@@ -183,13 +186,28 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     const par = item.parLevel ?? item.defaultParLevel
     return onHand < par
   }).length, [quantities, stock])
-  const riskyLevels = useMemo(() => {
+  const riskLocations = useMemo(() => {
     if (!control) return []
     const severity = { out: 0, reorder: 1, low: 2, healthy: 3 } as const
-    return control.levels
-      .filter((level) => level.state !== 'healthy')
-      .sort((a, b) => severity[a.state ?? 'healthy'] - severity[b.state ?? 'healthy'] || (a.onHand ?? 0) - (b.onHand ?? 0))
-  }, [control])
+    const groups = new Map<string, RiskLocation>()
+    for (const level of control.levels) {
+      if (level.state === 'healthy') continue
+      const group = groups.get(level.site.id) ?? { site: level.site, levels: [], out: 0, reorder: 0, low: 0 }
+      group.levels.push(level)
+      if (level.state === 'out') group.out += 1
+      else if (level.state === 'reorder') group.reorder += 1
+      else group.low += 1
+      groups.set(level.site.id, group)
+    }
+    const needle = riskLocationQuery.trim().toLowerCase()
+    return Array.from(groups.values())
+      .filter((group) => !needle || `${group.site.client.displayName} ${group.site.name}`.toLowerCase().includes(needle))
+      .map((group) => ({
+        ...group,
+        levels: group.levels.sort((a, b) => severity[a.state ?? 'healthy'] - severity[b.state ?? 'healthy'] || (a.onHand ?? 0) - (b.onHand ?? 0)),
+      }))
+      .sort((a, b) => b.out - a.out || b.reorder - a.reorder || b.low - a.low || a.site.name.localeCompare(b.site.name))
+  }, [control, riskLocationQuery])
 
   async function submitCount(event: FormEvent) {
     event.preventDefault(); if (!siteId || !stock.length) return; setSaving(true)
@@ -257,7 +275,7 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
 
   return <main className="page-shell materials-shell">
     <header className="page-header materials-header"><div><span className="eyebrow">{personalView ? 'Personal supply workspace' : 'Requests, procurement & stock'}</span><h1>{personalView ? 'My requests' : 'Supplies'}</h1><p className="muted">{personalView ? 'Create a request, follow its next step and reuse previous orders without switching modules.' : 'Process requests from the field, keep stock reality current and see shortages before they disrupt service.'}</p></div><button type="button" className="secondary-button" onClick={() => void refresh()} disabled={busy}><OpsIcon name="refresh" size={16} /> Refresh</button></header>
-    {message ? <div className={`inline-message ${message.kind} ${styles.floatingNotice}`} role={message.kind === 'error' ? 'alert' : 'status'}>{message.text}<button type="button" className="notice-close" onClick={() => setMessage(null)} aria-label="Dismiss message">×</button></div> : null}
+    {message ? <div className={`transient-notice ${message.kind}`} role={message.kind === 'error' ? 'alert' : 'status'}><span>{message.text}</span><button type="button" onClick={() => setMessage(null)} aria-label="Dismiss message">×</button></div> : null}
     <nav className="materials-tabs" aria-label={personalView ? 'My supply request views' : 'Supplies views'}>
       {personalView ? <>
         <button type="button" className={tab === 'history' ? 'active' : ''} onClick={() => setTab('history')}>My requests</button>
@@ -273,16 +291,32 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     {busy ? <section className="card empty-state">Loading material intelligence…</section> : null}
 
     {!busy && tab === 'overview' && control ? <><SupplyOperationsOverview requests={requests} filter={supplyFilter} onFilter={(filter) => { setSupplyFilter(filter); setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><section className="materials-summary" aria-label="Stock health summary">{[['Out of stock', control.summary.outOfStock, 'Action now'], ['Reorder', control.summary.needsReorder, 'At or below threshold'], ['Open requests', control.summary.openRequests, `${control.summary.overdueRequests} overdue`], ['Uncounted sites', control.summary.sitesWithoutCount, 'No baseline yet']].map(([label, value, detail]) => <article className="metric-card" key={label}><span>{label}</span><strong>{value}</strong><small>{detail}</small></article>)}</section><section className="materials-grid"><article className={`card ${styles.riskCard}`}>
-  <div className="section-heading"><div><h2>Stock risk by location</h2><p className="muted">What needs replenishment, ranked by how far current stock is below the site threshold.</p></div><span className="section-icon" aria-hidden="true"><OpsIcon name="alert" size={18} /></span></div>
-  <div className={styles.riskExplanation}><span className={styles.riskIcon}><OpsIcon name="activity" size={16} /></span><span><strong>How risk is calculated</strong><br />Out of stock = 0 on hand. Reorder = at or below the reorder point. Low = below par, but still above the reorder point.</span></div>
-  <div className={styles.riskLegend}><span>Out · immediate action</span><span>Reorder · at threshold</span><span>Low · below par</span></div>
-  <div>
-    {riskyLevels.map((level) => <div className={styles.riskRow} key={level.id}>
-      <span className={`${styles.riskState} ${styles[level.state ?? 'low']}`}>{riskStateLabel(level.state)}</span>
-      <div className={styles.riskMain}><strong>{level.catalogItem?.name ?? level.name}</strong><small>{level.site.client.displayName} · {level.site.name}{level.daysRemaining != null ? ` · ~${level.daysRemaining} days remaining` : ''}</small></div>
-      <div className={styles.riskNumbers}><strong>{level.onHand ?? 0} on hand</strong><small>reorder {level.reorderPoint ?? level.defaultReorderPoint} · par {level.parLevel ?? level.defaultParLevel}</small></div>
-    </div>)}
-    {!riskyLevels.length ? <p className="muted empty-copy">No tracked shortages. All counted items are at or above par.</p> : null}
+  <div className="section-heading"><div><h2>Stock risk by location</h2><p className="muted">Start with the site that needs attention, then expand only the materials you need to review.</p></div><span className="section-icon" aria-hidden="true"><OpsIcon name="alert" size={18} /></span></div>
+  <div className={styles.riskExplanation}><span className={styles.riskIcon}><OpsIcon name="activity" size={16} /></span><span><strong>Risk levels</strong><br />Out = no stock. Reorder = at or below reorder point. Low = below par.</span></div>
+  <label className={styles.riskSearch}><OpsIcon name="search" size={16} /><span className="sr-only">Search risk locations</span><input type="search" value={riskLocationQuery} onChange={(event) => setRiskLocationQuery(event.target.value)} placeholder="Search client or site…" /></label>
+  <div className={styles.riskLocationMeta}><strong>{riskLocations.length}</strong><span>location{riskLocations.length === 1 ? '' : 's'} needing attention</span></div>
+  <div className={styles.riskLocationList}>
+    {riskLocations.map((group) => <details className={styles.riskLocationCard} key={group.site.id}>
+      <summary className={styles.riskLocationSummary}>
+        <span className={styles.riskLocationPin}><OpsIcon name="pin" size={17} /></span>
+        <span className={styles.riskLocationTitle}><strong>{group.site.name}</strong><small>{group.site.client.displayName}</small></span>
+        <span className={styles.riskSignals}>
+          {group.out ? <span className={styles.signalOut}>{group.out} out</span> : null}
+          {group.reorder ? <span className={styles.signalReorder}>{group.reorder} reorder</span> : null}
+          {group.low ? <span className={styles.signalLow}>{group.low} low</span> : null}
+        </span>
+        <span className={styles.riskLocationCount}>{group.levels.length} item{group.levels.length === 1 ? '' : 's'}</span>
+        <span className={styles.riskChevron}><OpsIcon name="chevronRight" size={16} /></span>
+      </summary>
+      <div className={styles.riskLocationItems}>
+        {group.levels.map((level) => <div className={styles.riskRow} key={level.id}>
+          <span className={`${styles.riskState} ${styles[level.state ?? 'low']}`}>{riskStateLabel(level.state)}</span>
+          <div className={styles.riskMain}><strong>{level.catalogItem?.name ?? level.name}</strong><small>{level.daysRemaining != null ? `~${level.daysRemaining} days remaining · ` : ''}reorder {level.reorderPoint ?? level.defaultReorderPoint} · par {level.parLevel ?? level.defaultParLevel}</small></div>
+          <div className={styles.riskNumbers}><strong>{level.onHand ?? 0}</strong><small>on hand</small></div>
+        </div>)}
+      </div>
+    </details>)}
+    {!riskLocations.length ? <div className={styles.riskEmpty}><OpsIcon name={riskLocationQuery ? 'search' : 'check'} size={18} /><strong>{riskLocationQuery ? 'No matching locations' : 'No stock risk detected'}</strong><span>{riskLocationQuery ? 'Try a different client or site name.' : 'All counted items are at or above par.'}</span></div> : null}
   </div>
 </article><article className="card"><div className="section-heading"><div><h2>Request queue</h2><p className="muted">Open a request to assign ownership, notify the client or move it through procurement.</p></div><span className="section-icon violet" aria-hidden="true">↗</span></div><ListControls query={requestQuery} onQueryChange={setRequestQuery} from={requestFrom} to={requestTo} onFromChange={setRequestFrom} onToChange={setRequestTo} placeholder="Search site or material…" onClear={() => { setRequestQuery(''); setRequestFrom(''); setRequestTo('') }} /><RequestList requests={visibleControlRequests} canManage={canManage} onAdvance={moveRequest} onCancel={(request) => setConfirmTransition({ request, status: 'Cancelled' })} onRepeat={repeatRequest} onOpen={setSelectedRequest} busyId={busyRequest} /></article></section></> : null}
 
