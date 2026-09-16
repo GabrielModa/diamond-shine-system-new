@@ -353,7 +353,7 @@
 }
 .queueCard{
   display:grid;
-  grid-template-rows:auto auto minmax(0,1fr);
+  grid-template-rows:auto auto minmax(0,1fr) auto;
   align-self:start;
   gap:12px;
   min-width:0;
@@ -383,7 +383,7 @@
 }
 .queueViewport{
   min-height:0;
-  max-height:570px;
+  max-height:500px;
   overflow:auto;
   padding-right:4px;
   scrollbar-gutter:stable;
@@ -391,6 +391,21 @@
 }
 .queueViewport :global(.materials-list){
   padding-bottom:2px;
+}
+.queueLoading{
+  min-height:150px;
+  display:flex;
+  align-items:center;
+  justify-content:center;
+  gap:8px;
+  color:var(--surface-muted);
+  font-size:.7rem;
+  font-weight:750;
+}
+.queuePagination{
+  margin:0 !important;
+  padding-top:10px;
+  border-top:1px solid #eceff4;
 }
 .queueEmpty{
   min-height:140px;
@@ -519,7 +534,7 @@
 @media(max-width:900px){
   .overviewGrid{grid-template-columns:1fr}
   .queueCard{max-height:none}
-  .queueViewport{max-height:560px}
+  .queueViewport{max-height:500px}
   .formHero,.siteAndHelp{grid-template-columns:1fr}
   .formHero{flex-direction:column}
   .heroHint{max-width:none;width:100%}
@@ -537,7 +552,7 @@
   .stickyActions{align-items:stretch;flex-direction:column}
   .actionButtons{display:grid;grid-template-columns:1fr}
   .actionButtons button{width:100%}
-  .queueViewport{max-height:520px}
+  .queueViewport{max-height:460px}
   .riskLocationSummary{grid-template-columns:auto minmax(0,1fr) auto}.riskSignals{grid-column:2/-1;justify-content:flex-start}.riskLocationCount{display:none}.riskChevron{grid-column:3;grid-row:1}.riskRow{grid-template-columns:1fr}.riskLocationList{max-height:420px}
   .riskNumbers{text-align:left}
 }
