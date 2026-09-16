@@ -138,6 +138,11 @@ export default function MaterialsWorkspace({ canManage, personalView = false }: 
     finally { if (!options?.silent) setBusy(false) }
   }, [])
   useEffect(() => { void refresh() }, [refresh])
+  useEffect(() => {
+    if (!message || message.kind === 'error') return
+    const timer = window.setTimeout(() => setMessage(null), 3600)
+    return () => window.clearTimeout(timer)
+  }, [message])
   useEffect(() => { if (!siteId || tab !== 'count') return; void api<Material[]>(`/api/sites/${siteId}/stock`).then((data) => { setStock(data); setQuantities(Object.fromEntries(data.map((item) => [item.id, String(item.onHand ?? 0)]))) }).catch((error) => setMessage({ kind: 'error', text: error instanceof Error ? error.message : 'Could not load site stock.' })) }, [siteId, tab])
 
   const loadQueue = useCallback(async () => {
@@ -500,7 +505,7 @@ function RequestList({ requests, canManage, onAdvance, onCancel, onRepeat, onOpe
     const next = NEXT_STATUS[request.status]
     const visibleItems = request.items.slice(0, 3)
     const hiddenItemCount = Math.max(0, request.items.length - visibleItems.length)
-    const nextIcon = next === 'In transit' ? 'truck' : next === 'Ordered' ? 'box' : 'check'
+    const nextIcon: 'truck' | 'box' | 'check' = next === 'In transit' ? 'truck' : next === 'Ordered' ? 'box' : 'check'
     return <article className={`request-row request-row-compact${overdue ? ' request-overdue' : ''}`} key={request.id}>
       <div className={styles.requestCardHead}>
         <span className={styles.requestLocationIcon}><OpsIcon name="pin" size={15} /></span>
