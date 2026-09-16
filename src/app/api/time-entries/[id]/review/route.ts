@@ -10,9 +10,15 @@ export async function PATCH(request: NextRequest, { params }: { params: Promise<
   const parsed = timeEntryReviewSchema.safeParse(await request.json().catch(() => null))
   if (!parsed.success) return NextResponse.json({ ok: false, error: 'Invalid body', details: parsed.error.flatten() }, { status: 400 })
   const { id } = await params
-  const current = await prisma.timeEntry.findFirst({ where: { id, organizationId: auth.user.organizationId } })
+  const current = await prisma.timeEntry.findFirst({ where: { id, organizationId: auth.user.organizationId }, include: { disputes: { where: { status: 'open' }, select: { id: true }, take: 1 } } })
   if (!current) return NextResponse.json({ ok: false, error: 'Not found' }, { status: 404 })
   if (current.status === 'running') return NextResponse.json({ ok: false, error: 'Stop the timer before reviewing it.' }, { status: 409 })
+  if (current.status === 'needs_review') {
+    return NextResponse.json({ ok: false, error: 'Clear the execution review in Field Control before making a payroll decision.' }, { status: 409 })
+  }
+  if (current.disputes.length) {
+    return NextResponse.json({ ok: false, error: 'Resolve the open worker challenge in Field Control before making a payroll decision.' }, { status: 409 })
+  }
   const recordedSeconds = current.durationSeconds
     ?? (current.endedAt ? Math.max(0, Math.round((current.endedAt.getTime() - current.startedAt.getTime()) / 1000)) : 0)
   const requestedPayable = parsed.data.decision === 'approved'
