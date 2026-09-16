@@ -63,3 +63,31 @@ test('manager processes a field request from the consolidated Supplies control',
   await expect(detail.getByRole('button', { name: /Triaged/ })).toBeVisible()
   await expect(detail.getByRole('button', { name: /Notify client/ })).toBeVisible()
 })
+
+
+test('supplies overview keeps risk and request queue as bounded dashboard panels', async ({ page }) => {
+  await login(page, 'admin@ds.ie')
+  await page.goto('/supplies')
+
+  const grid = page.locator('.materials-grid').first()
+  const risk = page.getByTestId('stock-risk-card')
+  const queue = page.getByTestId('request-queue-card')
+  const viewport = page.getByTestId('request-queue-viewport')
+
+  await expect(risk).toBeVisible()
+  await expect(queue).toBeVisible()
+  await expect(viewport).toBeVisible()
+
+  expect(await grid.evaluate((element) => getComputedStyle(element).alignItems)).toBe('start')
+  expect(await risk.evaluate((element) => getComputedStyle(element).alignSelf)).toBe('start')
+
+  const queueHeight = await queue.evaluate((element) => element.getBoundingClientRect().height)
+  const viewportLayout = await viewport.evaluate((element) => ({
+    clientHeight: element.clientHeight,
+    overflowY: getComputedStyle(element).overflowY,
+  }))
+
+  expect(queueHeight).toBeLessThanOrEqual(770)
+  expect(viewportLayout.clientHeight).toBeLessThanOrEqual(575)
+  expect(viewportLayout.overflowY).toBe('auto')
+})
