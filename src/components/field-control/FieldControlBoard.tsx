@@ -220,15 +220,15 @@ export default function FieldControlBoard({ timezone }: { timezone: string }) {
     }
   }, [deepLinkedEntry, deepLinkedIncident])
 
-  async function review(entryId: string, decision: 'approved' | 'rejected') {
+  async function review(entryId: string, decision: 'cleared' | 'blocked') {
     setBusyId(entryId)
     try {
-      await api(`/api/time-entries/${entryId}/review`, {
+      await api(`/api/time-entries/${entryId}/execution-review`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ decision, note: notes[entryId] || undefined }),
       })
-      setNotice({ kind: 'success', text: decision === 'approved' ? 'Execution record approved and available to Timesheets.' : 'Execution record returned for correction.' })
+      setNotice({ kind: 'success', text: decision === 'cleared' ? 'Execution review cleared. The time is still Recorded and now awaits a payroll decision in Timesheets.' : 'Execution remains blocked from payroll. The manager note was saved.' })
       setSelectedReviewKey(null)
       await refresh(true)
     } catch (error) {
@@ -498,7 +498,7 @@ function TimeReviewDetail({
   setNotes: React.Dispatch<React.SetStateAction<Record<string, string>>>
   busyId: string | null
   onBack(): void
-  onReview(entryId: string, decision: 'approved' | 'rejected'): Promise<void>
+  onReview(entryId: string, decision: 'cleared' | 'blocked'): Promise<void>
   onResolveDispute(disputeId: string, decision: 'accepted' | 'declined'): Promise<void>
 }) {
   const locationEvents = entry.locationEvents ?? []
@@ -538,7 +538,12 @@ function TimeReviewDetail({
     {entry.visit ? <FieldLocationReviewMap site={sitePoint} points={mapPoints} selectedPointId={selectedPointId} onSelectPoint={setSelectedPointId} /> : null}
     {locationEvents.length ? <section className="field-v2-timeline"><div className="field-v2-timeline-head"><div><h3>Location timeline</h3><p>Presence check is an automatic GPS waypoint captured periodically while the visit timer runs. It confirms location continuity; it is not health tracking and requires no employee action.</p></div><span>{entry.locationEventsTruncated ? `Showing the first ${locationEvents.length} of ${entry.locationEventCount ?? locationEvents.length} points` : 'Click a point to focus it on the map'}</span></div>{locationEvents.map((point) => <button type="button" className={selectedPointId === point.id ? 'selected' : ''} key={point.id} onClick={() => setSelectedPointId(point.id)}><span className={`field-v2-timeline-event-icon ${locationTone(point)}`}><OpsIcon name={locationEventIcon(point.kind)} size={16} /></span><div><strong>{locationEventLabel(point.kind)}</strong><small>{dateTime(point.capturedAt, timezone)} · {locationMeta(point)}</small></div><span>{locationLabel(point)}</span></button>)}</section> : null}
     {openChallenge ? <section className="field-v2-worker-request"><div><OpsIcon name="user" /><strong>Worker correction request</strong></div><p>{openChallenge.reason}</p><label className="field-v2-note"><span>Response to worker</span><input value={notes[openChallenge.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [openChallenge.id]: event.target.value }))} placeholder="Explain the decision" /></label><div className="field-v2-actions"><button className="field-v2-secondary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'declined')}>Keep original</button><button className="field-v2-primary" disabled={busyId === openChallenge.id} onClick={() => void onResolveDispute(openChallenge.id, 'accepted')}>Accept correction</button></div></section> : null}
-    <section className="field-v2-decision"><label className="field-v2-note"><span>Manager decision note</span><input value={notes[entry.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [entry.id]: event.target.value }))} placeholder="Optional when approving; explain when returning" /></label><div className="field-v2-actions"><button className="field-v2-secondary danger" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'rejected')}>Return for correction</button><button className="field-v2-primary" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'approved')}>Approve execution record</button></div></section>
+    <section className="field-v2-decision">
+      <div className="field-v2-payroll-boundary"><span className="field-v2-payroll-boundary-icon"><OpsIcon name="payroll" size={17} /></span><div><strong>This is an execution decision, not a payroll decision.</strong><span>Until this review is cleared, the entry is blocked from payroll. Clearing it sends the time to Timesheets as <b>Recorded</b>; a manager still decides later whether to pay the full time, adjust it or reject it.</span></div></div>
+      <label className="field-v2-note"><span>Manager decision note</span><input value={notes[entry.id] || ''} onChange={(event) => setNotes((current) => ({ ...current, [entry.id]: event.target.value }))} placeholder="Optional when clearing; required when keeping the entry blocked" /></label>
+      <div className="field-v2-decision-effects"><div><span>Keep blocked</span><strong>0h payroll-ready</strong><small>Operational review stays open.</small></div><div><span>Clear execution review</span><strong>Moves to Recorded</strong><small>Still requires payroll approval in Timesheets.</small></div></div>
+      <div className="field-v2-actions"><button className="field-v2-secondary danger" disabled={busyId === entry.id || !(notes[entry.id] || '').trim()} onClick={() => void onReview(entry.id, 'blocked')}>Keep blocked</button><button className="field-v2-primary" disabled={busyId === entry.id} onClick={() => void onReview(entry.id, 'cleared')}>Clear review → Timesheets</button></div>
+    </section>
   </article>
 }
 
