@@ -6,6 +6,7 @@ import { formatOperationalDateTime } from '../../lib/operational-time'
 import { clientApi } from '../../lib/client-api'
 import OpsIcon from '../ui/OpsIcon'
 import StandardSelect from '../ui/StandardSelect'
+import PaginationControls from '../ui/PaginationControls'
 import './TimesheetsWorkspace.css'
 
 type Entry = {
@@ -31,6 +32,65 @@ type Entry = {
 type StatusFilter = 'all' | 'recorded' | 'needs_review' | 'approved' | 'rejected' | 'running' | 'challenge'
 type ExportScope = 'filtered' | 'period'
 type ExportLayout = 'summary' | 'detailed'
+type PayrollRow = {
+  user: Entry['user']
+  entries: number
+  recordedSeconds: number
+  approvedSeconds: number
+  excludedSeconds: number
+  pendingSeconds: number
+  challenges: number
+  exceptions: number
+  running: number
+}
+type TimesheetPage = {
+  items: Entry[]
+  total: number
+  page: number
+  limit: number
+  totalPages: number
+  summary: {
+    recordedSeconds: number
+    endedCount: number
+    approvedSeconds: number
+    pendingSeconds: number
+    pendingCount: number
+    challengeCount: number
+    reviewCount: number
+    runningCount: number
+    excludedSeconds: number
+    blockedCount: number
+  }
+  facets: {
+    employees: Entry['user'][]
+    kinds: string[]
+    clients: Array<{ id: string; displayName: string }>
+  }
+  payrollRows: PayrollRow[]
+}
+
+const PAGE_LIMIT = 20
+const EMPTY_PAGE: TimesheetPage = {
+  items: [],
+  total: 0,
+  page: 1,
+  limit: PAGE_LIMIT,
+  totalPages: 1,
+  summary: {
+    recordedSeconds: 0,
+    endedCount: 0,
+    approvedSeconds: 0,
+    pendingSeconds: 0,
+    pendingCount: 0,
+    challengeCount: 0,
+    reviewCount: 0,
+    runningCount: 0,
+    excludedSeconds: 0,
+    blockedCount: 0,
+  },
+  facets: { employees: [], kinds: [], clients: [] },
+  payrollRows: [],
+}
 
 function entryDurationMs(entry: Entry) {
   if (!entry.endedAt) return 0
@@ -74,6 +134,20 @@ function decimalHours(value: number) {
   return (value / 3_600_000).toFixed(2)
 }
 
+function compactDuration(value: number) {
+  const minutes = Math.round(Math.max(0, value) / 60_000)
+  if (minutes < 60) return `${minutes}m`
+  const hours = Math.floor(minutes / 60)
+  const rest = minutes % 60
+  return rest ? `${hours}h ${rest}m` : `${hours}h`
+}
+
+function payrollReviewNote(reason?: string | null) {
+  if (!reason) return ''
+  const parts = reason.split(' | ').filter((part) => part.startsWith('REVIEW: '))
+  return parts.at(-1)?.slice('REVIEW: '.length) ?? ''
+}
+
 function isoDate(date: Date) {
   const local = new Date(date.getTime() - date.getTimezoneOffset() * 60_000)
   return local.toISOString().slice(0, 10)
@@ -113,7 +187,7 @@ function hasLocationReview(entry: Entry) {
 function statusLabel(entry: Entry) {
   if (hasOpenChallenge(entry)) return 'Challenge open'
   if (entry.status === 'needs_review') return 'Needs review'
-  if (entry.status === 'approved') return 'Approved'
+  if (entry.status === 'approved') return payableDurationMs(entry) < entryDurationMs(entry) ? 'Approved · adjusted' : 'Approved'
   if (entry.status === 'rejected') return 'Rejected'
   if (entry.status === 'running') return 'Running'
   if (entry.status === 'completed') return 'Recorded'
